@@ -1,0 +1,135 @@
+{% extends '_layout.html' %}
+
+{% block content %}
+        <div id="workspace" class="flex-1 min-h-0 flex">
+            <!-- 창 목록 -->
+            <section id="listPane" class="flex-1 lg:flex-none lg:w-[340px] xl:w-[360px] min-w-0 flex flex-col lg:border-r border-white/10">
+                <div class="p-3 md:p-4 space-y-3 border-b border-white/10 flex-shrink-0">
+                    <div class="flex items-center gap-2">
+                    <label class="relative block flex-1 min-w-0">
+                        <span class="sr-only">창 검색</span>
+                        <input type="search" id="windowSearch" placeholder="세션, 작업, 경로 검색" autocomplete="off" autocapitalize="off" spellcheck="false"
+                               class="w-full glass-input rounded-xl pl-9 pr-4 py-2 text-base sm:text-sm text-white placeholder-white/30">
+                        <i class="fas fa-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-white/40"></i>
+                    </label>
+                    <button id="sortBtn" type="button" class="sort-btn" aria-label="정렬 기준"><i class="fas fa-arrow-down-wide-short text-xs"></i><span id="sortLabel">상태순</span></button>
+                    </div>
+                    <div id="filterChips" class="flex gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1" role="tablist" aria-label="상태 필터">
+                        <button type="button" data-filter="all" class="filter-chip">전체 <span data-count="all"></span></button>
+                        <button type="button" data-filter="waiting" class="filter-chip">응답 필요 <span data-count="waiting"></span></button>
+                        <button type="button" data-filter="busy" class="filter-chip">작업 중 <span data-count="busy"></span></button>
+                        <button type="button" data-filter="agent" class="filter-chip">에이전트 <span data-count="agent"></span></button>
+                        <button type="button" id="toggleHiddenBtn" class="filter-chip" aria-pressed="false"><i class="fas fa-eye-slash text-[10px]"></i> 숨김 <span data-count="hidden"></span></button>
+                    </div>
+                </div>
+                <div id="windowList" class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-2 md:p-3 space-y-3 safe-bottom">
+                    <div class="px-3 py-10 text-center text-xs text-white/35">tmux 창을 불러오는 중입니다...</div>
+                </div>
+            </section>
+
+            <!-- 터미널 -->
+            <section id="termPane" class="term-shell relative flex-1 min-w-0 flex flex-col" aria-label="터미널">
+                <div id="dropOverlay" class="drop-overlay hidden" aria-hidden="true">
+                    <div class="drop-card">
+                        <i class="fas fa-cloud-arrow-up text-3xl"></i>
+                        <p class="mt-3 text-sm font-bold">여기에 놓으면 첨부됩니다</p>
+                        <p id="dropTarget" class="mt-1 text-xs opacity-70"></p>
+                    </div>
+                </div>
+                <div id="termEmpty" class="flex-1 hidden lg:flex items-center justify-center text-center p-6">
+                    <div>
+                        <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl glass-strong text-xl text-blue-400"><i class="fas fa-terminal"></i></div>
+                        <p class="mt-4 text-sm font-bold text-white/70">창을 선택하세요.</p>
+                        <p class="mt-1 text-xs text-white/35">왼쪽 목록에서 Claude Code · Codex 가 실행 중인 창을 고르세요.</p>
+                    </div>
+                </div>
+
+                <div id="termView" class="flex-1 min-h-0 flex-col hidden">
+                    <div class="term-head glass border-0 border-b border-white/10 flex-shrink-0 safe-top-term">
+                        <div class="flex items-center gap-2 px-2 md:px-4 h-14">
+                            <button id="termBack" type="button" class="lg:hidden w-10 h-10 -ml-1 flex items-center justify-center rounded-xl text-white/60 hover:text-white hover:bg-white/5 transition" aria-label="목록으로">
+                                <i class="fas fa-chevron-left"></i>
+                            </button>
+                            <span id="termStatusDot" class="status-dot flex-shrink-0"></span>
+                            <div class="min-w-0 flex-1">
+                                <div class="flex items-center gap-2 min-w-0">
+                                    <h3 id="termTitle" class="truncate text-sm font-bold text-white/90">—</h3>
+                                    <span id="termAgent" class="agent-pill hidden"></span>
+                                </div>
+                                <p id="termSubtitle" class="truncate text-[11px] text-white/40">—</p>
+                            </div>
+                            <button id="termViewBtn" type="button" class="term-tool" title="보기 설정" aria-label="보기 설정"><i class="fas fa-text-height text-xs"></i></button>
+                            <button id="termMoreBtn" type="button" class="term-tool" title="창 메뉴" aria-label="창 메뉴"><i class="fas fa-ellipsis-vertical text-sm"></i></button>
+                        </div>
+                        <div id="termModes" class="hidden items-center gap-2 overflow-x-auto no-scrollbar px-3 pb-2">
+                            <div class="mode-switch" role="tablist" aria-label="보기 전환">
+                                <button type="button" data-mode="screen" role="tab"><i class="fas fa-display"></i> 화면</button>
+                                <button type="button" data-mode="log" role="tab"><i class="fas fa-comments"></i> 대화 기록</button>
+                            </div>
+                        </div>
+                        <div id="paneTabs" class="hidden gap-1 overflow-x-auto no-scrollbar px-3 pb-2"></div>
+                    </div>
+
+                    <div class="relative flex-1 min-h-0">
+                        <div id="termScroll" class="terminal absolute inset-0 overflow-auto overscroll-contain">
+                            <div id="termScreen" class="term-screen wrap"><div class="term-inner"></div></div>
+                            <button id="loadMoreBtn" type="button" class="hidden"></button>
+                        </div>
+                        <div id="logScroll" class="terminal absolute inset-0 overflow-auto overscroll-contain hidden" aria-label="대화 기록">
+                            <div id="logOlder" class="log-older hidden"></div>
+                            <div id="logList" class="chat-list"></div>
+                        </div>
+                        <button id="jumpBottomBtn" type="button" class="jump-bottom hidden" aria-label="최신 출력으로 이동"><i class="fas fa-arrow-down text-xs"></i><span>최신</span></button>
+                        <div id="termOffline" class="hidden absolute inset-x-0 top-0 m-2 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-center text-[11px] font-bold text-amber-300 backdrop-blur">연결이 끊어져 다시 연결하는 중입니다...</div>
+                    </div>
+
+                    <div class="composer glass border-0 border-t border-white/10 flex-shrink-0 safe-bottom">
+                        <div id="keyBar" class="keybar flex gap-1.5 overflow-x-auto no-scrollbar px-2 md:px-3 pt-2" aria-label="특수 키">
+                            <button type="button" class="key-chip key-accent" data-keys="Escape">Esc</button>
+                            <button type="button" class="key-chip" data-keys="BTab" title="Shift+Tab (모드 전환)">⇧Tab</button>
+                            <button type="button" class="key-chip" data-keys="Up">↑</button>
+                            <button type="button" class="key-chip" data-keys="Down">↓</button>
+                            <button type="button" class="key-chip" data-keys="Enter">⏎</button>
+                            <button type="button" class="key-chip" data-text="1">1</button>
+                            <button type="button" class="key-chip" data-text="2">2</button>
+                            <button type="button" class="key-chip" data-text="3">3</button>
+                            <button type="button" class="key-chip key-danger" data-keys="C-c">^C</button>
+                            <button type="button" class="key-chip" data-keys="Tab">Tab</button>
+                            <button type="button" class="key-chip" data-keys="Left">←</button>
+                            <button type="button" class="key-chip" data-keys="Right">→</button>
+                            <button type="button" class="key-chip" data-text="y">y</button>
+                            <button type="button" class="key-chip" data-text="n">n</button>
+                            <button type="button" class="key-chip" data-text="/">/</button>
+                            <button type="button" class="key-chip" data-keys="BSpace">⌫</button>
+                            <button type="button" class="key-chip" data-keys="Space">Space</button>
+                            <button type="button" class="key-chip" data-keys="PageUp">PgUp</button>
+                            <button type="button" class="key-chip" data-keys="PageDown">PgDn</button>
+                            <button type="button" class="key-chip" data-keys="C-o" title="Ctrl+O">^O</button>
+                            <button type="button" class="key-chip" data-keys="C-r" title="Ctrl+R">^R</button>
+                            <button type="button" class="key-chip" data-keys="C-l" title="Ctrl+L">^L</button>
+                            <button type="button" class="key-chip" data-keys="C-d" title="Ctrl+D">^D</button>
+                            <button type="button" class="key-chip" data-keys="C-z" title="Ctrl+Z">^Z</button>
+                        </div>
+                        <div id="attachTray" class="attach-tray hidden gap-2 overflow-x-auto no-scrollbar px-2 md:px-3 pt-2" aria-label="첨부 파일"></div>
+                        <form id="composerForm" class="flex items-end gap-2 p-2 md:p-3" autocomplete="off">
+                            <button id="snippetBtn" type="button" class="composer-btn" title="빠른 문구 · 최근 기록" aria-label="빠른 문구와 최근 기록"><i class="fas fa-bolt text-sm"></i></button>
+                            <div class="relative flex-1 min-w-0">
+                                <textarea id="promptInput" rows="1" enterkeyhint="send" placeholder="프롬프트 입력" spellcheck="false" autocapitalize="off"
+                                    class="prompt-input w-full glass-input rounded-2xl pl-4 pr-11 py-2.5 text-white placeholder-white/30 resize-none"></textarea>
+                                <button id="attachBtn" type="button" class="attach-btn" title="사진 · 파일 첨부" aria-label="사진이나 파일 첨부"><i class="fas fa-paperclip"></i></button>
+                                <input id="fileInput" type="file" multiple class="hidden" tabindex="-1" aria-hidden="true">
+                                <button id="directBanner" type="button" class="direct-banner w-full"><i class="fas fa-keyboard"></i> 직접 입력 중 · 탭해서 키보드 열기</button>
+                            </div>
+                            <button id="directBtn" type="button" class="composer-btn" title="터미널 직접 입력 모드" aria-label="터미널 직접 입력 모드" aria-pressed="false"><i class="fas fa-keyboard text-sm"></i></button>
+                            <button id="sendBtn" type="submit" class="send-btn btn-glow" aria-label="보내기"><i class="fas fa-paper-plane text-sm"></i></button>
+                        </form>
+                        <div class="flex items-center justify-between gap-2 px-3 md:px-4 pb-2 -mt-1 text-[10px] text-white/40">
+                            <button id="submitToggle" type="button" class="submit-toggle" aria-pressed="true"><i class="fas fa-check-circle"></i> Enter 자동 제출</button>
+                            <span id="composerHint" class="truncate">⌘/Ctrl+Enter 전송</span>
+                        </div>
+                        <textarea id="directInput" class="direct-input" aria-label="터미널 직접 입력" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
+                    </div>
+                </div>
+            </section>
+        </div>
+{% endblock %}

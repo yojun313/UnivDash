@@ -1,0 +1,2 @@
+// 첫 페인트 전에 저장된 테마를 적용한다 (CSP 때문에 인라인 대신 파일로 둔다. defer 없이 head 에서 로드).
+(function(){try{var d=document.documentElement,s=localStorage.getItem('univdash-theme-style'),m=localStorage.getItem('univdash-theme');if(s&&s!=='default')d.setAttribute('data-ui-theme',s);if(m!=='light'&&m!=='dark')m=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';if(m==='light')d.setAttribute('data-ui-theme-mode','light');d.style.colorScheme=m;}catch(e){}})();

@@ -1,0 +1,16 @@
+/* 자체 호스팅 폰트 (Google Fonts 대신) — Inter / JetBrains Mono 가변 폰트, 라틴 글리프.
+   한글은 시스템 폰트(Pretendard, Apple SD Gothic Neo, Noto Sans KR 등)로 표시된다. */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('fonts/inter-latin-wght-normal.woff2') format('woff2-variations');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url('fonts/jetbrains-mono-latin-wght-normal.woff2') format('woff2-variations');
+}

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Login - UnivDash</title>
+    {% include '_theme.html' %}
+    <style>
+        .blob {
+            position: fixed;
+            border-radius: 9999px;
+            filter: blur(90px);
+            opacity: 0.45;
+            z-index: 0;
+            animation: float 12s ease-in-out infinite;
+            pointer-events: none;
+        }
+        html[data-ui-theme-mode="light"] .blob { opacity: 0.25; }
+        html[data-ui-theme="mono"] .blob { display: none; }
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            50% { transform: translate(20px, -30px) scale(1.08); }
+        }
+        @media (prefers-reduced-motion: reduce) { .blob { animation: none; } }
+        .login-card { box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.08); }
+        html[data-ui-theme-mode="light"] .login-card { box-shadow: 0 20px 50px rgba(30, 41, 59, 0.12); }
+    </style>
+</head>
+<body class="text-white min-h-screen flex items-center justify-center overflow-hidden relative p-4">
+    <button id="themeSettingsBtn" class="theme-settings-btn" type="button" title="테마 설정" aria-label="테마 설정" style="position:fixed;top:max(16px, calc(env(safe-area-inset-top) + 8px));right:16px;z-index:100;"><i class="fas fa-palette text-sm"></i></button>
+
+    <div class="blob w-96 h-96 bg-blue-600 -top-20 -left-20"></div>
+    <div class="blob w-96 h-96 bg-purple-600 top-1/3 -right-24" style="animation-delay: -4s;"></div>
+    <div class="blob w-72 h-72 bg-emerald-500 bottom-0 left-1/3" style="animation-delay: -8s;"></div>
+
+    <main class="glass login-card relative z-10 p-8 md:p-10 rounded-3xl w-full max-w-sm">
+        <div class="text-center mb-8">
+            <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-lg shadow-blue-900/40 mb-4">
+                <i class="fas fa-terminal text-xl"></i>
+            </div>
+            <h1 class="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">UnivDash</h1>
+            <p class="text-sm text-white/50 mt-1">관리자 계정으로 로그인하세요</p>
+        </div>
+
+        <form action="/login" method="post" class="space-y-4" autocomplete="on">
+            <div>
+                <label for="username" class="block text-xs font-medium mb-1.5 text-white/60">Username</label>
+                <input id="username" type="text" name="username" required maxlength="128" autocomplete="username" autocapitalize="off" spellcheck="false" autofocus
+                    class="w-full px-4 py-2.5 rounded-xl glass-input text-white text-base sm:text-sm placeholder-white/30" placeholder="아이디를 입력하세요">
+            </div>
+            <div>
+                <label for="password" class="block text-xs font-medium mb-1.5 text-white/60">Password</label>
+                <input id="password" type="password" name="password" required maxlength="256" autocomplete="current-password"
+                    class="w-full px-4 py-2.5 rounded-xl glass-input text-white text-base sm:text-sm placeholder-white/30" placeholder="••••••••">
+            </div>
+            {% if totp %}
+            <div>
+                <label for="otp" class="block text-xs font-medium mb-1.5 text-white/60">인증 코드 (2단계)</label>
+                <input id="otp" type="text" name="otp" required inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code"
+                    class="w-full px-4 py-2.5 rounded-xl glass-input text-white text-base sm:text-sm tracking-[0.4em] font-mono placeholder-white/30" placeholder="000000">
+            </div>
+            {% endif %}
+            {% if setup_problem %}
+            <div class="rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2.5" role="status">
+                <p class="text-amber-300 text-xs font-medium text-center"><i class="fas fa-triangle-exclamation mr-1"></i>{{ setup_problem }}</p>
+            </div>
+            {% endif %}
+            {% if error %}
+            <div class="rounded-xl border border-red-500/25 bg-red-500/10 px-3 py-2.5" role="alert">
+                <p class="text-red-300 text-xs font-medium text-center"><i class="fas fa-circle-exclamation mr-1"></i>{{ error }}</p>
+            </div>
+            {% endif %}
+            <button type="submit" class="w-full btn-glow py-2.5 rounded-xl font-bold text-sm mt-2">
+                로그인
+            </button>
+        </form>
+    </main>
+</body>
+</html>
