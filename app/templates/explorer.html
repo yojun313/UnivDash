@@ -1,0 +1,36 @@
+{% extends '_layout.html' %}
+
+{% block head_extra %}
+    <link rel="stylesheet" href="/static/vendor/highlight-github-dark.min.css">
+    <link rel="stylesheet" href="/static/vendor/highlight-github-light.scoped.css">
+{% endblock %}
+
+{% block content %}
+        <div id="explorerPage" class="flex-1 min-h-0 flex">
+            <!-- 폴더 트리 -->
+            <section class="relative flex-1 lg:flex-none lg:w-[360px] xl:w-[400px] min-w-0 flex flex-col lg:border-r border-white/10">
+                <div id="explorerTree" class="flex-1 min-h-0 flex flex-col"></div>
+                <button id="openFilesChip" type="button" class="open-files-chip hidden"><i class="fas fa-clone"></i><span>열린 파일</span><i class="fas fa-chevron-right text-[10px] opacity-60"></i></button>
+            </section>
+
+            <!-- 파일 뷰어 (휴대폰: 밀려 들어오는 전체 화면 패널) -->
+            <section id="explorerViewer" class="slide-panel relative flex-1 min-w-0 flex flex-col" aria-label="파일 보기">
+                <div id="viewerEmpty" class="flex-1 hidden lg:flex items-center justify-center text-center p-6">
+                    <div>
+                        <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl glass-strong text-xl text-sky-400"><i class="fas fa-folder-tree"></i></div>
+                        <p class="mt-4 text-sm font-bold text-white/70">파일을 선택하세요.</p>
+                        <p class="mt-1 text-xs text-white/35">오른쪽 클릭(휴대폰은 길게 누르기)이나 <span class="font-mono">⋯</span> 로 경로 복사 · 이름 바꾸기 · 업로드 등을 할 수 있어요.<br>항목을 다른 폴더로 끌어다 놓으면 옮겨지고(확인 후), 컴퓨터의 파일을 끌어 놓으면 그 폴더에 업로드됩니다.</p>
+                    </div>
+                </div>
+                <div id="viewerMount" class="flex-1 min-h-0 flex-col hidden"></div>
+            </section>
+        </div>
+{% endblock %}
+
+{% block scripts %}
+    <script src="/static/vendor/Sortable.min.js" defer></script>
+    <script src="/static/vendor/highlight.min.js" defer></script>
+    <script src="/static/vendor/marked.min.js" defer></script>
+    <script src="/static/vendor/purify.min.js" defer></script>
+    <script src="/static/explorer.js" defer></script>
+{% endblock %}

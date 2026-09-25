@@ -95,5 +95,19 @@
       : { grid: 'rgba(255, 255, 255, 0.07)', ticks: 'rgba(255, 255, 255, 0.45)', tooltipBg: 'rgba(15,20,36,0.95)', tooltipText: '#e8e9ee' };
   }
 
-  window.UnivDash = { escapeHtml, api, toast, formatNumber, relativeTime, duration, formatDate, chartColors };
+  // 단축키용: 지금 글자를 입력하는 중인지 (입력창 · 편집기 · 터미널 · 직접 입력 모드) 또는 시트 · 메뉴가 열려 있는지
+  function typingOrBusy(event) {
+    const el = event.target;
+    if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.closest?.('.xterm'))) return true;
+    const sheet = document.getElementById('sheetOverlay');
+    if (sheet && !sheet.hidden) return true;
+    // 열려 있는(보이는) 메뉴만 — 숨겨 둔 메뉴 요소(Git 페이지 등)는 무시
+    return [...document.querySelectorAll('.git-menu, .ex-menu')].some((menu) => !menu.classList.contains('hidden') && menu.offsetParent !== null);
+  }
+  // 한/영 상관없이 같은 자리 키 (w · ㅈ): event.code 로 본다
+  function plainKey(event, code) {
+    return event.code === code && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && !event.isComposing && !event.repeat;
+  }
+
+  window.UnivDash = { escapeHtml, api, toast, formatNumber, relativeTime, duration, formatDate, chartColors, typingOrBusy, plainKey };
 })();

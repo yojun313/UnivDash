@@ -12,27 +12,27 @@
 <body class="app-shell text-white flex overflow-hidden" data-page="{{ active_page }}">
     {% set nav_items = [
         ('workspace', '/', 'fa-terminal', 'Workspace'),
-        ('organize', '/organize', 'fa-folder-tree', '창 정리'),
-        ('server', '/server', 'fa-server', '서버 & 프로세스'),
-        ('ai_usage', '/ai-usage', 'fa-robot', 'AI 사용량'),
-        ('git', '/git', 'fa-code-branch', 'Git 관리'),
+        ('explorer', '/explorer', 'fa-folder-tree', 'Explorer'),
+        ('git', '/git', 'fa-code-branch', 'Git'),
+        ('ai_usage', '/ai-usage', 'fa-robot', 'AI Usage'),
+        ('server', '/server', 'fa-server', 'Servers'),
     ] %}
-    {% set page_icons = {'workspace': 'fa-terminal', 'organize': 'fa-folder-tree', 'server': 'fa-server', 'ai_usage': 'fa-robot', 'git': 'fa-code-branch'} %}
+    {% set page_icons = {'workspace': 'fa-terminal', 'explorer': 'fa-folder-tree', 'server': 'fa-server', 'ai_usage': 'fa-robot', 'git': 'fa-code-branch'} %}
 
     <div id="sidebarOverlay" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 hidden md:hidden"></div>
 
     <aside id="sidebar" class="fixed inset-y-0 left-0 z-50 w-64 glass-strong border-r border-white/10 flex flex-col transition-transform duration-300 transform -translate-x-full md:relative md:translate-x-0 flex-shrink-0">
-        <div class="p-5 border-b border-white/10 relative safe-top">
-            <div class="flex items-center gap-3 mb-4">
-                <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center shadow-lg shadow-blue-900/30">
+        <div class="sb-top p-5 border-b border-white/10 relative safe-top">
+            <div class="sb-brand flex items-center gap-3 mb-4">
+                <div class="w-9 h-9 flex-shrink-0 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center shadow-lg shadow-blue-900/30">
                     <i class="fas fa-layer-group text-sm"></i>
                 </div>
-                <div>
+                <div class="sb-label">
                     <h1 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400 tracking-tight leading-none">UnivDash</h1>
                     <p class="text-[10px] font-bold uppercase tracking-[0.18em] text-white/40 mt-1">Dev Console</p>
                 </div>
             </div>
-            <div class="flex items-center space-x-3 glass-soft p-2 rounded-xl">
+            <div class="sb-user flex items-center space-x-3 glass-soft p-2 rounded-xl">
                 <div class="w-10 h-10 rounded-full border border-blue-400/40 bg-white/5 flex items-center justify-center flex-shrink-0 text-blue-300">
                     <i class="fas fa-user-shield"></i>
                 </div>
@@ -41,6 +41,9 @@
                     <p class="text-sm font-bold text-white truncate">{{ username }}</p>
                 </div>
             </div>
+            <button type="button" data-new-session class="sb-new mt-3 w-full flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-bold" title="새 tmux 세션" aria-label="새 tmux 세션">
+                <i class="fas fa-plus text-xs"></i><span class="sb-label">새 세션</span>
+            </button>
             <button id="closeSidebarBtn" type="button" class="absolute top-5 right-5 md:hidden text-white/40 hover:text-white transition w-8 h-8" aria-label="사이드바 닫기">
                 <i class="fas fa-times"></i>
             </button>
@@ -48,14 +51,14 @@
 
         <nav class="px-3 py-4 space-y-1" aria-label="대시보드 메뉴">
             {% for key, href, icon, label in nav_items %}
-            <a href="{{ href }}" class="nav-link sidebar-link flex items-center px-3 py-2.5 rounded-xl border border-transparent transition {{ 'active font-semibold' if active_page == key else 'text-white/50 hover:bg-white/5 hover:text-white' }}" {% if active_page == key %}aria-current="page"{% endif %}>
+            <a href="{{ href }}" title="{{ label }}" class="nav-link sidebar-link flex items-center px-3 py-2.5 rounded-xl border border-transparent transition {{ 'active font-semibold' if active_page == key else 'text-white/50 hover:bg-white/5 hover:text-white' }}" {% if active_page == key %}aria-current="page"{% endif %}>
                 <i class="fas {{ icon }} w-6 text-center"></i>
-                <span class="ml-2 font-medium text-sm">{{ label }}</span>
+                <span class="sb-label ml-2 font-medium text-sm">{{ label }}</span>
             </a>
             {% endfor %}
         </nav>
 
-        <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
+        <div class="sb-overview flex-1 min-h-0 overflow-y-auto px-4 pb-4">
             <p class="px-1 text-[10px] font-bold uppercase tracking-[0.16em] text-white/35">Overview</p>
             <div class="mt-2 grid grid-cols-2 gap-2">
                 <div class="glass-soft rounded-xl p-3"><p class="text-[9px] font-bold uppercase tracking-wider text-white/35">Windows</p><p id="statWindows" class="mt-1 font-mono text-lg font-bold text-white/90">—</p></div>
@@ -64,24 +67,28 @@
                 <div class="glass-soft rounded-xl p-3"><p class="text-[9px] font-bold uppercase tracking-wider text-white/35">응답 필요</p><p id="statWaiting" class="mt-1 font-mono text-lg font-bold text-amber-300">—</p></div>
             </div>
         </div>
+        <div class="sb-spacer flex-1 hidden"></div>
 
-        <div class="p-4 border-t border-white/10 space-y-2 safe-bottom">
-            <div class="flex items-center gap-2 px-3 py-1">
-                <span class="conn-dot h-2 w-2 rounded-full bg-amber-400"></span>
-                <p class="conn-label text-[11px] text-white/50">연결 중...</p>
+        <div class="sb-bottom p-3 border-t border-white/10 space-y-1 safe-bottom">
+            <div class="sb-conn flex items-center gap-2 px-3 py-1" title="실시간 연결 상태">
+                <span class="conn-dot h-2 w-2 flex-shrink-0 rounded-full bg-amber-400"></span>
+                <p class="conn-label sb-label text-[11px] text-white/50 truncate">연결 중...</p>
             </div>
-            <form action="/logout" method="post" class="flex items-center gap-1">
-                <button type="submit" class="flex-1 flex items-center px-3 py-2 text-red-300 hover:bg-red-500/10 rounded-xl transition text-sm">
+            <form action="/logout" method="post" class="sb-account flex items-center gap-1">
+                <button type="submit" class="sb-logout flex-1 min-w-0 flex items-center px-3 py-2 text-red-300 hover:bg-red-500/10 rounded-xl transition text-sm" title="로그아웃">
                     <i class="fas fa-sign-out-alt w-6 text-center"></i>
-                    <span class="ml-2">Logout</span>
+                    <span class="sb-label ml-2">Logout</span>
                 </button>
-                <button type="submit" formaction="/logout-all" class="logout-all px-2.5 py-2 text-[10px] font-bold text-white/40 hover:text-red-300 hover:bg-red-500/10 rounded-xl transition" title="모든 기기에서 로그아웃">전체</button>
+                <button type="submit" formaction="/logout-all" class="logout-all sb-label px-2 py-2 text-[10px] font-bold text-white/40 hover:text-red-300 hover:bg-red-500/10 rounded-xl transition" title="모든 기기에서 로그아웃">전체</button>
+                <button type="button" data-theme-settings class="sb-icon" title="테마 설정" aria-label="테마 설정"><i class="fas fa-palette text-sm"></i></button>
+                <button id="sidebarCollapseBtn" type="button" class="sb-icon hidden md:flex" title="사이드바 접기 / 펼치기" aria-label="사이드바 접기"><i class="fas fa-angles-left text-sm"></i></button>
             </form>
         </div>
     </aside>
 
     <main class="flex-1 flex flex-col min-w-0 h-full relative">
-        <header class="h-14 glass border-b border-white/10 border-t-0 border-x-0 flex items-center justify-between gap-3 px-4 md:px-6 flex-shrink-0 z-20 safe-top-header">
+        <!-- 휴대폰에서만: ☰ · 페이지 이름 · 새 세션 · 테마 (데스크톱은 사이드바에 있음) -->
+        <header class="md:hidden h-14 glass border-b border-white/10 border-t-0 border-x-0 flex items-center justify-between gap-3 px-4 flex-shrink-0 z-20 safe-top-header">
             <div class="flex items-center min-w-0">
                 <button id="sidebarMenuButton" type="button" class="mr-3 w-8 h-8 -ml-1 text-white/60 hover:text-white transition" aria-label="사이드바 열기" aria-expanded="false">
                     <i class="fas fa-bars text-lg"></i>
@@ -90,9 +97,8 @@
             </div>
             <div class="flex items-center gap-2">
                 {% block header_extra %}{% endblock %}
-                <span class="conn-badge hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold border border-white/10 bg-white/5 text-white/40">CONNECTING</span>
-                <button id="newSessionBtn" type="button" class="theme-settings-btn" title="새 세션" aria-label="새 tmux 세션"><i class="fas fa-plus text-sm"></i></button>
-                <button id="themeSettingsBtn" class="theme-settings-btn" type="button" title="테마 설정" aria-label="테마 설정"><i class="fas fa-palette text-sm"></i></button>
+                <button type="button" data-new-session class="theme-settings-btn" title="새 세션" aria-label="새 tmux 세션"><i class="fas fa-plus text-sm"></i></button>
+                <button type="button" data-theme-settings class="theme-settings-btn" title="테마 설정" aria-label="테마 설정"><i class="fas fa-palette text-sm"></i></button>
             </div>
         </header>
 
@@ -100,7 +106,7 @@
 
         <!-- 휴대폰: 앱처럼 하단 탭바로 이동 (사이드바는 ☰ 로 열어 통계 · 로그아웃) -->
         <nav class="tabbar md:hidden" aria-label="하단 메뉴">
-            {% for key, href, icon, label in [('workspace', '/', 'fa-terminal', '터미널'), ('organize', '/organize', 'fa-folder-tree', '정리'), ('server', '/server', 'fa-server', '서버'), ('ai_usage', '/ai-usage', 'fa-robot', 'AI'), ('git', '/git', 'fa-code-branch', 'Git')] %}
+            {% for key, href, icon, label in [('workspace', '/', 'fa-terminal', '터미널'), ('explorer', '/explorer', 'fa-folder-tree', '파일'), ('git', '/git', 'fa-code-branch', 'Git'), ('ai_usage', '/ai-usage', 'fa-robot', 'AI'), ('server', '/server', 'fa-server', '서버')] %}
             <a href="{{ href }}" class="tab-item {{ 'active' if active_page == key else '' }}" {% if active_page == key %}aria-current="page"{% endif %}>
                 <span class="tab-icon"><i class="fas {{ icon }}"></i>{% if key == 'workspace' %}<span id="tabBadge" class="tab-badge hidden"></span>{% endif %}</span>
                 <span class="tab-label">{{ label }}</span>
@@ -108,9 +114,6 @@
             {% endfor %}
         </nav>
 
-        <footer class="app-footer hidden md:block glass border-0 border-t border-white/10 py-2 text-center text-[10px] text-white/35 flex-shrink-0">
-            UnivDash · Dev Console
-        </footer>
     </main>
 
     <!-- 공용 시트 (모바일: 하단 시트 / 데스크톱: 가운데 모달) -->

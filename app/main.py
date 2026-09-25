@@ -11,7 +11,9 @@ load_dotenv()
 
 from app.routes import (
     auth_routes,
+    fs_routes,
     git_routes,
+    pty_routes,
     server_routes,
     tmux_routes,
     upload_routes,
@@ -54,3 +56,5 @@ app.include_router(tmux_routes.router)
 app.include_router(upload_routes.router)
 app.include_router(server_routes.router)
 app.include_router(git_routes.router)
+app.include_router(fs_routes.router)
+app.include_router(pty_routes.router)

@@ -178,6 +178,8 @@ class _Log:
         self.items: list[dict] = []
         self.by_call: dict[str, dict] = {}
         self.title = ""
+        # Claude Code 대기열: 작업 중에 입력해 아직 전달되지 않은 프롬프트 (queue-operation enqueue/remove)
+        self.queue: list[str] = []
 
     def _add(self, kind: str, text: str = "", ts: str = "", **extra) -> dict:
         item = {"id": len(self.items), "kind": kind, "text": _clip(text, MAX_TEXT), "ts": ts, **extra}
@@ -199,6 +201,27 @@ class _Log:
         kind, ts = d.get("type"), d.get("timestamp") or ""
         if kind == "ai-title" and isinstance(d.get("aiTitle"), str):
             self.title = d["aiTitle"]
+        if kind == "queue-operation":
+            text = d.get("content")
+            operation = d.get("operation")
+            if operation == "enqueue" and isinstance(text, str):
+                self.queue.append(text)
+            elif operation in {"remove", "dequeue", "popAll", "clear"}:
+                if operation in {"popAll", "clear"}:
+                    self.queue.clear()
+                elif isinstance(text, str) and text in self.queue:
+                    self.queue.remove(text)
+                elif self.queue:
+                    self.queue.pop(0)  # dequeue 는 내용 없이 가장 오래된 것을 꺼낸다
+            return
+        # 작업 도중에 받은 메시지는 user 가 아니라 attachment(queued_command) 로 기록된다
+        if kind == "attachment" and not d.get("isSidechain"):
+            att = d.get("attachment") or {}
+            if isinstance(att, dict) and att.get("type") == "queued_command" and isinstance(att.get("prompt"), str):
+                parsed = _user_text(att["prompt"])
+                if parsed:
+                    self._add(parsed[0], parsed[1], d.get("timestamp") or "", queued=True)
+            return
         if kind not in {"user", "assistant"} or d.get("isMeta") or d.get("isSidechain"):
             return
         content = (d.get("message") or {}).get("content")
@@ -283,4 +306,32 @@ def read(path: Path, agent: str, start: int | None, limit: int) -> dict:
             start = max(0, total - limit)
         start = max(0, min(int(start), total))
         items = [dict(item) for item in log.items[start : start + limit]]
-        return {"total": total, "start": start, "items": items, "title": log.title, "file": path.name}
+        return {"total": total, "start": start, "items": items, "title": log.title, "file": path.name,
+                "queued": [_clip(text, MAX_TEXT) for text in log.queue]}
+
+
+def current_model(path: Path, agent: str | None) -> str | None:
+    """세션 로그 끝부분에서 지금 쓰는 모델 이름을 찾는다 (Claude: assistant 메시지의 model, Codex: turn_context 의 model)."""
+    try:
+        with path.open("rb") as handle:
+            handle.seek(max(0, path.stat().st_size - 1024 * 1024))
+            lines = handle.read().decode("utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        if '"model"' not in line:
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        if agent == "codex":
+            payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+            if record.get("type") == "turn_context" and isinstance(payload.get("model"), str):
+                return payload["model"]
+            continue
+        message = record.get("message") if isinstance(record.get("message"), dict) else {}
+        model = message.get("model")
+        if record.get("type") == "assistant" and isinstance(model, str) and model and not model.startswith("<"):
+            return model
+    return None

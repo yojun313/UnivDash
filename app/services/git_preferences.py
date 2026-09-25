@@ -6,6 +6,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from app.paths import data_dir
 from pydantic import BaseModel, Field, field_validator
 
 REPOSITORY_ID = re.compile(r"^[0-9a-f]{16}$")
@@ -57,6 +58,13 @@ class GitPreferences(BaseModel):
     hidden: list[str] = Field(default_factory=list, max_length=500)
     favorites: list[str] = Field(default_factory=list, max_length=500)
     aliases: dict[str, str] = Field(default_factory=dict)
+    # 목록 정렬: 변경사항 우선 / 최근 커밋 / 이름 / 직접 지정(끌어서 정한 순서)
+    sort: str = "changes"
+
+    @field_validator("sort")
+    @classmethod
+    def validate_sort(cls, value: str) -> str:
+        return value if value in {"changes", "recent", "name", "manual"} else "changes"
 
     @field_validator("order", "hidden", "favorites")
     @classmethod
@@ -94,13 +102,7 @@ class GitPreferencesStore:
 
     @staticmethod
     def _path() -> Path:
-        configured = os.getenv("UNIVDASH_DATA_DIR")
-        base = (
-            Path(configured).expanduser()
-            if configured
-            else Path(__file__).resolve().parents[2] / "data"
-        )
-        return base / "git_preferences.json"
+        return data_dir() / "git_preferences.json"
 
     @classmethod
     def load(cls) -> GitPreferences:

@@ -63,7 +63,9 @@ async def control_process(action: str, name: str):
         raise HTTPException(status_code=400, detail="Invalid action")
     await ensure_process(name)
 
-    success = await asyncio.to_thread(PM2Service.run_command, action, name)
+    # 재시작은 기본으로 --update-env (환경 변수 변경을 반영). 넘기는 환경은 pm2_service.update_env 참고
+    extra = ["--update-env"] if action == "restart" else []
+    success = await asyncio.to_thread(PM2Service.run_command, action, name, extra)
     if not success:
         raise HTTPException(status_code=500, detail="Command failed")
 
@@ -73,6 +75,34 @@ async def control_process(action: str, name: str):
 @router.get("/status", dependencies=api_auth)
 async def get_pm2_status_api():
     return await asyncio.to_thread(PM2Service.get_process_summaries)
+
+
+CPU_SENSORS = ("coretemp", "k10temp", "zenpower", "cpu_thermal", "cpu-thermal", "soc_thermal", "acpitz")
+
+
+def _cpu_temperature() -> dict | None:
+    """CPU 온도(°C). 패키지(소켓) 온도의 최댓값 + 가장 뜨거운 코어. 센서가 없으면 None."""
+    try:
+        sensors = psutil.sensors_temperatures()
+    except (AttributeError, OSError):
+        return None
+    for name in CPU_SENSORS:
+        readings = [r for r in sensors.get(name, []) if r.current and 0 < r.current < 150]
+        if not readings:
+            continue
+        packages = [r for r in readings if r.label.lower().startswith(("package", "tctl", "tdie"))] or readings
+        cores = [r for r in readings if r.label.lower().startswith("core")]
+        top = max(packages, key=lambda r: r.current)
+        high = top.high if top.high and top.high < 150 else None
+        critical = top.critical if top.critical and top.critical < 150 else None
+        return {
+            "current": round(top.current, 1),
+            "hottest_core": round(max(r.current for r in cores), 1) if cores else None,
+            "high": high,
+            "critical": critical,
+            "sensor": name,
+        }
+    return None
 
 
 @router.get("/server-stats", dependencies=api_auth)
@@ -100,6 +130,7 @@ async def get_server_stats():
         "disk_percent": du.percent,
         "net_bytes_sent": net.bytes_sent,
         "net_bytes_recv": net.bytes_recv,
+        "cpu_temp": _cpu_temperature(),
     }
 
 
@@ -189,6 +220,24 @@ async def toggle_watch(name: str):
 async def get_startup_status():
     status = await asyncio.to_thread(PM2Service.get_startup_status)
     return {"is_registered": status}
+
+
+@router.post("/restart-all", dependencies=api_auth)
+async def restart_all():
+    """모든 PM2 앱을 --update-env 로 재시작한다. 이 대시보드 자신은 응답을 보낸 뒤 마지막에 재시작한다."""
+    processes = await asyncio.to_thread(PM2Service.get_process_summaries)
+    me = PM2Service.self_pm_id()
+    restarted, failed = [], []
+    for proc in processes:
+        if proc["pm_id"] == me:
+            continue
+        ok = await asyncio.to_thread(PM2Service.run_command, "restart", str(proc["pm_id"]), ["--update-env"])
+        (restarted if ok else failed).append(proc["name"])
+    self_name = next((p["name"] for p in processes if p["pm_id"] == me), None)
+    if self_name:
+        PM2Service.restart_self_later(me)
+    logger.info("PM2 전체 재시작 · 성공 %d · 실패 %s · 자기 자신 %s", len(restarted), failed or "-", self_name or "-")
+    return {"restarted": restarted, "failed": failed, "self": self_name}
 
 
 @router.post("/save", dependencies=api_auth)

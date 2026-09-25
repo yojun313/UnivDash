@@ -37,9 +37,12 @@ Built as a mobile-first web app (installable to the iPhone home screen as a PWA)
 * **Sorting & filters**: by status (unread replies first, then working, needs answer, idle), recent activity, name, or your own order. Filter chips for needs-answer / working / agents, search, and hidden windows.
 * **Prompt from the phone**: a chat-style composer that sends multi-line prompts as a bracketed paste (no line-by-line submits), per-window drafts, quick phrases and recent prompts, plus a key bar for `Esc`, `⇧Tab`, arrows, `1/2/3`, `y/n`, `^C`, `^O`, `PgUp/PgDn`… that never closes the keyboard.
 * **Direct terminal mode**: every key you press goes straight to the pane, including Korean IME input on iOS / Android.
-* **Live screen and full conversation history**: the pane is streamed with ANSI colors and cursor (wrap / fit-to-width / raw views). Because Claude Code draws on the alternate screen and leaves no tmux scrollback, a *Conversation* tab reads the agent's own session log (`~/.claude`, `~/.codex`) so you can scroll the whole conversation from the first prompt, with collapsible tool calls and live updates.
+* **Live screen and full conversation history**: the pane is streamed with ANSI colors and cursor (wrap / fit-to-width / raw views). Because Claude Code draws on the alternate screen and leaves no tmux scrollback, the *Chat* tab (shown first) reads the agent's own session log (`~/.claude`, `~/.codex`) so you can scroll the whole conversation from the first prompt, with collapsible tool calls. New messages are pushed over the WebSocket as soon as the agent writes them.
 * **Photos & files**: attach from the photo library / camera / files, paste a screenshot, or drag & drop onto the terminal (or onto another window in the list). Images are pasted as paths so Claude Code and Codex attach them natively as `[Image #1]`.
-* **Window organizer**: folders with colors, drag-to-reorder (touch friendly), hide windows, and rename, which renames the real tmux session and carries folders / order / drafts over. New tmux sessions can be started with Claude, Codex, a shell or a custom command.
+* **Window organizer in the `⋯` menu**: folders with colors, move up / down, hide windows, and rename, which renames the real tmux session and carries folders / order / drafts over. Folder headers have their own menu (edit, reorder, collapse, delete). New tmux sessions can be started with Claude, Codex, a shell or a custom command.
+* **Prompt history**: `↑` / `↓` in the composer (or the ⌃ ⌄ buttons on the phone) walks through the prompts you sent; the key bar can be collapsed.
+* **Explorer**: a VS Code-like file tree over your server, in its own page and as the *Files* tab next to the window list. Hidden-file toggle, six sort orders (including your own order per folder), hide items, pin roots, search, copy absolute / relative path, new / rename / cut / copy / paste / delete (to a trash folder), upload by button or drag & drop onto any folder, download, and "insert path into the prompt".
+* **File viewer & editor**: tabs that survive page changes and reloads (scroll, zoom and unsaved edits are kept), syntax highlighting, rendered Markdown with a code toggle, images, video / audio, PDFs and Office documents (docx, xlsx, pptx, hwp…) rendered to page images on the server (works in the iPhone home-screen app), HWPX (한글) documents with tables and images, Jupyter notebooks, CSV tables, SQLite tables, archive listings, HEIC / TIFF images, and a hex view for any other binary. Edit text files with `Ctrl/⌘+S`; saving refuses to overwrite a file an agent changed in the meantime unless you confirm.
 * **Server & processes**: CPU per core, memory / swap, disk, network; PM2 status, restart / stop / delete, watch toggle, resource charts, live logs, `pm2 save` and startup status. Add apps to `ecosystem.config.js` from a form (script and `.venv` interpreter are suggested from the folder) and start them with `pm2 start --only`.
 * **AI usage**: remaining Claude Code and Codex limits (current session and weekly), token statistics for today / 7 / 30 days, daily, hourly and weekday charts, per-model and per-project breakdowns.
 * **Git manager**: repositories discovered under configured roots, folders / favorites / aliases, diffs, staging, commit (amend) and commit & push, fetch / pull (rebase) / push (force-with-lease), branches, merges (no-ff / squash), stashes, revert.
@@ -53,6 +56,8 @@ Built as a mobile-first web app (installable to the iPhone home screen as a PWA)
 * **Linux server** with **tmux** (developed on tmux 3.4).
 * **Python 3.12+**, managed with [uv](https://docs.astral.sh/uv/).
 * **Node.js + PM2** for the server page (optional; the rest works without them).
+* **poppler-utils** (`pdftoppm`, `pdfinfo`) to view PDFs in the Explorer (optional): `sudo apt install poppler-utils`.
+* **LibreOffice** to view Office documents (docx / xlsx / pptx / odt / rtf / hwp …) and **ffmpeg** for HEIC / TIFF images (optional). HWPX is rendered by UnivDash itself.
 * **Claude Code** and/or **Codex** running inside tmux on the same machine.
 * **HTTPS in production** (reverse proxy such as nginx / Caddy / Cloudflare Tunnel, or Tailscale), since this app can type into your terminals.
 
@@ -93,6 +98,8 @@ Create a `.env` file in the root directory. There exists `.env.example` in root 
 | `GIT_REPOSITORY_ROOTS`, `GIT_REPOSITORIES` | Where to discover Git repositories (`:` separated, default: the parent folder of UnivDash) |
 | `PM2_ECOSYSTEM_FILE` | PM2 ecosystem file (default `~/ecosystem.config.js`) |
 | `CLAUDE_DATA_DIR`, `CODEX_DATA_DIR` | Agent data folders if not `~/.claude`, `~/.codex` |
+| `EXPLORER_ROOTS` | Folders the Explorer may open (`:` separated, default: your home folder) |
+| `UNIVDASH_DATA_DIR` | Sessions and settings (default `~/.univdash/data`; keep it outside the project if PM2 watches the folder) |
 | `UNIVDASH_UPLOAD_DIR`, `UNIVDASH_UPLOAD_MAX_MB`, `UNIVDASH_UPLOAD_TTL_DAYS` | Attachment storage (default `~/.univdash/uploads`, 50 MB, kept 7 days) |
 
 ### 4) Run the Server
@@ -126,8 +133,8 @@ UnivDash can type into terminals and run PM2 / Git commands, so it is treated li
 
 1. `tmux list-panes` / `capture-pane -e` are polled on the server and pushed over a single WebSocket only when something changed; the browser renders the ANSI output itself.
 2. Prompts are sent with `tmux load-buffer` + `paste-buffer -p` (bracketed paste) followed by `Enter`, so multi-line text and image paths reach Claude Code / Codex as a paste.
-3. The conversation tab finds the exact log of the running agent: `~/.claude/sessions/<pid>.json` → `projects/*/<sessionId>.jsonl` for Claude Code, and the `rollout-*.jsonl` the Codex process keeps open. New lines are parsed incrementally.
-4. Folder / order / hidden settings are stored in `data/*.json` on the server, so the phone and the desktop see the same layout.
+3. The chat tab finds the exact log of the running agent: `~/.claude/sessions/<pid>.json` → `projects/*/<sessionId>.jsonl` for Claude Code, and the `rollout-*.jsonl` the Codex process keeps open. New lines are parsed incrementally and pushed within ~0.4 s of the file changing.
+4. Sessions and folder / order / hidden settings are stored in `~/.univdash/data/*.json` on the server (outside the project, so `pm2 --watch` does not restart on every write), and the phone and the desktop see the same layout.
 
 ---
 

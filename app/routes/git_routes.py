@@ -98,6 +98,11 @@ async def run_git_action(
     action: str,
     payload: GitActionRequest,
 ):
+    if action == "ruff_format":
+        try:
+            return await asyncio.to_thread(GitService.ruff_format, repository_id)
+        except (KeyError, ValueError, RuntimeError) as error:
+            _raise_for(error)
     if action not in GitService.ACTIONS:
         raise HTTPException(status_code=400, detail="지원하지 않는 Git 작업입니다.")
     try:

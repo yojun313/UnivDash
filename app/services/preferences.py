@@ -11,6 +11,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from app.paths import data_dir
 from pydantic import BaseModel, Field, field_validator
 
 WINDOW_KEY = re.compile(r"^[\w\-가-힣]{1,50}:\d{1,4}$")
@@ -128,13 +129,7 @@ class PreferencesStore:
 
     @staticmethod
     def _path() -> Path:
-        configured = os.getenv("UNIVDASH_DATA_DIR")
-        base = (
-            Path(configured).expanduser()
-            if configured
-            else Path(__file__).resolve().parents[2] / "data"
-        )
-        return base / "preferences.json"
+        return data_dir() / "preferences.json"
 
     @classmethod
     def load(cls) -> Preferences:

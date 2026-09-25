@@ -54,6 +54,50 @@ class AIUsageService:
             cls._cache[cache_key] = (time.monotonic(), result)
         return result
 
+    _limits_cache: tuple[float, dict] | None = None
+
+    @classmethod
+    def limits(cls) -> dict[str, Any]:
+        """남은 한도만 가볍게 (Workspace 머리글 게이지용, 30초 캐시). 세션 로그는 끝부분만 읽는다."""
+        if cls._limits_cache and time.monotonic() - cls._limits_cache[0] < 30:
+            return cls._limits_cache[1]
+        now = datetime.now().astimezone()
+        claude = cls._claude_limits(cls._data_root("CLAUDE_DATA_DIR", ".claude"), now)
+        codex = None
+        sessions = cls._data_root("CODEX_DATA_DIR", ".codex") / "sessions"
+        try:
+            newest = sorted(sessions.rglob("rollout-*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)[:3] if sessions.is_dir() else []
+        except OSError:
+            newest = []
+        for path in newest:
+            found = cls._tail_rate_limits(path)
+            if found:
+                codex = cls._codex_limits(found[1], found[0], now)
+                break
+        result = {"claude": claude, "codex": codex, "generated_at": now.isoformat()}
+        cls._limits_cache = (time.monotonic(), result)
+        return result
+
+    @classmethod
+    def _tail_rate_limits(cls, path: Path, size: int = 2 * 1024 * 1024) -> tuple[datetime, dict[str, Any]] | None:
+        try:
+            with path.open("rb") as handle:
+                handle.seek(max(0, path.stat().st_size - size))
+                lines = handle.read().decode("utf-8", errors="replace").splitlines()
+        except OSError:
+            return None
+        for line in reversed(lines):
+            if '"rate_limits"' not in line:
+                continue
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            payload = record.get("payload")
+            if isinstance(payload, dict) and isinstance(payload.get("rate_limits"), dict):
+                return cls._parse_timestamp(record.get("timestamp"), cls._mtime(path)), payload["rate_limits"]
+        return None
+
     @staticmethod
     def _data_root(env_name: str, default_dir: str) -> Path:
         configured = os.getenv(env_name)

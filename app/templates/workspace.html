@@ -3,7 +3,24 @@
 {% block content %}
         <div id="workspace" class="flex-1 min-h-0 flex">
             <!-- 창 목록 -->
-            <section id="listPane" class="flex-1 lg:flex-none lg:w-[340px] xl:w-[360px] min-w-0 flex flex-col lg:border-r border-white/10">
+            <!-- 왼쪽: tmux 창 목록 (데스크톱에서 접으면 얇은 막대) -->
+            <section id="listPane" class="ws-side flex-1 lg:flex-none lg:w-[290px] xl:w-[320px] min-w-0 flex flex-col lg:border-r border-white/10">
+                <!-- 휴대폰: 창 · 파일 전환 (데스크톱은 파일이 오른쪽 사이드바) -->
+                <div class="ws-switch lg:hidden flex-shrink-0" role="tablist" aria-label="보기 전환">
+                    <button type="button" data-ws-mode="windows" role="tab"><i class="fas fa-terminal"></i> 창</button>
+                    <button type="button" data-ws-mode="files" role="tab"><i class="fas fa-folder-tree"></i> 파일</button>
+                </div>
+                <div class="ws-side-head hidden lg:flex">
+                    <span><i class="fas fa-terminal"></i> 창</span>
+                    <span class="flex items-center gap-0.5">
+                        <button type="button" class="ws-side-btn" data-ws-swap title="창 · 파일 사이드바 좌우 바꾸기" aria-label="사이드바 좌우 바꾸기"><i class="fas fa-right-left"></i></button>
+                        <button type="button" class="ws-side-btn ws-flip" data-side-toggle="left" title="창 목록 접기" aria-label="창 목록 접기"><i class="fas fa-angles-left"></i></button>
+                    </span>
+                </div>
+                <button type="button" class="ws-rail ws-flip" data-side-toggle="left" title="창 목록 펼치기" aria-label="창 목록 펼치기">
+                    <i class="fas fa-angles-right"></i><span class="ws-rail-label"><i class="fas fa-terminal"></i> 창</span>
+                </button>
+                <div id="winMode" class="ws-mode flex-1 min-h-0 flex flex-col">
                 <div class="p-3 md:p-4 space-y-3 border-b border-white/10 flex-shrink-0">
                     <div class="flex items-center gap-2">
                     <label class="relative block flex-1 min-w-0">
@@ -25,9 +42,13 @@
                 <div id="windowList" class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-2 md:p-3 space-y-3 safe-bottom">
                     <div class="px-3 py-10 text-center text-xs text-white/35">tmux 창을 불러오는 중입니다...</div>
                 </div>
+                </div>
+
             </section>
 
             <!-- 터미널 -->
+            <!-- 편집 영역: 탭을 끌어 가장자리에 놓으면 좌우 · 위아래로 두 개까지 나눠 볼 수 있다 (VS Code 처럼) -->
+            <div id="editorArea" class="contents lg:flex flex-1 min-w-0 min-h-0 relative">
             <section id="termPane" class="term-shell relative flex-1 min-w-0 flex flex-col" aria-label="터미널">
                 <div id="dropOverlay" class="drop-overlay hidden" aria-hidden="true">
                     <div class="drop-card">
@@ -36,12 +57,34 @@
                         <p id="dropTarget" class="mt-1 text-xs opacity-70"></p>
                     </div>
                 </div>
+                <!-- 공용 탭바: tmux 창 탭 + 파일 탭 (눌러서 전환 · × 로 닫기 · 끌어서 순서 변경) -->
+                <div id="wsTabs" class="ws-tabbar no-scrollbar hidden" role="tablist" aria-label="열린 탭"></div>
                 <div id="termEmpty" class="flex-1 hidden lg:flex items-center justify-center text-center p-6">
                     <div>
                         <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl glass-strong text-xl text-blue-400"><i class="fas fa-terminal"></i></div>
                         <p class="mt-4 text-sm font-bold text-white/70">창을 선택하세요.</p>
                         <p class="mt-1 text-xs text-white/35">왼쪽 목록에서 Claude Code · Codex 가 실행 중인 창을 고르세요.</p>
                     </div>
+                </div>
+
+                <div id="fileView" class="flex-1 min-h-0 flex-col hidden"></div>
+
+                <!-- Terminal (tmux 아님): 서버 셸에 바로 붙는 xterm 화면. 탭을 닫으면 셸도 끝난다 -->
+                <div id="ptyView" class="flex-1 min-h-0 flex-col hidden">
+                    <div class="term-head glass border-0 border-b border-white/10 flex-shrink-0 safe-top-term">
+                        <div class="flex items-center gap-2 px-2 md:px-4 h-14">
+                            <button id="ptyBack" type="button" class="lg:hidden term-tool" aria-label="목록으로"><i class="fas fa-chevron-left"></i></button>
+                            <span class="wt-kind pty" aria-hidden="true">$</span>
+                            <div class="min-w-0 flex-1">
+                                <h3 id="ptyTitle" class="truncate text-sm font-bold text-white/90">Terminal</h3>
+                                <p id="ptyCwd" class="truncate text-[11px] text-white/40"></p>
+                            </div>
+                            <button id="ptyNew" type="button" class="term-tool" title="새 Terminal" aria-label="새 Terminal"><i class="fas fa-plus text-xs"></i></button>
+                            <button id="ptyKill" type="button" class="term-tool" title="이 Terminal 끝내기 (탭 닫기)" aria-label="Terminal 끝내기"><i class="fas fa-power-off text-xs"></i></button>
+                        </div>
+                    </div>
+                    <div id="ptyHost" class="pty-host flex-1 min-h-0"></div>
+                    <div id="ptyKeys" class="keybar pty-keys flex gap-1.5 overflow-x-auto no-scrollbar px-2 pt-2 lg:hidden safe-bottom" aria-label="특수 키"></div>
                 </div>
 
                 <div id="termView" class="flex-1 min-h-0 flex-col hidden">
@@ -63,9 +106,11 @@
                         </div>
                         <div id="termModes" class="hidden items-center gap-2 overflow-x-auto no-scrollbar px-3 pb-2">
                             <div class="mode-switch" role="tablist" aria-label="보기 전환">
-                                <button type="button" data-mode="screen" role="tab"><i class="fas fa-display"></i> 화면</button>
-                                <button type="button" data-mode="log" role="tab"><i class="fas fa-comments"></i> 대화 기록</button>
+                                <button type="button" data-mode="log" role="tab"><i class="fas fa-comments"></i> 채팅</button>
+                                <button type="button" data-mode="screen" role="tab"><i class="fas fa-terminal"></i> 터미널</button>
                             </div>
+                            <!-- Claude · Codex 남은 사용량 (현재 세션 · 주간) -->
+                            <div id="usageMini" class="usage-mini hidden ml-auto" aria-label="남은 사용량"></div>
                         </div>
                         <div id="paneTabs" class="hidden gap-1 overflow-x-auto no-scrollbar px-3 pb-2"></div>
                     </div>
@@ -75,9 +120,12 @@
                             <div id="termScreen" class="term-screen wrap"><div class="term-inner"></div></div>
                             <button id="loadMoreBtn" type="button" class="hidden"></button>
                         </div>
-                        <div id="logScroll" class="terminal absolute inset-0 overflow-auto overscroll-contain hidden" aria-label="대화 기록">
+                        <div id="logScroll" class="terminal absolute inset-0 overflow-auto overscroll-contain hidden" aria-label="채팅">
                             <div id="logOlder" class="log-older hidden"></div>
                             <div id="logList" class="chat-list"></div>
+                            <!-- 대기열 · 보내는 중 말풍선, 에이전트 상태(작업 중 / 응답 필요) -->
+                            <div id="chatPending" class="chat-list chat-pending"></div>
+                            <div id="chatStatus" class="chat-status hidden" aria-live="polite"></div>
                         </div>
                         <button id="jumpBottomBtn" type="button" class="jump-bottom hidden" aria-label="최신 출력으로 이동"><i class="fas fa-arrow-down text-xs"></i><span>최신</span></button>
                         <div id="termOffline" class="hidden absolute inset-x-0 top-0 m-2 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-center text-[11px] font-bold text-amber-300 backdrop-blur">연결이 끊어져 다시 연결하는 중입니다...</div>
@@ -113,6 +161,7 @@
                         <div id="attachTray" class="attach-tray hidden gap-2 overflow-x-auto no-scrollbar px-2 md:px-3 pt-2" aria-label="첨부 파일"></div>
                         <form id="composerForm" class="flex items-end gap-2 p-2 md:p-3" autocomplete="off">
                             <button id="snippetBtn" type="button" class="composer-btn" title="빠른 문구 · 최근 기록" aria-label="빠른 문구와 최근 기록"><i class="fas fa-bolt text-sm"></i></button>
+                            <button id="modelBtn" type="button" class="model-chip hidden" title="모델 바꾸기" aria-label="모델 바꾸기"><i class="fas fa-microchip"></i><span id="modelLabel">—</span></button>
                             <div class="relative flex-1 min-w-0">
                                 <textarea id="promptInput" rows="1" enterkeyhint="send" placeholder="프롬프트 입력" spellcheck="false" autocapitalize="off"
                                     class="prompt-input w-full glass-input rounded-2xl pl-4 pr-11 py-2.5 text-white placeholder-white/30 resize-none"></textarea>
@@ -124,12 +173,63 @@
                             <button id="sendBtn" type="submit" class="send-btn btn-glow" aria-label="보내기"><i class="fas fa-paper-plane text-sm"></i></button>
                         </form>
                         <div class="flex items-center justify-between gap-2 px-3 md:px-4 pb-2 -mt-1 text-[10px] text-white/40">
-                            <button id="submitToggle" type="button" class="submit-toggle" aria-pressed="true"><i class="fas fa-check-circle"></i> Enter 자동 제출</button>
-                            <span id="composerHint" class="truncate">⌘/Ctrl+Enter 전송</span>
+                            <div class="flex items-center gap-1 min-w-0">
+                                <button id="submitToggle" type="button" class="submit-toggle" aria-pressed="true"><i class="fas fa-check-circle"></i> Enter 자동 제출</button>
+                                <button id="keyBarToggle" type="button" class="submit-toggle" aria-expanded="true" aria-controls="keyBar"><i class="fas fa-chevron-down"></i> 키 접기</button>
+                            </div>
+                            <div class="flex items-center gap-1 min-w-0">
+                                <span id="composerHint" class="truncate hidden sm:inline">⌘/Ctrl+Enter 전송</span>
+                                <button id="histPrev" type="button" class="hist-btn" title="이전 프롬프트 (↑)" aria-label="이전 프롬프트"><i class="fas fa-chevron-up"></i></button>
+                                <button id="histNext" type="button" class="hist-btn" title="다음 프롬프트 (↓)" aria-label="다음 프롬프트"><i class="fas fa-chevron-down"></i></button>
+                            </div>
                         </div>
                         <textarea id="directInput" class="direct-input" aria-label="터미널 직접 입력" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
                     </div>
                 </div>
             </section>
+
+            <!-- 탭을 끄는 동안 뜨는 놓을 자리 (위 · 아래 · 왼쪽 · 오른쪽 · 가운데) -->
+            <div id="dropZones" class="drop-zones hidden" aria-hidden="true"><div class="dz-highlight"></div></div>
+            </div>
+
+            <!-- 오른쪽: 파일 (Explorer 트리 · 여기서 연 파일은 가운데 탭으로 열린다) -->
+            <aside id="filePane" class="ws-side flex-1 lg:flex-none lg:w-[250px] xl:w-[280px] min-w-0 flex flex-col lg:border-l border-white/10" aria-label="파일">
+                <div class="ws-switch lg:hidden flex-shrink-0" role="tablist" aria-label="보기 전환">
+                    <button type="button" data-ws-mode="windows" role="tab"><i class="fas fa-terminal"></i> 창</button>
+                    <button type="button" data-ws-mode="files" role="tab"><i class="fas fa-folder-tree"></i> 파일</button>
+                </div>
+                <div class="ws-side-head hidden lg:flex">
+                    <span class="flex items-center gap-0.5">
+                        <button type="button" class="ws-side-btn ws-flip" data-side-toggle="right" title="파일 사이드바 접기" aria-label="파일 사이드바 접기"><i class="fas fa-angles-right"></i></button>
+                        <button type="button" class="ws-side-btn" data-ws-swap title="창 · 파일 사이드바 좌우 바꾸기" aria-label="사이드바 좌우 바꾸기"><i class="fas fa-right-left"></i></button>
+                    </span>
+                    <span><i class="fas fa-folder-tree"></i> 파일</span>
+                </div>
+                <button type="button" class="ws-rail ws-flip" data-side-toggle="right" title="파일 사이드바 펼치기" aria-label="파일 사이드바 펼치기">
+                    <i class="fas fa-angles-left"></i><span class="ws-rail-label"><i class="fas fa-folder-tree"></i> 파일</span>
+                </button>
+                <div id="fileMode" class="ws-mode relative flex-1 min-h-0 flex flex-col">
+                    <div id="wsExplorer" class="flex-1 min-h-0 flex flex-col"></div>
+                    <button id="wsOpenFiles" type="button" class="open-files-chip hidden"><i class="fas fa-clone"></i><span>열린 파일</span><i class="fas fa-chevron-right text-[10px] opacity-60"></i></button>
+                </div>
+            </aside>
         </div>
+{% endblock %}
+
+{% block head_extra %}
+    <link rel="stylesheet" href="/static/vendor/highlight-github-dark.min.css">
+    <link rel="stylesheet" href="/static/vendor/highlight-github-light.scoped.css">
+    <link rel="stylesheet" href="/static/vendor/xterm.css">
+{% endblock %}
+
+{% block scripts %}
+    <script src="/static/vendor/Sortable.min.js" defer></script>
+    <script src="/static/vendor/highlight.min.js" defer></script>
+    <script src="/static/vendor/marked.min.js" defer></script>
+    <script src="/static/vendor/purify.min.js" defer></script>
+    <script src="/static/explorer.js" defer></script>
+    <script src="/static/vendor/xterm.min.js" defer></script>
+    <script src="/static/vendor/xterm-addon-fit.min.js" defer></script>
+    <script src="/static/vendor/xterm-addon-web-links.min.js" defer></script>
+    <script src="/static/pty.js" defer></script>
 {% endblock %}

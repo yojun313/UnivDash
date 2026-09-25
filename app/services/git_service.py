@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -225,6 +226,14 @@ class GitService:
                     conflicts += 1
                 if entry.startswith("2 "):
                     index += 1  # 이름 변경 항목은 원래 경로가 한 칸 더 붙는다.
+        # 정렬(최근 커밋순)용 마지막 커밋 시각 (커밋이 없으면 0)
+        last_commit = 0
+        try:
+            log = cls._run(path, "log", "-1", "--format=%ct", timeout=10)
+            if log.returncode == 0 and log.stdout.strip().isdigit():
+                last_commit = int(log.stdout.strip())
+        except (subprocess.SubprocessError, OSError, RuntimeError):
+            pass
         return {
             "branch": None if branch == "(detached)" else branch,
             "changes": changes,
@@ -232,6 +241,7 @@ class GitService:
             "ahead": ahead,
             "behind": behind,
             "upstream": has_upstream,
+            "last_commit": last_commit,
         }
 
     @classmethod
@@ -842,6 +852,46 @@ class GitService:
             return [["revert", "--no-edit", commit_hash]]
 
         raise ValueError("지원하지 않는 Git 작업입니다.")
+
+    @classmethod
+    def ruff_format(cls, repository_id: str) -> dict:
+        """저장소 최상위에서 `ruff format .` (커밋 전에 코드 정리). 터미널에 뜨는 요약을 그대로 돌려준다."""
+        repository = cls._get_repository(repository_id)
+        root = repository.path
+        local = root / ".venv" / "bin" / "ruff"
+        bundled = Path(sys.executable).with_name("ruff")
+        if local.exists():
+            command = [str(local)]
+        elif shutil.which("ruff"):
+            command = [shutil.which("ruff")]
+        elif bundled.exists():
+            command = [str(bundled)]
+        elif shutil.which("uvx"):
+            command = [shutil.which("uvx"), "ruff"]
+        else:
+            raise RuntimeError("ruff 를 찾을 수 없습니다. 저장소 .venv 에 ruff 를 설치하거나 uv 를 설치하세요.")
+        args = [*command, "format", "."]
+        lock = cls._lock_for(repository.id)
+        if not lock.acquire(blocking=False):
+            raise ValueError("이 저장소에서 다른 작업이 실행 중입니다.")
+        try:
+            env = {**os.environ, "NO_COLOR": "1"}
+            try:
+                result = subprocess.run(args, cwd=root, capture_output=True, text=True, timeout=cls.COMMAND_TIMEOUT_SECONDS, env=env, stdin=subprocess.DEVNULL)
+            except subprocess.TimeoutExpired:
+                return {"success": False, "command": "ruff format .", "output": "시간 안에 끝나지 않았습니다.", "return_code": -1, "summary": ""}
+        finally:
+            lock.release()
+        output = "\n".join(part for part in (result.stdout.strip(), result.stderr.strip()) if part)
+        summary = next((line.strip() for line in reversed(output.splitlines()) if re.search(r"\bfiles? (reformatted|left unchanged)|\bfile(s)? would be", line)), "")
+        where = "~" + str(root)[len(str(Path.home())):] if str(root).startswith(str(Path.home())) else str(root)
+        return {
+            "success": result.returncode == 0,
+            "command": f"cd {where} && ruff format .",
+            "output": output or "(출력 없음)",
+            "return_code": result.returncode,
+            "summary": summary,
+        }
 
     @classmethod
     def run_action(

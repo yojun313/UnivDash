@@ -1,6 +1,6 @@
 // ============================================================================
 // UnivDash 공통 테마 시스템 (LecAI 테마 시스템 기반)
-// - #themeSettingsBtn 이 있는 페이지에 테마 설정 모달을 붙인다.
+// - [data-theme-settings] 버튼이 있는 페이지에 테마 설정 모달을 붙인다.
 // - 테마 스타일: <html data-ui-theme="mesh|apple|mono"> (기본 '오로라'는 속성 없음)
 // - 다크/라이트: <html data-ui-theme-mode="light"> (다크가 기본)
 // - 실제 배색은 /static/theme.css 가 담당한다.
@@ -97,15 +97,15 @@
   }
 
   function init() {
-    var btn = document.getElementById('themeSettingsBtn');
-    if (!btn) return;
+    var btns = document.querySelectorAll('[data-theme-settings]');
+    if (!btns.length) return;
 
     var overlay = buildModal();
 
     function open() { markSelected(overlay); overlay.hidden = false; }
     function close() { overlay.hidden = true; }
 
-    btn.addEventListener('click', open);
+    btns.forEach(function (b) { b.addEventListener('click', open); });
     overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
     overlay.querySelector('.pmd-theme-close').addEventListener('click', close);
     overlay.querySelectorAll('.pmd-theme-option').forEach(function (opt) {

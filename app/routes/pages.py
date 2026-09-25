@@ -11,10 +11,10 @@ templates = Jinja2Templates(directory="app/templates")
 # active_page → (템플릿, 제목)
 PAGES = {
     "workspace": ("workspace.html", "Workspace"),
-    "organize": ("organize.html", "창 정리"),
-    "server": ("server.html", "Server & Processes"),
+    "explorer": ("explorer.html", "Explorer"),
+    "server": ("server.html", "Servers"),
     "ai_usage": ("ai_usage.html", "AI Usage"),
-    "git": ("git.html", "Git Manager"),
+    "git": ("git.html", "Git"),
 }
 
 

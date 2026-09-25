@@ -23,6 +23,8 @@ from pathlib import Path
 from fastapi import HTTPException, Request
 from starlette.requests import HTTPConnection
 
+from app.paths import data_dir
+
 logger = logging.getLogger(__name__)
 
 MIN_PASSWORD_LENGTH = 12
@@ -155,9 +157,7 @@ class SessionRegistry:
         self._fp_cache: dict[str, str] = {}
 
     def _file(self) -> Path:
-        configured = os.getenv("UNIVDASH_DATA_DIR")
-        base = Path(configured).expanduser() if configured else Path(__file__).resolve().parents[2] / "data"
-        return base / "sessions.json"
+        return data_dir() / "sessions.json"
 
     def _load(self) -> None:
         path = self._file()

@@ -7,7 +7,7 @@
 
   const state = {
     repositories: [],
-    prefs: { folders: [], order: [], hidden: [], favorites: [], aliases: {} },
+    prefs: { folders: [], order: [], hidden: [], favorites: [], aliases: {}, sort: 'changes' },
     selectedId: null,
     detail: null,
     detailJson: '',
@@ -24,6 +24,33 @@
   const displayName = (repo) => state.prefs.aliases[repo.id] || repo.name;
   const isHidden = (id) => state.prefs.hidden.includes(id);
   const isFavorite = (id) => state.prefs.favorites.includes(id);
+
+  // ── 정렬 (즐겨찾기 · 폴더 · 미분류 각 묶음 안에서) ─────────────────────
+  const SORTS = {
+    changes: { label: '변경사항 우선', icon: 'fa-pen-to-square', desc: '충돌 → 변경 있음 → 푸시/풀 필요 → 깨끗함' },
+    recent: { label: '최근 커밋순', icon: 'fa-clock', desc: '마지막 커밋이 최근인 저장소부터' },
+    name: { label: '이름순', icon: 'fa-arrow-down-a-z', desc: '표시 이름 가나다/ABC 순' },
+    manual: { label: '직접 지정', icon: 'fa-hand-pointer', desc: '끌어다 놓은 순서 그대로' },
+  };
+  const sortMode = () => (SORTS[state.prefs.sort] ? state.prefs.sort : 'changes');
+  function changeRank(repo) {
+    const status = repo.status;
+    if (!status) return 4;
+    if (status.conflicts) return 0;
+    if (status.changes) return 1;
+    if (status.ahead || status.behind) return 2;
+    return 3;
+  }
+  // 같은 순위끼리는 직접 지정한 순서를 유지한다 (Array.prototype.sort 는 안정 정렬)
+  function sortRepos(repos) {
+    const mode = sortMode();
+    if (mode === 'manual') return repos;
+    const sorted = [...repos];
+    if (mode === 'changes') sorted.sort((a, b) => changeRank(a) - changeRank(b) || (b.status?.changes || 0) - (a.status?.changes || 0));
+    else if (mode === 'recent') sorted.sort((a, b) => (b.status?.last_commit || 0) - (a.status?.last_commit || 0));
+    else if (mode === 'name') sorted.sort((a, b) => displayName(a).localeCompare(displayName(b), 'ko', { numeric: true }));
+    return sorted;
+  }
 
   function storageGet(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
   function storageSet(key, value) { try { localStorage.setItem(key, value); } catch (e) { /* noop */ } }
@@ -153,7 +180,7 @@
   }
 
   function folderBlock(folder) {
-    const repos = folder.repositories.map(byId).filter(Boolean).filter(visible);
+    const repos = sortRepos(folder.repositories.map(byId).filter(Boolean).filter(visible));
     const total = folder.repositories.filter((id) => byId(id)).length;
     const searching = ($('gitRepositorySearch').value || '').trim() || state.filter !== 'all';
     if (searching && !repos.length) return '';
@@ -192,13 +219,14 @@
     }
 
     const parts = [];
-    const favorites = state.prefs.favorites.map(byId).filter(Boolean).filter(visible);
+    $('gitSortLabel').textContent = SORTS[sortMode()].label;
+    const favorites = sortRepos(state.prefs.favorites.map(byId).filter(Boolean).filter(visible));
     if (favorites.length) {
       parts.push(`<div><p class="px-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-amber-400/80"><i class="fas fa-star mr-1"></i>즐겨찾기</p><div class="space-y-1">${favorites.map((repo) => repoItem(repo, { draggable: false })).join('')}</div></div>`);
     }
     const folders = state.prefs.folders.map(folderBlock).filter(Boolean);
     if (folders.length) parts.push(`<div class="space-y-1">${folders.join('')}</div>`);
-    const ungrouped = ungroupedIds().map(byId).filter(Boolean).filter(visible);
+    const ungrouped = sortRepos(ungroupedIds().map(byId).filter(Boolean).filter(visible));
     parts.push(`
       <div data-drop-folder="">
         ${state.prefs.folders.length ? '<p class="px-2 pb-1 pt-1 text-[10px] font-bold uppercase tracking-wider text-white/35">미분류</p>' : ''}
@@ -230,9 +258,9 @@
       <button type="button" data-repo-action="rename"><i class="fas fa-pen"></i>표시 이름 변경</button>
       <button type="button" data-repo-action="hide"><i class="fas ${isHidden(id) ? 'fa-eye' : 'fa-eye-slash'}"></i>${isHidden(id) ? '다시 표시' : '목록에서 숨기기'}</button>
       <hr>
-      <button type="button" data-repo-action="up"><i class="fas fa-arrow-up"></i>위로 이동</button>
+      ${sortMode() === 'manual' ? `<button type="button" data-repo-action="up"><i class="fas fa-arrow-up"></i>위로 이동</button>
       <button type="button" data-repo-action="down"><i class="fas fa-arrow-down"></i>아래로 이동</button>
-      <hr>
+      <hr>` : ''}
       <div class="git-menu-label">폴더로 이동</div>
       ${folderButtons}
       ${current ? '<button type="button" data-repo-action="move" data-folder=""><i class="fas fa-inbox"></i>미분류로</button>' : ''}
@@ -484,7 +512,7 @@
       : '<p class="px-3 py-4 text-center text-[11px] text-white/35">스테이징된 파일이 없습니다.</p>';
     $('gitUnstagedList').innerHTML = unstaged.length ? unstaged.map((change) => fileRow(change, false)).join('')
       : '<p class="px-3 py-4 text-center text-[11px] text-emerald-400">작업 트리가 깨끗합니다.</p>';
-    $('gitCommitButton').innerHTML = `<i class="fas fa-check mr-1"></i>커밋${staged.length ? ` (${staged.length})` : ''}`;
+    updateCommitCount();
     $('gitCommitHint').textContent = detail.operation === 'merge' ? '병합 커밋 — 메시지를 비우면 기본 메시지 사용' : '';
 
     // 선택했던 파일이 사라졌으면 diff 를 비운다.
@@ -574,7 +602,7 @@
     renderCommits(detail);
     renderBranches(detail);
     renderStashes(detail);
-    if (!state.tab) setTab(storageGet('univdash-git-tab') || (detail.dirty ? 'changes' : 'commits'));
+    if (!state.tab) setTab('changes');
   }
 
   async function refreshDetail({ quiet = false } = {}) {
@@ -621,6 +649,7 @@
     }
     state.selectedId = id;
     storageSet('univdash-git-selected', id);
+    setTab('changes');  // 저장소를 누르면 항상 변경사항 탭부터
     renderList();
     loadDraft();
     if (!state.detail || state.detail.id !== id) {
@@ -751,7 +780,7 @@
     fetch: 'Fetch', pull: 'Pull', push: 'Push', stage: '스테이징', unstage: '스테이징 취소', discard: '변경 되돌리기',
     commit: '커밋', checkout: '브랜치 전환', create_branch: '브랜치 생성', delete_branch: '브랜치 삭제', merge: '병합',
     abort_operation: '작업 중단', stash: '스태시 저장', stash_apply: '스태시 적용', stash_pop: '스태시 꺼내기',
-    stash_drop: '스태시 삭제', undo_commit: '커밋 취소', revert: 'Revert',
+    stash_drop: '스태시 삭제', undo_commit: '커밋 취소', revert: 'Revert', ruff_format: 'ruff format',
   };
   const noisyActions = new Set(['fetch', 'pull', 'push', 'merge', 'commit', 'revert', 'abort_operation']);
 
@@ -765,7 +794,7 @@
     try {
       const result = await api(`/api/git/repositories/${encodeURIComponent(state.selectedId)}/${action}`, { method: 'POST', body: payload });
       writeConsole(`$ ${result.command}\n${result.output}\n\n${result.success ? '✓ 작업 완료' : `✕ 작업 실패 (code ${result.return_code})`}`);
-      if (result.success) toast(`${label} 완료`, 'success');
+      if (result.success) toast(result.summary ? `${label}: ${result.summary}` : `${label} 완료`, 'success');
       else toast(`${label} 실패\n${result.output.split('\n').slice(0, 4).join('\n')}`, 'error');
       if (showConsole || (!result.success && noisyActions.has(action))) setTab('console');
       return result;
@@ -846,7 +875,7 @@
   function loadDraft() {
     $('gitCommitMessage').value = storageGet(draftKey()) || '';
     $('gitCommitAmend').checked = false;
-    $('gitCommitStageAll').checked = false;
+    $('gitCommitStageAll').checked = true;
     updateSummaryLength();
   }
   function updateSummaryLength() {
@@ -863,6 +892,14 @@
       $('gitCommitMessage').placeholder = '커밋 메시지 (첫 줄은 요약, Ctrl+Enter 로 커밋)';
     }
   });
+
+  // "모든 변경 포함"(기본 켜짐)이면 전체 변경 수, 아니면 스테이징된 수
+  function updateCommitCount() {
+    const changes = state.detail?.changes || [];
+    const count = $('gitCommitStageAll').checked ? changes.length : changes.filter((change) => change.staged).length;
+    $('gitCommitButton').innerHTML = `<i class="fas fa-check mr-1"></i>커밋${count ? ` (${count})` : ''}`;
+  }
+  $('gitCommitStageAll').addEventListener('change', updateCommitCount);
 
   async function commit(pushAfter) {
     const detail = state.detail;
@@ -892,10 +929,18 @@
       $('gitCommitMessage').value = '';
       saveDraft();
       $('gitCommitAmend').checked = false;
-      $('gitCommitStageAll').checked = false;
+      $('gitCommitStageAll').checked = true;
       updateSummaryLength();
     }
   }
+  // 커밋 전에 코드 정리: 저장소 최상위에서 ruff format . → "N files reformatted, M files left unchanged" 를 바로 보여준다
+  $('gitRuffButton').addEventListener('click', async () => {
+    const result = await runGit('ruff_format');
+    const box = $('gitRuffResult');
+    if (!result) return;
+    box.textContent = result.summary || result.output.split('\n').slice(-2).join(' · ');
+    box.className = `mt-1.5 rounded-lg bg-black/25 px-2.5 py-1.5 font-mono text-[11px] ${result.success ? 'text-emerald-300' : 'text-red-300'}`;
+  });
   $('gitCommitButton').addEventListener('click', () => commit(false));
   $('gitCommitPushButton').addEventListener('click', () => commit(true));
   $('gitCommitMessage').addEventListener('keydown', (event) => {
@@ -1027,4 +1072,16 @@
       setTimeout(() => document.getElementById('gitRepositoryDetail')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 350);
     });
   }
+
+  $('gitSortBtn').addEventListener('click', () => {
+    const current = sortMode();
+    window.UnivDashUI.actionSheet({
+      title: '저장소 정렬 기준',
+      subtitle: '즐겨찾기 · 폴더 · 미분류 안에서 정렬됩니다. 휴대폰 · PC 에 같이 적용돼요.',
+      actions: Object.entries(SORTS).map(([id, sort]) => ({
+        icon: sort.icon, label: sort.label, desc: sort.desc, sub: id === current ? '✓' : '', current: id === current,
+        onClick: () => { state.prefs.sort = id; renderList(); savePrefs(); },
+      })),
+    });
+  });
 })();

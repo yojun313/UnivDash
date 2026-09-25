@@ -84,7 +84,7 @@ function toggleChart(name) {
 async function checkStartupStatus() {
     const badge = document.getElementById('startupBadge');
     if (!badge) return;
-    const base = 'hidden sm:inline-flex px-2.5 py-1.5 rounded-lg text-[10px] font-bold border';
+    const base = 'self-start lg:self-auto inline-flex px-2.5 py-1.5 rounded-lg text-[10px] font-bold border';
     try {
         const response = await fetch('/startup-status');
         if (!response.ok) return;
@@ -109,6 +109,20 @@ function formatBytes(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
+// CPU 온도 배지: 경고 온도(high) 기준으로 초록 → 주황(10°C 이내) → 빨강(넘음)
+function renderCpuTemp(temp) {
+    const badge = document.getElementById('srvCpuTemp');
+    if (!badge) return;
+    if (!temp) { badge.classList.add('hidden'); return; }
+    const high = temp.high || 85;
+    const level = temp.current >= high ? 'border-red-500/40 bg-red-500/15 text-red-400'
+        : temp.current >= high - 10 ? 'border-amber-500/40 bg-amber-500/15 text-amber-400'
+        : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400';
+    badge.className = `text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${level}`;
+    badge.innerHTML = `<i class="fas fa-temperature-half mr-1"></i>${Math.round(temp.current)}°C`;
+    badge.title = `CPU 온도 ${temp.current}°C${temp.hottest_core ? ` · 가장 뜨거운 코어 ${temp.hottest_core}°C` : ''}${temp.high ? ` · 경고 ${temp.high}°C` : ''}${temp.critical ? ` · 위험 ${temp.critical}°C` : ''}`;
+}
+
 async function updateServerStats() {
     if (!document.getElementById('srvCpuText')) return;
     try {
@@ -118,6 +132,7 @@ async function updateServerStats() {
 
         document.getElementById('srvCpuText').innerText = `${data.cpu_percent.toFixed(1)} %`;
         document.getElementById('srvCpuCount').innerText = `CORES: ${data.cpu_count_physical}P / ${data.cpu_count_logical}L`;
+        renderCpuTemp(data.cpu_temp);
 
         const coresContainer = document.getElementById('srvCpuCoresContainer');
         coresContainer.innerHTML = '';
@@ -243,7 +258,7 @@ function formatUptime(ms) {
 
 async function controlPM2(action, name) {
     const actionKo = {
-        'restart': '재시작',
+        'restart': '재시작(환경 변수 갱신 --update-env)',
         'stop': '중지',
         'delete': '삭제(리스트에서 제거)'
     }[action] || action;
@@ -263,6 +278,26 @@ async function controlPM2(action, name) {
         }
     } catch (err) {
         alert('서버 통신 오류');
+    }
+}
+
+async function restartAllPM2() {
+    const count = document.querySelectorAll('.proc-row').length;
+    if (!confirm(`PM2 앱 ${count}개를 모두 재시작할까요? (환경 변수 갱신 --update-env)\n대시보드도 마지막에 재시작되어 잠깐 연결이 끊깁니다.`)) return;
+    const button = document.getElementById('pm2RestartAllButton');
+    button.disabled = true;
+    button.classList.add('opacity-50');
+    try {
+        const data = await UnivDash.api('/restart-all', { method: 'POST' });
+        const failed = data.failed.length ? ` · 실패: ${data.failed.join(', ')}` : '';
+        UnivDash.toast(`${data.restarted.length}개 재시작 완료${failed}${data.self ? ' · 대시보드 재시작 중…' : ''}`, data.failed.length ? 'error' : 'success');
+        if (data.self) setTimeout(() => location.reload(), 5000);   // 대시보드가 다시 뜨면 새로고침
+        else updateStats();
+    } catch (error) {
+        UnivDash.toast(error.message || '전체 재시작에 실패했습니다.', 'error');
+    } finally {
+        button.disabled = false;
+        button.classList.remove('opacity-50');
     }
 }
 
@@ -355,6 +390,7 @@ if (document.getElementById('pm2-list-body')) {
     });
     document.getElementById('procSearch')?.addEventListener('input', filterProcesses);
     document.getElementById('pm2SaveButton')?.addEventListener('click', savePM2);
+    document.getElementById('pm2RestartAllButton')?.addEventListener('click', restartAllPM2);
     document.getElementById('pageReloadButton')?.addEventListener('click', () => location.reload());
     document.getElementById('logCloseButton')?.addEventListener('click', closeLogModal);
     document.getElementById('logModal')?.addEventListener('click', (event) => {

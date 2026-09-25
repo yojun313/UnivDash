@@ -65,7 +65,8 @@ _PANE_FORMAT = SEP.join(fmt for _, fmt in _PANE_FIELDS)
 _BUSY_TEXT = re.compile(r"esc to interrupt|esc to cancel|ctrl\+c to interrupt", re.IGNORECASE)
 # 권한/선택 프롬프트: "❯ 1. Yes" (Claude Code), "› 1. Yes, proceed" (Codex), 폴더 신뢰 확인, y/n 질문
 _WAITING_TEXT = re.compile(
-    r"^\s*[❯›]\s*1\.\s|press enter to continue|enter to confirm|enter continue|\(y/n\)|\[y/n\]",
+    # Codex 선택 창(/model 등)은 커서가 현재 항목에 있어 1. 이 아닐 수 있고 안내문이 "Press ⏎ to confirm or esc …" 이다
+    r"^\s*[❯›]\s*1\.\s|press enter to continue|enter to confirm|to confirm or|esc to dismiss|esc to go back|enter select|enter default|esc back|enter continue|\(y/n\)|\[y/n\]",
     re.IGNORECASE | re.MULTILINE,
 )
 # Claude Code 는 작업 중 터미널 제목 앞에 점자 스피너를, 쉬는 중에는 ✳ 를 붙인다.

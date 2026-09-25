@@ -11,11 +11,13 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 from app.routes.pages import render_page
 from app.services import tmux_service, transcript_service, upload_service
 from app.services.auth_service import AuthService
+from app.services import seen_service
 from app.services.preferences import Preferences, PreferencesStore, rename_session_keys
 from app.services.tmux_service import TmuxError
 
@@ -30,7 +32,8 @@ async def workspace_page(request: Request):
 
 @router.get("/organize")
 async def organize_page(request: Request):
-    return render_page(request, "organize")
+    # 창 정리는 Workspace 안의 패널로 합쳤다 (예전 주소 호환)
+    return RedirectResponse(url="/", status_code=303)
 
 
 def _raise_for(error: Exception):
@@ -47,6 +50,7 @@ async def _state() -> dict:
     return {
         "windows": [w.to_dict() for w in windows],
         "preferences": PreferencesStore.load().model_dump(),
+        "seen": seen_service.snapshot(),
     }
 
 
@@ -80,21 +84,46 @@ async def api_create_session(body: CreateSessionRequest):
     return {"pane": pane}
 
 
+async def _resolve_log(pane: str):
+    """pane 에서 실행 중인 에이전트의 세션 로그 파일 (없으면 None) 과 에이전트 종류."""
+    windows = await asyncio.to_thread(tmux_service.cached_windows)
+    target = next(((w, p) for w in windows for p in w.panes if p.id == pane), None)
+    if target is None:
+        raise KeyError("존재하지 않는 pane 입니다.")
+    window, pane_info = target
+    agent = pane_info.command if pane_info.command in tmux_service.AGENTS else window.agent
+    cwd = os.path.expanduser(pane_info.path)
+    path = await asyncio.to_thread(transcript_service.find_log, pane_info.pid, agent, cwd)
+    return path, agent
+
+
+@router.get("/api/agent/model", dependencies=api_auth)
+async def api_agent_model(pane: str):
+    """pane 에서 도는 에이전트가 지금 쓰는 모델 (세션 로그 기준)."""
+    try:
+        pane = await asyncio.to_thread(tmux_service.require_pane, pane)
+        path, agent = await _resolve_log(pane)
+    except (TmuxError, KeyError) as error:
+        _raise_for(error)
+    model = await asyncio.to_thread(transcript_service.current_model, path, agent) if path else None
+    return {"agent": agent, "model": model}
+
+
+@router.get("/api/ai-limits", dependencies=api_auth)
+async def api_ai_limits():
+    from app.services.ai_usage_service import AIUsageService
+
+    return await asyncio.to_thread(AIUsageService.limits)
+
+
 @router.get("/api/transcript", dependencies=api_auth)
 async def api_transcript(pane: str, start: int | None = None, limit: int = 80):
     """에이전트 대화 기록. Claude Code 는 tmux 스크롤백이 없어서 세션 로그로 전체 대화를 보여준다."""
     try:
         pane = await asyncio.to_thread(tmux_service.require_pane, pane)
-        windows = await asyncio.to_thread(tmux_service.cached_windows)
+        path, agent = await _resolve_log(pane)
     except (TmuxError, KeyError) as error:
         _raise_for(error)
-    target = next(((w, p) for w in windows for p in w.panes if p.id == pane), None)
-    if target is None:
-        raise HTTPException(status_code=404, detail="존재하지 않는 pane 입니다.")
-    window, pane_info = target
-    agent = pane_info.command if pane_info.command in tmux_service.AGENTS else window.agent
-    cwd = os.path.expanduser(pane_info.path)
-    path = await asyncio.to_thread(transcript_service.find_log, pane_info.pid, agent, cwd)
     if path is None:
         return {"available": False, "agent": agent, "total": 0, "start": 0, "items": []}
     data = await asyncio.to_thread(transcript_service.read, path, agent, start, limit)
@@ -116,6 +145,7 @@ async def api_rename_session(body: RenameSessionRequest):
     prefs = PreferencesStore.load()
     if old != new:
         prefs = await asyncio.to_thread(PreferencesStore.save, rename_session_keys(prefs, old, new))
+        seen_service.rename_session(old, new)
         logger.info("세션 이름 변경 · %s → %s", old, new)
     return {"old": old, "name": new, "preferences": prefs.model_dump()}
 
@@ -143,8 +173,10 @@ async def api_kill_window(body: WindowRequest):
 #   {"t":"text", "pane", "text"}                직접 입력 모드의 문자
 #   {"t":"keys", "pane", "keys":["Escape"]}     특수 키
 #   {"t":"select", "pane"}                      tmux 에서 해당 pane 활성화
+#   {"t":"logsub", "pane", "since":N} / {"t":"logunsub"}  채팅(세션 로그) 실시간 구독
+#   {"t":"seen", "items":{창 키: 활동 시각}}     읽음 처리 (모든 기기 동기화)
 # server → client
-#   {"t":"windows", "windows":[...]} / {"t":"screen", ...} / {"t":"ack","id"} / {"t":"error","message","id"}
+#   {"t":"seen", "seen":{...}} / {"t":"windows", "windows":[...]} / {"t":"screen", ...} / {"t":"log", "pane", "items", "total", "start"} / {"t":"ack","id"} / {"t":"error","message","id"}
 
 MAX_MESSAGE = 64 * 1024
 MAX_ATTACHMENTS = 20
@@ -160,8 +192,16 @@ class _Channel:
         self.history = 300
         self.last_screen: str | None = None
         self.last_windows: str | None = None
+        self.seen_version = -1
         self.wake = asyncio.Event()
         self.send_lock = asyncio.Lock()
+        # 채팅(에이전트 세션 로그) 실시간 구독
+        self.log_pane: str | None = None
+        self.log_path = None
+        self.log_agent: str | None = None
+        self.log_since = 0
+        self.log_size = -1
+        self.log_resolved_at = 0.0
 
     async def send(self, payload: dict) -> None:
         async with self.send_lock:
@@ -182,12 +222,53 @@ class _Channel:
             self.last_screen = encoded
             await self.send({"t": "screen", **screen})
 
+    async def push_seen(self) -> None:
+        """다른 기기에서 창을 읽으면 여기서도 안 읽음 점이 바로 사라지게 한다."""
+        current = seen_service.version()
+        if current != self.seen_version:
+            self.seen_version = current
+            await self.send({"t": "seen", "seen": seen_service.snapshot()})
+
     async def push_windows(self) -> None:
         windows = await asyncio.to_thread(tmux_service.cached_windows)
         encoded = json.dumps([w.to_dict() for w in windows], ensure_ascii=False)
         if encoded != self.last_windows:
             self.last_windows = encoded
             await self.send({"t": "windows", "windows": json.loads(encoded)})
+
+
+LOG_RESOLVE_INTERVAL = 5  # /clear 등으로 세션 로그 파일이 바뀌는 것을 따라가는 주기(초)
+
+
+async def push_log(channel: _Channel, loop) -> None:
+    """구독 중인 세션 로그가 커졌으면 새 항목(과 끝부분 몇 개: 나중에 채워지는 도구 결과)을 바로 보낸다."""
+    pane = channel.log_pane
+    if not pane:
+        return
+    now = loop.time()
+    if channel.log_path is None or now - channel.log_resolved_at > LOG_RESOLVE_INTERVAL:
+        try:
+            path, agent = await _resolve_log(pane)
+        except (TmuxError, KeyError):
+            return
+        channel.log_resolved_at = now
+        if path != channel.log_path:
+            channel.log_path, channel.log_agent, channel.log_size = path, agent, -1
+    if channel.log_path is None:
+        return
+    try:
+        size = channel.log_path.stat().st_size
+    except OSError:
+        channel.log_path = None
+        return
+    if size == channel.log_size:
+        return
+    channel.log_size = size
+    data = await asyncio.to_thread(
+        transcript_service.read, channel.log_path, channel.log_agent, max(0, channel.log_since - 12), 300
+    )
+    channel.log_since = data["total"]
+    await channel.send({"t": "log", "pane": pane, **data})
 
 
 async def _pump(channel: _Channel) -> None:
@@ -208,7 +289,11 @@ async def _pump(channel: _Channel) -> None:
             except TmuxError:
                 pass
             next_windows = now + WINDOWS_INTERVAL
+        await channel.push_seen()
+        if seen_service.dirty():
+            await asyncio.to_thread(seen_service.flush)
         await channel.push_screen()
+        await push_log(channel, loop)
         try:
             await asyncio.wait_for(channel.wake.wait(), timeout=SCREEN_INTERVAL)
         except TimeoutError:
@@ -218,14 +303,30 @@ async def _pump(channel: _Channel) -> None:
 
 async def _handle(channel: _Channel, message: dict) -> None:
     kind = message.get("t")
+    if kind == "seen":
+        items = message.get("items")
+        if isinstance(items, dict):
+            seen_service.mark(items)
+        return
     if kind == "unsub":
         channel.pane = None
+        return
+    if kind == "logunsub":
+        channel.log_pane = None
         return
     if kind == "ping":
         await channel.send({"t": "pong"})
         return
 
     pane = await asyncio.to_thread(tmux_service.require_pane, message.get("pane"))
+    if kind == "logsub":
+        since = message.get("since", 0)
+        channel.log_pane = pane
+        channel.log_path = None
+        channel.log_since = since if isinstance(since, int) and since >= 0 else 0
+        channel.log_size = -1
+        channel.wake.set()
+        return
     if kind == "sub":
         history = message.get("history", 300)
         channel.history = history if isinstance(history, int) else 300

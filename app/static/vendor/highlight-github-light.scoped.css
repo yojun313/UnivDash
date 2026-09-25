@@ -1,0 +1,16 @@
+/* highlight.js github (light) — 라이트 모드에서만 적용되도록 범위를 좁힌 사본 (BSD-3-Clause) */
+html[data-ui-theme-mode="light"] .hljs{color:#24292e;}
+html[data-ui-theme-mode="light"] .hljs-doctag, html[data-ui-theme-mode="light"] .hljs-keyword, html[data-ui-theme-mode="light"] .hljs-meta .hljs-keyword, html[data-ui-theme-mode="light"] .hljs-template-tag, html[data-ui-theme-mode="light"] .hljs-template-variable, html[data-ui-theme-mode="light"] .hljs-type, html[data-ui-theme-mode="light"] .hljs-variable.language_{color:#d73a49}
+html[data-ui-theme-mode="light"] .hljs-title, html[data-ui-theme-mode="light"] .hljs-title.class_, html[data-ui-theme-mode="light"] .hljs-title.class_.inherited__, html[data-ui-theme-mode="light"] .hljs-title.function_{color:#6f42c1}
+html[data-ui-theme-mode="light"] .hljs-attr, html[data-ui-theme-mode="light"] .hljs-attribute, html[data-ui-theme-mode="light"] .hljs-literal, html[data-ui-theme-mode="light"] .hljs-meta, html[data-ui-theme-mode="light"] .hljs-number, html[data-ui-theme-mode="light"] .hljs-operator, html[data-ui-theme-mode="light"] .hljs-selector-attr, html[data-ui-theme-mode="light"] .hljs-selector-class, html[data-ui-theme-mode="light"] .hljs-selector-id, html[data-ui-theme-mode="light"] .hljs-variable{color:#005cc5}
+html[data-ui-theme-mode="light"] .hljs-meta .hljs-string, html[data-ui-theme-mode="light"] .hljs-regexp, html[data-ui-theme-mode="light"] .hljs-string{color:#032f62}
+html[data-ui-theme-mode="light"] .hljs-built_in, html[data-ui-theme-mode="light"] .hljs-symbol{color:#e36209}
+html[data-ui-theme-mode="light"] .hljs-code, html[data-ui-theme-mode="light"] .hljs-comment, html[data-ui-theme-mode="light"] .hljs-formula{color:#6a737d}
+html[data-ui-theme-mode="light"] .hljs-name, html[data-ui-theme-mode="light"] .hljs-quote, html[data-ui-theme-mode="light"] .hljs-selector-pseudo, html[data-ui-theme-mode="light"] .hljs-selector-tag{color:#22863a}
+html[data-ui-theme-mode="light"] .hljs-subst{color:#24292e}
+html[data-ui-theme-mode="light"] .hljs-section{color:#005cc5;font-weight:700}
+html[data-ui-theme-mode="light"] .hljs-bullet{color:#735c0f}
+html[data-ui-theme-mode="light"] .hljs-emphasis{color:#24292e;font-style:italic}
+html[data-ui-theme-mode="light"] .hljs-strong{color:#24292e;font-weight:700}
+html[data-ui-theme-mode="light"] .hljs-addition{color:#22863a;background-color:#f0fff4}
+html[data-ui-theme-mode="light"] .hljs-deletion{color:#b31d28;background-color:#ffeef0}
