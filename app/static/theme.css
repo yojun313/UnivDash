@@ -54,7 +54,7 @@ body {
     box-shadow: 0 8px 24px rgba(59, 130, 246, 0.30);
     transition: box-shadow 150ms, transform 150ms, opacity 150ms;
 }
-.btn-glow:hover { box-shadow: 0 10px 30px rgba(139, 92, 246, 0.40); transform: translateY(-1px); }
+@media (hover: hover) { .btn-glow:hover { box-shadow: 0 10px 30px rgba(139, 92, 246, 0.40); transform: translateY(-1px); } }
 .btn-glow:active { transform: translateY(0); }
 
 .nav-link.active {
@@ -68,7 +68,7 @@ body {
 .terminal { background: #05070c; color: #cbd5e1; border-color: rgba(255,255,255,0.08); }
 .terminal-head { border-color: rgba(255,255,255,0.08); color: #64748b; }
 .terminal-line { border-left: 1px solid rgba(255,255,255,0.08); }
-.terminal-line:hover { background: rgba(255,255,255,0.04); }
+@media (hover: hover) { .terminal-line:hover { background: rgba(255,255,255,0.04); } }
 .terminal-muted { color: #64748b; }
 
 .scale-up-animation { animation: scaleUp 0.2s ease-out; }
@@ -77,7 +77,7 @@ body {
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.35); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.55); }
+@media (hover: hover) { ::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.55); } }
 
 /* ── 테마 설정 버튼 ─────────────────────────────────────────────── */
 .theme-settings-btn {
@@ -91,13 +91,13 @@ body {
     transition: background 150ms, color 150ms, transform 150ms;
     flex-shrink: 0;
 }
-.theme-settings-btn:hover { background: rgba(255,255,255,0.12); color: #fff; transform: rotate(15deg); }
+@media (hover: hover) { .theme-settings-btn:hover { background: rgba(255,255,255,0.12); color: #fff; transform: rotate(15deg); } }
 html[data-ui-theme-mode="light"] .theme-settings-btn {
     border-color: rgba(15, 23, 42, 0.12);
     background: rgba(15, 23, 42, 0.05);
     color: #47536e;
 }
-html[data-ui-theme-mode="light"] .theme-settings-btn:hover { background: rgba(15,23,42,0.1); color: #101828; }
+@media (hover: hover) { html[data-ui-theme-mode="light"] .theme-settings-btn:hover { background: rgba(15,23,42,0.1); color: #101828; } }
 
 /* ── 테마 설정 모달 ─────────────────────────────────────────────── */
 .pmd-theme-overlay {
@@ -133,7 +133,7 @@ html[data-ui-theme-mode="light"] .pmd-theme-modal {
     background: none; border: none; font-size: 22px; line-height: 1;
     color: inherit; opacity: 0.5; cursor: pointer; flex-shrink: 0; padding: 0;
 }
-.pmd-theme-close:hover { opacity: 1; }
+@media (hover: hover) { .pmd-theme-close:hover { opacity: 1; } }
 .pmd-theme-body { padding: 8px 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .pmd-theme-option {
     display: flex; flex-direction: column; align-items: center; gap: 8px;
@@ -148,7 +148,7 @@ html[data-ui-theme-mode="light"] .pmd-theme-option {
     border-color: rgba(15, 23, 42, 0.1);
     background: rgba(15, 23, 42, 0.03);
 }
-.pmd-theme-option:hover { border-color: rgba(96, 165, 250, 0.5); }
+@media (hover: hover) { .pmd-theme-option:hover { border-color: rgba(96, 165, 250, 0.5); } }
 .pmd-theme-option.selected { border-color: #60a5fa; background: rgba(59, 130, 246, 0.12); }
 .pmd-theme-check { display: none; margin-right: 4px; color: #60a5fa; }
 .pmd-theme-option.selected .pmd-theme-check { display: inline; }
@@ -207,19 +207,17 @@ html[data-ui-theme-mode="light"] .text-white\/50 { color: #5a6781 !important; }
 html[data-ui-theme-mode="light"] .text-white\/40 { color: #6b7490 !important; }
 html[data-ui-theme-mode="light"] .text-white\/35 { color: #77809a !important; }
 html[data-ui-theme-mode="light"] .text-white\/30 { color: #8a92aa !important; }
-html[data-ui-theme-mode="light"] .hover\:text-white:hover { color: #101828 !important; }
+@media (hover: hover) { html[data-ui-theme-mode="light"] .hover\:text-white:hover { color: #101828 !important; } }
 html[data-ui-theme-mode="light"] .placeholder-white\/30::placeholder { color: #94a3b8 !important; }
 html[data-ui-theme-mode="light"] .nav-link.active { color: #1d4ed8; background: rgba(59,130,246,0.10); border-color: rgba(37,99,235,0.22); }
 
 /* 색이 있는 배경(그라디언트/단색 버튼) 위의 흰 글자는 라이트 모드에서도 흰색을 유지한다 */
-html[data-ui-theme-mode="light"] .bg-gradient-to-r.text-white,
-html[data-ui-theme-mode="light"] .bg-gradient-to-br.text-white,
-html[data-ui-theme-mode="light"] .btn-glow,
-html[data-ui-theme-mode="light"] .hover\:bg-blue-600:hover,
-html[data-ui-theme-mode="light"] .hover\:bg-red-600:hover,
-html[data-ui-theme-mode="light"] .hover\:bg-orange-600:hover {
+html[data-ui-theme-mode="light"] .bg-gradient-to-r.text-white, html[data-ui-theme-mode="light"] .bg-gradient-to-br.text-white, html[data-ui-theme-mode="light"] .btn-glow {
     color: #ffffff !important;
 }
+@media (hover: hover) { html[data-ui-theme-mode="light"] .hover\:bg-blue-600:hover, html[data-ui-theme-mode="light"] .hover\:bg-red-600:hover, html[data-ui-theme-mode="light"] .hover\:bg-orange-600:hover {
+    color: #ffffff !important;
+} }
 html[data-ui-theme-mode="light"] .bg-gradient-to-r [class*="text-white"],
 html[data-ui-theme-mode="light"] .bg-gradient-to-br [class*="text-white"] {
     color: rgba(255, 255, 255, 0.9) !important;
@@ -230,30 +228,30 @@ html[data-ui-theme-mode="light"] .border-white\/5 { border-color: rgba(15, 23, 4
 html[data-ui-theme-mode="light"] .border-white\/10 { border-color: rgba(15, 23, 42, 0.10) !important; }
 html[data-ui-theme-mode="light"] .border-white\/15 { border-color: rgba(15, 23, 42, 0.14) !important; }
 html[data-ui-theme-mode="light"] .border-white\/20 { border-color: rgba(15, 23, 42, 0.18) !important; }
-html[data-ui-theme-mode="light"] .hover\:border-white\/20:hover { border-color: rgba(15, 23, 42, 0.2) !important; }
+@media (hover: hover) { html[data-ui-theme-mode="light"] .hover\:border-white\/20:hover { border-color: rgba(15, 23, 42, 0.2) !important; } }
 html[data-ui-theme-mode="light"] .divide-white\/5 > :not([hidden]) ~ :not([hidden]) { border-color: rgba(15, 23, 42, 0.07) !important; }
 
 /* 배경 계열 */
 html[data-ui-theme-mode="light"] .bg-white\/5 { background-color: rgba(15, 23, 42, 0.04) !important; }
 html[data-ui-theme-mode="light"] .bg-white\/10 { background-color: rgba(15, 23, 42, 0.07) !important; }
 html[data-ui-theme-mode="light"] .bg-white\/20 { background-color: rgba(15, 23, 42, 0.12) !important; }
-html[data-ui-theme-mode="light"] .hover\:bg-white\/5:hover { background-color: rgba(15, 23, 42, 0.05) !important; }
-html[data-ui-theme-mode="light"] .hover\:bg-white\/10:hover { background-color: rgba(15, 23, 42, 0.08) !important; }
+@media (hover: hover) { html[data-ui-theme-mode="light"] .hover\:bg-white\/5:hover { background-color: rgba(15, 23, 42, 0.05) !important; } }
+@media (hover: hover) { html[data-ui-theme-mode="light"] .hover\:bg-white\/10:hover { background-color: rgba(15, 23, 42, 0.08) !important; } }
 html[data-ui-theme-mode="light"] .bg-black\/60 { background-color: rgba(15, 23, 42, 0.35) !important; }
 
 /* 액센트 — 라이트 배경에서 대비가 나오도록 진하게 */
 html[data-ui-theme-mode="light"] .text-blue-300 { color: #1d4ed8 !important; }
 html[data-ui-theme-mode="light"] .text-blue-400 { color: #2563eb !important; }
-html[data-ui-theme-mode="light"] .hover\:text-blue-300:hover { color: #1d4ed8 !important; }
+@media (hover: hover) { html[data-ui-theme-mode="light"] .hover\:text-blue-300:hover { color: #1d4ed8 !important; } }
 html[data-ui-theme-mode="light"] .text-purple-300,
 html[data-ui-theme-mode="light"] .text-purple-400 { color: #7c3aed !important; }
 html[data-ui-theme-mode="light"] .text-violet-300 { color: #6d28d9 !important; }
 html[data-ui-theme-mode="light"] .text-cyan-300,
 html[data-ui-theme-mode="light"] .text-cyan-400 { color: #0e7490 !important; }
-html[data-ui-theme-mode="light"] .hover\:text-cyan-300:hover { color: #155e75 !important; }
+@media (hover: hover) { html[data-ui-theme-mode="light"] .hover\:text-cyan-300:hover { color: #155e75 !important; } }
 html[data-ui-theme-mode="light"] .text-red-300,
 html[data-ui-theme-mode="light"] .text-red-400 { color: #dc2626 !important; }
-html[data-ui-theme-mode="light"] .hover\:text-red-300:hover { color: #b91c1c !important; }
+@media (hover: hover) { html[data-ui-theme-mode="light"] .hover\:text-red-300:hover { color: #b91c1c !important; } }
 html[data-ui-theme-mode="light"] .text-emerald-300 { color: #059669 !important; }
 html[data-ui-theme-mode="light"] .text-emerald-400 { color: #047857 !important; }
 html[data-ui-theme-mode="light"] .text-amber-300,
@@ -282,7 +280,7 @@ html[data-ui-theme-mode="light"] .glass-input {
 
 /* 스크롤바 */
 html[data-ui-theme-mode="light"] ::-webkit-scrollbar-thumb { background: rgba(71, 85, 105, 0.35); }
-html[data-ui-theme-mode="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(71, 85, 105, 0.55); }
+@media (hover: hover) { html[data-ui-theme-mode="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(71, 85, 105, 0.55); } }
 
 /* ============================================================================
    테마별 배경 (기본 '오로라' 다크는 위 body 기본값을 그대로 쓴다)
@@ -376,10 +374,11 @@ html[data-ui-theme="mono"][data-ui-theme-mode="light"] .glass-soft { background:
     border-radius: 9px; border: 1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.05);
     color: rgba(255,255,255,0.45); transition: color 150ms, background 150ms, border-color 150ms;
 }
-.git-icon-btn:hover, .git-icon-btn[aria-pressed="true"] { color: #67e8f9; border-color: rgba(34,211,238,0.35); background: rgba(34,211,238,0.10); }
+.git-icon-btn[aria-pressed="true"] { color: #67e8f9; border-color: rgba(34,211,238,0.35); background: rgba(34,211,238,0.10); }
+@media (hover: hover) { .git-icon-btn:hover { color: #67e8f9; border-color: rgba(34,211,238,0.35); background: rgba(34,211,238,0.10); } }
 html[data-ui-theme-mode="light"] .git-icon-btn { border-color: rgba(15,23,42,0.12); background: rgba(15,23,42,0.04); color: #5a6781; }
-html[data-ui-theme-mode="light"] .git-icon-btn:hover,
 html[data-ui-theme-mode="light"] .git-icon-btn[aria-pressed="true"] { color: #0e7490; border-color: rgba(14,116,144,0.35); background: rgba(14,116,144,0.08); }
+@media (hover: hover) { html[data-ui-theme-mode="light"] .git-icon-btn:hover { color: #0e7490; border-color: rgba(14,116,144,0.35); background: rgba(14,116,144,0.08); } }
 
 .git-menu {
     position: absolute; z-index: 200; padding: 4px; border-radius: 12px;
@@ -392,14 +391,14 @@ html[data-ui-theme-mode="light"] .git-icon-btn[aria-pressed="true"] { color: #0e
     font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.8); text-align: left;
 }
 .git-menu button i { width: 14px; text-align: center; color: rgba(255,255,255,0.45); }
-.git-menu button:hover { background: rgba(255,255,255,0.08); color: #fff; }
+@media (hover: hover) { .git-menu button:hover { background: rgba(255,255,255,0.08); color: #fff; } }
 .git-menu button.danger { color: #fca5a5; }
 .git-menu .git-menu-label { font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: rgba(255,255,255,0.35); padding-bottom: 2px; }
 .git-menu hr { border: 0; border-top: 1px solid rgba(255,255,255,0.08); margin: 4px 2px; }
 html[data-ui-theme-mode="light"] .git-menu { background: rgba(255,255,255,0.98); border-color: rgba(15,23,42,0.12); box-shadow: 0 16px 40px rgba(30,41,59,0.18); }
 html[data-ui-theme-mode="light"] .git-menu button, html[data-ui-theme-mode="light"] .git-menu .git-menu-label { color: #253046; }
 html[data-ui-theme-mode="light"] .git-menu button i { color: #6b7490; }
-html[data-ui-theme-mode="light"] .git-menu button:hover { background: rgba(15,23,42,0.06); }
+@media (hover: hover) { html[data-ui-theme-mode="light"] .git-menu button:hover { background: rgba(15,23,42,0.06); } }
 html[data-ui-theme-mode="light"] .git-menu button.danger { color: #dc2626; }
 html[data-ui-theme-mode="light"] .git-menu .git-menu-label { color: #8a92aa; }
 html[data-ui-theme-mode="light"] .git-menu hr { border-top-color: rgba(15,23,42,0.08); }
@@ -409,9 +408,11 @@ html[data-ui-theme-mode="light"] .git-menu hr { border-top-color: rgba(15,23,42,
 .git-repo-item.drop-after { box-shadow: inset 0 -2px 0 #22d3ee; }
 .git-folder.drop-into > .git-folder-head { background: rgba(34,211,238,0.12); border-color: rgba(34,211,238,0.4); }
 .git-repo-item .git-row-actions { opacity: 0; transition: opacity 120ms; }
-.git-repo-item:hover .git-row-actions, .git-repo-item:focus-within .git-row-actions { opacity: 1; }
+.git-repo-item:focus-within .git-row-actions { opacity: 1; }
+@media (hover: hover) { .git-repo-item:hover .git-row-actions { opacity: 1; } }
 .git-file-row .git-row-actions { opacity: 0; transition: opacity 120ms; }
-.git-file-row:hover .git-row-actions, .git-file-row:focus-within .git-row-actions, .git-file-row.selected .git-row-actions { opacity: 1; }
+.git-file-row:focus-within .git-row-actions, .git-file-row.selected .git-row-actions { opacity: 1; }
+@media (hover: hover) { .git-file-row:hover .git-row-actions { opacity: 1; } }
 .git-file-row.selected { background: rgba(34,211,238,0.10); }
 html[data-ui-theme-mode="light"] .git-file-row.selected { background: rgba(14,116,144,0.08); }
 @media (hover: none) {

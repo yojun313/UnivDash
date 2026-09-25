@@ -37,7 +37,8 @@
     return `${Math.round(diff / 86400)}일 전`;
   }
 
-  function vibrate(ms = 8) { try { navigator.vibrate?.(ms); } catch (e) { /* noop */ } }
+  // 안드로이드는 진동, 아이폰은 시스템 햅틱 (common.js · 사용자 탭 안에서만 울린다)
+  const vibrate = (ms = 8) => window.UnivDash.haptic(ms);
 
   // ── 토스트 ──────────────────────────────────────────────────────────
   function toast(message, kind = 'info', action = null, timeout = 3200) {
@@ -1142,7 +1143,6 @@
     const input = $('#promptInput');
     const direct = $('#directInput');
     const sendBtn = $('#sendBtn');
-    const submitToggle = $('#submitToggle');
     const jumpBtn = $('#jumpBottomBtn');
     const loadMoreBtn = $('#loadMoreBtn');
 
@@ -1151,7 +1151,7 @@
     let lastScreen = null;
     let stickBottom = true;
     let charRatio = 0.6;
-    let submit = store.get('auto-submit', true);
+    const submit = true;   // 보내면 항상 Enter 까지 (자동 제출 토글은 없앰)
     const drafts = store.get('drafts', {});
     let draftTimer = null;
 
@@ -1736,11 +1736,9 @@
     input.addEventListener('input', () => { autosize(); saveDraft(); });
 
     function syncSubmitToggle() {
-      submitToggle.setAttribute('aria-pressed', String(submit));
-      submitToggle.innerHTML = submit ? '<i class="fas fa-check-circle"></i> Enter 자동 제출' : '<i class="far fa-circle"></i> 입력만 (제출 안 함)';
       $('#composerHint').textContent = coarsePointer ? '줄바꿈은 키보드 Enter · 전송은 ➤' : 'Enter 전송 · Shift+Enter 줄바꿈';
     }
-    submitToggle.addEventListener('click', () => { submit = !submit; store.set('auto-submit', submit); syncSubmitToggle(); });
+
     syncSubmitToggle();
 
     // ── 이전 프롬프트 불러오기 (셸처럼 ↑ / ↓, 휴대폰은 입력창 아래 ⌃ ⌄ 버튼) ──
@@ -1803,6 +1801,7 @@
       const key = state.selectedKey;
       const list = attachList(key);
       sendBtn.disabled = true;
+      vibrate(10);   // 보내기를 누른 그 순간 (await 뒤에서는 iOS 햅틱이 안 울린다)
       try {
         if (list.some((item) => item.status === 'uploading')) {
           toast('첨부 파일 업로드가 끝나면 보냅니다...', 'info', null, 1800);
@@ -1838,7 +1837,6 @@
           clearAttachments(key, { deleteOnServer: false });
         }
         stickBottom = true;
-        vibrate(10);
       } catch (error) {
         toast(error.message, 'error');
       } finally {
@@ -2167,6 +2165,9 @@
       scroll.classList.toggle('hidden', mode === 'log');
       logScroll.classList.toggle('hidden', mode !== 'log');
       $('#termViewBtn').classList.toggle('hidden', mode === 'log');
+      // 채팅 모드에서는 터미널 직접 입력(⌨) 버튼을 숨긴다
+      if (mode === 'log') exitDirect();
+      $('#directBtn').classList.toggle('hidden', mode === 'log');
       jumpBtn.classList.add('hidden');
       clearInterval(log.timer);
       log.timer = null;
@@ -2506,10 +2507,13 @@
           <div class="snippet-row"><button type="button" class="sheet-action" data-text-index="${index}" data-kind="${removable ? 's' : 'r'}">
             <i class="fas ${removable ? 'fa-bolt' : 'fa-clock-rotate-left'} lead"></i><span class="txt">${escapeHtml(text.replace(/\s+/g, ' '))}</span></button>
             ${removable ? `<button type="button" class="snippet-del" data-del="${index}" aria-label="삭제"><i class="fas fa-xmark"></i></button>` : ''}</div>`).join('');
-      openSheet(`${sheetHead('빠른 문구', '탭하면 입력창에 넣습니다. 길게 눌러 바로 보내기.')}
-        <div class="sheet-actions">${rows(snippets, true) || '<p class="px-3 py-2 text-xs opacity-60">저장된 문구가 없습니다.</p>'}
+      const label = (text) => `<p class="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider opacity-50">${text}</p>`;
+      openSheet(`${sheetHead('히스토리', '탭하면 입력창에 넣습니다. 길게 눌러 바로 보내기.')}
+        <div class="sheet-actions">
+          ${label('최근 보낸 프롬프트')}${recent.length ? rows(recent, false) : '<p class="px-3 py-2 text-xs opacity-60">아직 보낸 프롬프트가 없습니다.</p>'}
+          <div class="sheet-sep"></div>${label('빠른 문구')}
+          ${rows(snippets, true) || '<p class="px-3 py-2 text-xs opacity-60">저장된 문구가 없습니다.</p>'}
           <button type="button" class="sheet-action" data-add><i class="fas fa-plus lead"></i><span>${input.value.trim() ? '지금 입력한 내용을 문구로 저장' : '새 문구 추가'}</span></button>
-          ${recent.length ? `<div class="sheet-sep"></div><p class="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider opacity-50">최근 보낸 프롬프트</p>${rows(recent.slice(0, 10), false)}` : ''}
         </div>
         <div class="sheet-buttons"><button type="button" class="sheet-cancel" data-close>닫기</button></div>`, (body) => {
         body.querySelector('[data-close]').addEventListener('click', closeSheet);
@@ -3441,7 +3445,6 @@
           </div>
           <div class="attach-tray tp-tray hidden gap-2 overflow-x-auto no-scrollbar px-2 md:px-3 pt-2"></div>
           <form class="tp-form flex items-end gap-2 p-2 md:p-3" autocomplete="off">
-            <button type="button" class="composer-btn" data-tp-snippet title="빠른 문구 · 최근 기록" aria-label="빠른 문구"><i class="fas fa-bolt text-sm"></i></button>
             <button type="button" class="model-chip tp-model hidden" title="모델 바꾸기"><i class="fas fa-microchip"></i><span>—</span></button>
             <div class="relative flex-1 min-w-0">
               <textarea rows="1" enterkeyhint="send" placeholder="프롬프트 입력" spellcheck="false" autocapitalize="off" class="prompt-input w-full glass-input rounded-2xl pl-4 pr-11 py-2.5 text-white placeholder-white/30 resize-none"></textarea>
@@ -3454,8 +3457,8 @@
           </form>
           <div class="flex items-center justify-between gap-2 px-3 md:px-4 pb-2 -mt-1 text-[10px] text-white/40">
             <div class="flex items-center gap-1 min-w-0">
-              <button type="button" class="submit-toggle" data-tp-submit></button>
               <button type="button" class="submit-toggle" data-tp-keybar></button>
+              <button type="button" class="submit-toggle qs-btn" data-tp-snippet title="최근 보낸 프롬프트 · 빠른 문구" aria-label="히스토리">히스토리</button>
             </div>
             <div class="flex items-center gap-1 min-w-0">
               <span class="truncate hidden sm:inline">Enter 전송 · Shift+Enter 줄바꿈</span>
@@ -3578,6 +3581,8 @@
         root.querySelectorAll('[data-tpmode]').forEach((b) => b.classList.toggle('on', b.dataset.tpmode === mode));
         logEl.classList.toggle('hidden', mode !== 'log');
         screenEl.classList.toggle('hidden', mode !== 'screen');
+        if (mode === 'log' && direct) setDirect(false);
+        $$in('[data-tp-direct]').classList.toggle('hidden', mode === 'log');   // 채팅 모드에서는 ⌨ 숨김
         if (mode === 'log') { if (!chat.items.size && pane) loadChat(); else send({ t: 'logsub', pane, since: chat.total }); renderStatus(); }
         else { send({ t: 'logunsub' }); renderScreen(); }
       }
@@ -3624,19 +3629,18 @@
       });
       // ── 입력 (메인 입력창과 같은 구성: 특수 키 · 빠른 문구 · 모델 · 첨부 · 직접 입력 · 자동 제출 · 키 접기 · 이전 프롬프트) ──
       const autosize = () => { input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 160)}px`; };
-      let submit = store.get('auto-submit', true);
+      const submit = true;
       let direct = false;
       const history = { index: -1, stash: '' };
       const attachments = [];
       const tray = $$in('.tp-tray');
       function syncToggles() {
-        $$in('[data-tp-submit]').innerHTML = submit ? '<i class="fas fa-check-circle"></i> Enter 자동 제출' : '<i class="far fa-circle"></i> 입력만 (제출 안 함)';
         const collapsed = store.get('keybar-collapsed', false);
         $$in('.tp-keys').classList.toggle('hidden', collapsed);
         $$in('[data-tp-keybar]').innerHTML = collapsed ? '<i class="fas fa-chevron-up"></i> 키 펼치기' : '<i class="fas fa-chevron-down"></i> 키 접기';
       }
       syncToggles();
-      $$in('[data-tp-submit]').addEventListener('click', () => { submit = !submit; store.set('auto-submit', submit); syncToggles(); });
+
       $$in('[data-tp-keybar]').addEventListener('click', () => { store.set('keybar-collapsed', !store.get('keybar-collapsed', false)); syncToggles(); });
       function recall(delta) {
         const list = store.get('recent', []);
@@ -3654,11 +3658,11 @@
       });
       $$in('[data-tp-snippet]').addEventListener('click', () => {
         const snippets = store.get('snippets', ['계속 진행해줘', '커밋해줘', '테스트 돌려서 확인해줘', '/compact', '/clear']);
-        const recent = store.get('recent', []).slice(0, 12);
+        const recent = store.get('recent', []).slice(0, 20);
         const put = (text) => { input.value = input.value ? `${input.value}${input.value.endsWith('\n') ? '' : ' '}${text}` : text; autosize(); input.focus(); };
         actionSheet({
-          title: '빠른 문구', subtitle: '누르면 입력창에 넣습니다.',
-          actions: [...snippets.map((t) => ({ icon: 'fa-bolt', label: t, onClick: () => put(t) })), ...(recent.length ? ['sep'] : []), ...recent.map((t) => ({ icon: 'fa-clock-rotate-left', label: t.replace(/\s+/g, ' ').slice(0, 80), onClick: () => put(t) }))],
+          title: '히스토리', subtitle: '누르면 입력창에 넣습니다.',
+          actions: [...recent.map((t) => ({ icon: 'fa-clock-rotate-left', label: t.replace(/\s+/g, ' ').slice(0, 80), onClick: () => put(t) })), ...(recent.length ? ['sep'] : []), ...snippets.map((t) => ({ icon: 'fa-bolt', label: t, onClick: () => put(t) }))],
         });
       });
       // 첨부: 업로드해 두었다가 보낼 때 함께 (메인과 같은 /api/uploads)

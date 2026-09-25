@@ -67,7 +67,9 @@ class Folder(BaseModel):
 
 class Preferences(BaseModel):
     folders: list[Folder] = Field(default_factory=list, max_length=100)
-    order: list[str] = Field(default_factory=list, max_length=MAX_ITEMS)  # 폴더 밖 창 순서
+    order: list[str] = Field(
+        default_factory=list, max_length=MAX_ITEMS
+    )  # 폴더 밖 창 순서
     hidden: list[str] = Field(default_factory=list, max_length=MAX_ITEMS)
     aliases: dict[str, str] = Field(default_factory=dict)
     sort: str = "status"
@@ -113,14 +115,16 @@ def rename_session_keys(prefs: "Preferences", old: str, new: str) -> "Preference
     prefix = f"{old}:"
 
     def move(key: str) -> str:
-        return f"{new}:{key[len(prefix):]}" if key.startswith(prefix) else key
+        return f"{new}:{key[len(prefix) :]}" if key.startswith(prefix) else key
 
     data = prefs.model_dump()
     for folder in data["folders"]:
         folder["items"] = [move(k) for k in folder["items"]]
     data["order"] = [move(k) for k in data["order"]]
     data["hidden"] = [move(k) for k in data["hidden"]]
-    data["aliases"] = {k: v for k, v in data["aliases"].items() if not k.startswith(prefix)}
+    data["aliases"] = {
+        k: v for k, v in data["aliases"].items() if not k.startswith(prefix)
+    }
     return Preferences.model_validate(data)
 
 

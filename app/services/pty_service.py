@@ -22,21 +22,43 @@ from pathlib import Path
 from app.services.pm2_service import update_env
 
 MAX_TERMINALS = 12
-ORPHAN_SECONDS = 600          # 창(브라우저)을 닫아 아무 화면도 안 붙은 채 10분이 지나면 셸을 끝낸다
+ORPHAN_SECONDS = (
+    600  # 창(브라우저)을 닫아 아무 화면도 안 붙은 채 10분이 지나면 셸을 끝낸다
+)
 SCROLLBACK_CHARS = 400_000
 DASH_ONLY_PREFIXES = ("UNIVDASH_", "EXPLORER_", "SESSION_", "ADMIN_", "PM2_ECOSYSTEM")
-DASH_ONLY_KEYS = {"SECRET_KEY", "ALLOWED_HOSTS", "APP_ENV", "NODE_CHANNEL_FD", "NODE_CHANNEL_SERIALIZATION_MODE", "NODE_UNIQUE_ID"}
+DASH_ONLY_KEYS = {
+    "SECRET_KEY",
+    "ALLOWED_HOSTS",
+    "APP_ENV",
+    "NODE_CHANNEL_FD",
+    "NODE_CHANNEL_SERIALIZATION_MODE",
+    "NODE_UNIQUE_ID",
+}
 
 
 def _shell() -> str:
-    candidate = os.environ.get("SHELL") or pwd.getpwuid(os.getuid()).pw_shell or "/bin/bash"
+    candidate = (
+        os.environ.get("SHELL") or pwd.getpwuid(os.getuid()).pw_shell or "/bin/bash"
+    )
     return candidate if os.path.exists(candidate) else "/bin/bash"
 
 
 def _env() -> dict[str, str]:
-    env = {k: v for k, v in update_env().items() if k not in DASH_ONLY_KEYS and not k.startswith(DASH_ONLY_PREFIXES)}
+    env = {
+        k: v
+        for k, v in update_env().items()
+        if k not in DASH_ONLY_KEYS and not k.startswith(DASH_ONLY_PREFIXES)
+    }
     home = str(Path.home())
-    env.update({"TERM": "xterm-256color", "COLORTERM": "truecolor", "HOME": env.get("HOME", home), "TERM_PROGRAM": "UnivDash"})
+    env.update(
+        {
+            "TERM": "xterm-256color",
+            "COLORTERM": "truecolor",
+            "HOME": env.get("HOME", home),
+            "TERM_PROGRAM": "UnivDash",
+        }
+    )
     env.setdefault("LANG", "C.UTF-8")
     env.setdefault("USER", pwd.getpwuid(os.getuid()).pw_name)
     env.setdefault("PATH", os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"))
@@ -54,12 +76,20 @@ class Terminal:
     buffer: str = ""
     alive: bool = True
     exit_code: int | None = None
-    clients: set = field(default_factory=set)       # asyncio.Queue 들
-    detached_at: float | None = None               # 마지막 화면이 떨어진 시각
-    decoder: object = field(default_factory=lambda: codecs.getincrementaldecoder("utf-8")(errors="replace"))
+    clients: set = field(default_factory=set)  # asyncio.Queue 들
+    detached_at: float | None = None  # 마지막 화면이 떨어진 시각
+    decoder: object = field(
+        default_factory=lambda: codecs.getincrementaldecoder("utf-8")(errors="replace")
+    )
 
     def info(self) -> dict:
-        return {"id": self.id, "cwd": self.cwd, "created": self.created, "alive": self.alive, "exit_code": self.exit_code}
+        return {
+            "id": self.id,
+            "cwd": self.cwd,
+            "created": self.created,
+            "alive": self.alive,
+            "exit_code": self.exit_code,
+        }
 
 
 _terminals: dict[str, Terminal] = {}
@@ -82,7 +112,9 @@ def _set_size(fd: int, cols: int, rows: int) -> None:
 def create(cwd: str | None, cols: int = 100, rows: int = 30) -> Terminal:
     alive = [t for t in _terminals.values() if t.alive]
     if len(alive) >= MAX_TERMINALS:
-        raise ValueError(f"터미널은 한 번에 {MAX_TERMINALS}개까지 열 수 있습니다. 안 쓰는 탭을 닫아 주세요.")
+        raise ValueError(
+            f"터미널은 한 번에 {MAX_TERMINALS}개까지 열 수 있습니다. 안 쓰는 탭을 닫아 주세요."
+        )
     directory = Path(os.path.expanduser(cwd or "~"))
     if not directory.is_dir():
         directory = Path.home()
@@ -96,7 +128,13 @@ def create(cwd: str | None, cols: int = 100, rows: int = 30) -> Terminal:
         finally:
             os._exit(127)
     _set_size(fd, cols, rows)
-    terminal = Terminal(id=secrets.token_urlsafe(9), pid=pid, fd=fd, cwd=str(directory), created=time.time())
+    terminal = Terminal(
+        id=secrets.token_urlsafe(9),
+        pid=pid,
+        fd=fd,
+        cwd=str(directory),
+        created=time.time(),
+    )
     terminal.detached_at = time.monotonic()
     _terminals[terminal.id] = terminal
     loop = asyncio.get_running_loop()
@@ -129,7 +167,12 @@ def _ensure_sweeper(loop) -> None:
     def sweep() -> None:
         now = time.monotonic()
         for terminal in list(_terminals.values()):
-            if terminal.alive and not terminal.clients and terminal.detached_at and now - terminal.detached_at > ORPHAN_SECONDS:
+            if (
+                terminal.alive
+                and not terminal.clients
+                and terminal.detached_at
+                and now - terminal.detached_at > ORPHAN_SECONDS
+            ):
                 kill(terminal.id)
         loop.call_later(30, sweep)
 
@@ -172,7 +215,9 @@ def _finish(terminal: Terminal) -> None:
     _reap(terminal, loop, tries=20)
     _broadcast(terminal, {"t": "exit", "code": terminal.exit_code})
     # 끝난 터미널은 잠시 뒤 목록에서 뺀다 (그 사이 붙는 화면은 종료 안내를 받는다)
-    loop.call_later(600, lambda: _terminals.pop(terminal.id, None) if not terminal.alive else None)
+    loop.call_later(
+        600, lambda: _terminals.pop(terminal.id, None) if not terminal.alive else None
+    )
 
 
 def _reap(terminal: Terminal, loop, tries: int) -> None:
@@ -204,7 +249,9 @@ def kill(terminal_id: str) -> bool:
         return False
     if terminal.alive:
         try:
-            os.killpg(os.getpgid(terminal.pid), signal.SIGHUP)   # 셸과 그 안에서 돌던 작업까지
+            os.killpg(
+                os.getpgid(terminal.pid), signal.SIGHUP
+            )  # 셸과 그 안에서 돌던 작업까지
         except (ProcessLookupError, PermissionError):
             pass
         _finish(terminal)

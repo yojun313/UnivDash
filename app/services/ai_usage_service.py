@@ -66,7 +66,15 @@ class AIUsageService:
         codex = None
         sessions = cls._data_root("CODEX_DATA_DIR", ".codex") / "sessions"
         try:
-            newest = sorted(sessions.rglob("rollout-*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)[:3] if sessions.is_dir() else []
+            newest = (
+                sorted(
+                    sessions.rglob("rollout-*.jsonl"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )[:3]
+                if sessions.is_dir()
+                else []
+            )
         except OSError:
             newest = []
         for path in newest:
@@ -79,7 +87,9 @@ class AIUsageService:
         return result
 
     @classmethod
-    def _tail_rate_limits(cls, path: Path, size: int = 2 * 1024 * 1024) -> tuple[datetime, dict[str, Any]] | None:
+    def _tail_rate_limits(
+        cls, path: Path, size: int = 2 * 1024 * 1024
+    ) -> tuple[datetime, dict[str, Any]] | None:
         try:
             with path.open("rb") as handle:
                 handle.seek(max(0, path.stat().st_size - size))
@@ -94,8 +104,12 @@ class AIUsageService:
             except ValueError:
                 continue
             payload = record.get("payload")
-            if isinstance(payload, dict) and isinstance(payload.get("rate_limits"), dict):
-                return cls._parse_timestamp(record.get("timestamp"), cls._mtime(path)), payload["rate_limits"]
+            if isinstance(payload, dict) and isinstance(
+                payload.get("rate_limits"), dict
+            ):
+                return cls._parse_timestamp(
+                    record.get("timestamp"), cls._mtime(path)
+                ), payload["rate_limits"]
         return None
 
     @staticmethod
@@ -730,9 +744,7 @@ class AIUsageService:
     @staticmethod
     def _mtime(path: Path) -> datetime:
         try:
-            return datetime.fromtimestamp(
-                path.stat().st_mtime, tz=UTC
-            ).astimezone()
+            return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).astimezone()
         except OSError:
             return datetime.now().astimezone()
 

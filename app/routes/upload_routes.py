@@ -29,7 +29,10 @@ async def api_upload(request: Request):
     except ValueError:
         raise HTTPException(status_code=400, detail="잘못된 요청입니다.") from None
     if declared > limit:
-        raise HTTPException(status_code=413, detail=f"파일이 너무 큽니다 (최대 {limit // (1024 * 1024)}MB).")
+        raise HTTPException(
+            status_code=413,
+            detail=f"파일이 너무 큽니다 (최대 {limit // (1024 * 1024)}MB).",
+        )
 
     original = unquote(request.headers.get("x-filename", ""))[:255] or "file"
     path = await asyncio.to_thread(upload_service.new_path, original)
@@ -40,7 +43,10 @@ async def api_upload(request: Request):
             async for chunk in request.stream():
                 written += len(chunk)
                 if written > limit:
-                    raise HTTPException(status_code=413, detail=f"파일이 너무 큽니다 (최대 {limit // (1024 * 1024)}MB).")
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"파일이 너무 큽니다 (최대 {limit // (1024 * 1024)}MB).",
+                    )
                 handle.write(chunk)
         if written == 0:
             raise HTTPException(status_code=400, detail="빈 파일은 첨부할 수 없습니다.")
@@ -50,8 +56,12 @@ async def api_upload(request: Request):
             raise
         if isinstance(error, OSError):
             logger.warning("첨부 파일 저장 실패: %s", error)
-            raise HTTPException(status_code=500, detail="파일을 저장하지 못했습니다.") from error
-        raise HTTPException(status_code=400, detail="업로드가 중단되었습니다.") from error
+            raise HTTPException(
+                status_code=500, detail="파일을 저장하지 못했습니다."
+            ) from error
+        raise HTTPException(
+            status_code=400, detail="업로드가 중단되었습니다."
+        ) from error
 
     await asyncio.to_thread(upload_service.cleanup)
     logger.info("첨부 업로드 · %s · %d bytes", path.name, written)
@@ -64,5 +74,7 @@ async def api_delete_upload(upload_id: str, request: Request):
     try:
         await asyncio.to_thread(upload_service.remove, upload_id)
     except KeyError:
-        raise HTTPException(status_code=404, detail="첨부 파일을 찾을 수 없습니다.") from None
+        raise HTTPException(
+            status_code=404, detail="첨부 파일을 찾을 수 없습니다."
+        ) from None
     return {"ok": True}

@@ -33,7 +33,12 @@ async def create_terminal(body: NewTerminal):
     try:
         terminal = pty_service.create(body.cwd or None, body.cols, body.rows)
     except (ValueError, OSError) as error:
-        raise HTTPException(status_code=400, detail=str(error) if isinstance(error, ValueError) else "터미널을 열지 못했습니다.") from error
+        raise HTTPException(
+            status_code=400,
+            detail=str(error)
+            if isinstance(error, ValueError)
+            else "터미널을 열지 못했습니다.",
+        ) from error
     logger.info("터미널 열기 · %s · %s", terminal.id, terminal.cwd)
     return terminal.info()
 
@@ -58,7 +63,11 @@ async def terminal_socket(websocket: WebSocket, terminal_id: str):
         return
     queue: asyncio.Queue = asyncio.Queue(maxsize=5000)
     pty_service.attach_client(terminal, queue)
-    await websocket.send_text(json.dumps({"t": "out", "d": terminal.buffer, "replay": True}, ensure_ascii=False))
+    await websocket.send_text(
+        json.dumps(
+            {"t": "out", "d": terminal.buffer, "replay": True}, ensure_ascii=False
+        )
+    )
     if not terminal.alive:
         await websocket.send_text(json.dumps({"t": "exit", "code": terminal.exit_code}))
 
@@ -90,7 +99,11 @@ async def terminal_socket(websocket: WebSocket, terminal_id: str):
                 pty_service.write(terminal, message["d"])
             elif message.get("t") == "resize":
                 try:
-                    pty_service.resize(terminal, int(message.get("cols", 100)), int(message.get("rows", 30)))
+                    pty_service.resize(
+                        terminal,
+                        int(message.get("cols", 100)),
+                        int(message.get("rows", 30)),
+                    )
                 except (TypeError, ValueError, OSError):
                     pass
     except WebSocketDisconnect:

@@ -869,7 +869,9 @@ class GitService:
         elif shutil.which("uvx"):
             command = [shutil.which("uvx"), "ruff"]
         else:
-            raise RuntimeError("ruff 를 찾을 수 없습니다. 저장소 .venv 에 ruff 를 설치하거나 uv 를 설치하세요.")
+            raise RuntimeError(
+                "ruff 를 찾을 수 없습니다. 저장소 .venv 에 ruff 를 설치하거나 uv 를 설치하세요."
+            )
         args = [*command, "format", "."]
         lock = cls._lock_for(repository.id)
         if not lock.acquire(blocking=False):
@@ -877,14 +879,43 @@ class GitService:
         try:
             env = {**os.environ, "NO_COLOR": "1"}
             try:
-                result = subprocess.run(args, cwd=root, capture_output=True, text=True, timeout=cls.COMMAND_TIMEOUT_SECONDS, env=env, stdin=subprocess.DEVNULL)
+                result = subprocess.run(
+                    args,
+                    cwd=root,
+                    capture_output=True,
+                    text=True,
+                    timeout=cls.COMMAND_TIMEOUT_SECONDS,
+                    env=env,
+                    stdin=subprocess.DEVNULL,
+                )
             except subprocess.TimeoutExpired:
-                return {"success": False, "command": "ruff format .", "output": "시간 안에 끝나지 않았습니다.", "return_code": -1, "summary": ""}
+                return {
+                    "success": False,
+                    "command": "ruff format .",
+                    "output": "시간 안에 끝나지 않았습니다.",
+                    "return_code": -1,
+                    "summary": "",
+                }
         finally:
             lock.release()
-        output = "\n".join(part for part in (result.stdout.strip(), result.stderr.strip()) if part)
-        summary = next((line.strip() for line in reversed(output.splitlines()) if re.search(r"\bfiles? (reformatted|left unchanged)|\bfile(s)? would be", line)), "")
-        where = "~" + str(root)[len(str(Path.home())):] if str(root).startswith(str(Path.home())) else str(root)
+        output = "\n".join(
+            part for part in (result.stdout.strip(), result.stderr.strip()) if part
+        )
+        summary = next(
+            (
+                line.strip()
+                for line in reversed(output.splitlines())
+                if re.search(
+                    r"\bfiles? (reformatted|left unchanged)|\bfile(s)? would be", line
+                )
+            ),
+            "",
+        )
+        where = (
+            "~" + str(root)[len(str(Path.home())) :]
+            if str(root).startswith(str(Path.home()))
+            else str(root)
+        )
         return {
             "success": result.returncode == 0,
             "command": f"cd {where} && ruff format .",

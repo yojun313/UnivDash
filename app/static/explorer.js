@@ -939,7 +939,7 @@
       pressTimer = setTimeout(() => {
         pressTimer = null;
         const entry = entryAt(row.dataset.path);
-        if (entry) { navigator.vibrate?.(10); select(entry.path); entryMenu(entry); row.dataset.pressed = '1'; }
+        if (entry) { window.UnivDash.haptic(10); select(entry.path); entryMenu(entry); row.dataset.pressed = '1'; }
       }, 520);
     });
     const cancelPress = () => { clearTimeout(pressTimer); pressTimer = null; };

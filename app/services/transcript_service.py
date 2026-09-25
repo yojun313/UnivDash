@@ -27,9 +27,16 @@ CACHE_FILES = 16
 
 # 사용자 입력처럼 보이지만 에이전트가 끼워 넣은 문맥은 숨긴다.
 _INJECTED_PREFIXES = (
-    "<environment_context", "<user_instructions", "<permissions", "<system-reminder",
-    "<local-command-", "<command-message", "# AGENTS.md instructions", "<model_switch",
-    "<turn_aborted", "Caveat: The messages below",
+    "<environment_context",
+    "<user_instructions",
+    "<permissions",
+    "<system-reminder",
+    "<local-command-",
+    "<command-message",
+    "# AGENTS.md instructions",
+    "<model_switch",
+    "<turn_aborted",
+    "Caveat: The messages below",
 )
 _COMMAND_NAME = re.compile(r"<command-name>(.*?)</command-name>", re.DOTALL)
 _COMMAND_ARGS = re.compile(r"<command-args>(.*?)</command-args>", re.DOTALL)
@@ -37,15 +44,22 @@ _COMMAND_ARGS = re.compile(r"<command-args>(.*?)</command-args>", re.DOTALL)
 
 def _data_root(env_name: str, default: str) -> Path:
     configured = os.getenv(env_name)
-    return (Path(configured).expanduser() if configured else Path.home() / default).resolve()
+    return (
+        Path(configured).expanduser() if configured else Path.home() / default
+    ).resolve()
 
 
 def _clip(text: str, limit: int) -> str:
     text = text or ""
-    return text if len(text) <= limit else text[:limit] + f"\n… ({len(text) - limit:,}자 생략)"
+    return (
+        text
+        if len(text) <= limit
+        else text[:limit] + f"\n… ({len(text) - limit:,}자 생략)"
+    )
 
 
 # ── pane → 로그 파일 ────────────────────────────────────────────────────────
+
 
 def _agent_process(pane_pid: int, agent: str) -> psutil.Process | None:
     try:
@@ -78,7 +92,11 @@ def _claude_log(proc: psutil.Process) -> Path | None:
     session_id = str(meta.get("sessionId") or "")
     if not SESSION_ID.match(session_id):
         return None
-    matches = sorted((root / "projects").glob(f"*/{session_id}.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
+    matches = sorted(
+        (root / "projects").glob(f"*/{session_id}.jsonl"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
     return next((p for p in matches if _inside(p, root)), None)
 
 
@@ -88,7 +106,11 @@ def _codex_log(proc: psutil.Process, cwd: str) -> Path | None:
         try:
             for handle in candidate.open_files():
                 path = Path(handle.path)
-                if path.name.startswith("rollout-") and path.suffix == ".jsonl" and _inside(path, root):
+                if (
+                    path.name.startswith("rollout-")
+                    and path.suffix == ".jsonl"
+                    and _inside(path, root)
+                ):
                     return path
         except psutil.Error:
             continue
@@ -96,7 +118,11 @@ def _codex_log(proc: psutil.Process, cwd: str) -> Path | None:
     sessions = root / "sessions"
     if not sessions.is_dir() or not cwd:
         return None
-    recent = sorted(sessions.glob("*/*/*/rollout-*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)[:40]
+    recent = sorted(
+        sessions.glob("*/*/*/rollout-*.jsonl"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )[:40]
     for path in recent:
         try:
             with path.open(encoding="utf-8") as handle:
@@ -119,6 +145,7 @@ def find_log(pane_pid: int, agent: str | None, cwd: str) -> Path | None:
 
 # ── 파싱 ─────────────────────────────────────────────────────────────────────
 
+
 def _blocks_text(content: Any) -> str:
     if isinstance(content, str):
         return content
@@ -139,9 +166,21 @@ def _tool_summary(name: str, data: Any) -> str:
         try:
             data = json.loads(data)
         except ValueError:
-            return _clip(data.strip().splitlines()[0] if data.strip() else "", MAX_SUMMARY)
+            return _clip(
+                data.strip().splitlines()[0] if data.strip() else "", MAX_SUMMARY
+            )
     if isinstance(data, dict):
-        for key in ("command", "cmd", "file_path", "path", "pattern", "url", "query", "description", "prompt"):
+        for key in (
+            "command",
+            "cmd",
+            "file_path",
+            "path",
+            "pattern",
+            "url",
+            "query",
+            "description",
+            "prompt",
+        ):
             value = data.get(key)
             if isinstance(value, list):
                 value = " ".join(map(str, value))
@@ -159,7 +198,10 @@ def _user_text(text: str) -> tuple[str, str] | None:
     command = _COMMAND_NAME.search(stripped)
     if command:
         args = _COMMAND_ARGS.search(stripped)
-        return "system", f"{command.group(1).strip()} {args.group(1).strip() if args else ''}".strip()
+        return (
+            "system",
+            f"{command.group(1).strip()} {args.group(1).strip() if args else ''}".strip(),
+        )
     if stripped.startswith(_INJECTED_PREFIXES):
         return None
     if stripped.startswith("[Request interrupted"):
@@ -182,19 +224,35 @@ class _Log:
         self.queue: list[str] = []
 
     def _add(self, kind: str, text: str = "", ts: str = "", **extra) -> dict:
-        item = {"id": len(self.items), "kind": kind, "text": _clip(text, MAX_TEXT), "ts": ts, **extra}
+        item = {
+            "id": len(self.items),
+            "kind": kind,
+            "text": _clip(text, MAX_TEXT),
+            "ts": ts,
+            **extra,
+        }
         self.items.append(item)
         return item
 
     def _tool(self, call_id: str, name: str, data: Any, ts: str) -> None:
-        item = self._add("tool", ts=ts, name=name, summary=_tool_summary(name, data), output=None, error=False)
+        item = self._add(
+            "tool",
+            ts=ts,
+            name=name,
+            summary=_tool_summary(name, data),
+            output=None,
+            error=False,
+        )
         if call_id:
             self.by_call[call_id] = item
 
     def _result(self, call_id: str, output: Any, error: bool = False) -> None:
         item = self.by_call.get(call_id)
         if item is not None:
-            item["output"] = _clip(_blocks_text(output) if not isinstance(output, str) else output, MAX_OUTPUT)
+            item["output"] = _clip(
+                _blocks_text(output) if not isinstance(output, str) else output,
+                MAX_OUTPUT,
+            )
             item["error"] = bool(error)
 
     def _claude(self, d: dict) -> None:
@@ -217,19 +275,31 @@ class _Log:
         # 작업 도중에 받은 메시지는 user 가 아니라 attachment(queued_command) 로 기록된다
         if kind == "attachment" and not d.get("isSidechain"):
             att = d.get("attachment") or {}
-            if isinstance(att, dict) and att.get("type") == "queued_command" and isinstance(att.get("prompt"), str):
+            if (
+                isinstance(att, dict)
+                and att.get("type") == "queued_command"
+                and isinstance(att.get("prompt"), str)
+            ):
                 parsed = _user_text(att["prompt"])
                 if parsed:
-                    self._add(parsed[0], parsed[1], d.get("timestamp") or "", queued=True)
+                    self._add(
+                        parsed[0], parsed[1], d.get("timestamp") or "", queued=True
+                    )
             return
         if kind not in {"user", "assistant"} or d.get("isMeta") or d.get("isSidechain"):
             return
         content = (d.get("message") or {}).get("content")
         if kind == "user":
-            if isinstance(content, list) and any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content):
+            if isinstance(content, list) and any(
+                isinstance(b, dict) and b.get("type") == "tool_result" for b in content
+            ):
                 for block in content:
                     if isinstance(block, dict) and block.get("type") == "tool_result":
-                        self._result(block.get("tool_use_id", ""), block.get("content"), block.get("is_error", False))
+                        self._result(
+                            block.get("tool_use_id", ""),
+                            block.get("content"),
+                            block.get("is_error", False),
+                        )
                 return
             parsed = _user_text(_blocks_text(content))
             if parsed:
@@ -241,7 +311,12 @@ class _Log:
             if block.get("type") == "text" and (block.get("text") or "").strip():
                 self._add("assistant", block["text"].strip(), ts)
             elif block.get("type") == "tool_use":
-                self._tool(block.get("id", ""), block.get("name", "tool"), block.get("input"), ts)
+                self._tool(
+                    block.get("id", ""),
+                    block.get("name", "tool"),
+                    block.get("input"),
+                    ts,
+                )
 
     def _codex(self, d: dict) -> None:
         kind, ts = d.get("type"), d.get("timestamp") or ""
@@ -258,8 +333,17 @@ class _Log:
             if text:
                 self._add("assistant", text, ts)
         elif ptype in {"function_call", "custom_tool_call", "local_shell_call"}:
-            self._tool(p.get("call_id", ""), p.get("name") or "shell", p.get("arguments") or p.get("input") or p.get("action"), ts)
-        elif ptype in {"function_call_output", "custom_tool_call_output", "local_shell_call_output"}:
+            self._tool(
+                p.get("call_id", ""),
+                p.get("name") or "shell",
+                p.get("arguments") or p.get("input") or p.get("action"),
+                ts,
+            )
+        elif ptype in {
+            "function_call_output",
+            "custom_tool_call_output",
+            "local_shell_call_output",
+        }:
             self._result(p.get("call_id", ""), p.get("output"))
 
     def refresh(self) -> None:
@@ -306,8 +390,14 @@ def read(path: Path, agent: str, start: int | None, limit: int) -> dict:
             start = max(0, total - limit)
         start = max(0, min(int(start), total))
         items = [dict(item) for item in log.items[start : start + limit]]
-        return {"total": total, "start": start, "items": items, "title": log.title, "file": path.name,
-                "queued": [_clip(text, MAX_TEXT) for text in log.queue]}
+        return {
+            "total": total,
+            "start": start,
+            "items": items,
+            "title": log.title,
+            "file": path.name,
+            "queued": [_clip(text, MAX_TEXT) for text in log.queue],
+        }
 
 
 def current_model(path: Path, agent: str | None) -> str | None:
@@ -326,12 +416,23 @@ def current_model(path: Path, agent: str | None) -> str | None:
         except ValueError:
             continue
         if agent == "codex":
-            payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
-            if record.get("type") == "turn_context" and isinstance(payload.get("model"), str):
+            payload = (
+                record.get("payload") if isinstance(record.get("payload"), dict) else {}
+            )
+            if record.get("type") == "turn_context" and isinstance(
+                payload.get("model"), str
+            ):
                 return payload["model"]
             continue
-        message = record.get("message") if isinstance(record.get("message"), dict) else {}
+        message = (
+            record.get("message") if isinstance(record.get("message"), dict) else {}
+        )
         model = message.get("model")
-        if record.get("type") == "assistant" and isinstance(model, str) and model and not model.startswith("<"):
+        if (
+            record.get("type") == "assistant"
+            and isinstance(model, str)
+            and model
+            and not model.startswith("<")
+        ):
             return model
     return None

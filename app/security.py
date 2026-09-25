@@ -81,7 +81,11 @@ def resolve_secret_key() -> str:
 
 def allowed_hosts() -> set[str]:
     """ALLOWED_HOSTS=dash.example.com,localhost — 비어 있으면 Host 검사를 하지 않는다."""
-    return {h.strip().lower() for h in os.getenv("ALLOWED_HOSTS", "").split(",") if h.strip()}
+    return {
+        h.strip().lower()
+        for h in os.getenv("ALLOWED_HOSTS", "").split(",")
+        if h.strip()
+    }
 
 
 def _hostname(host: str) -> str:
@@ -115,13 +119,21 @@ class SecurityMiddleware:
         self.hsts = hsts
         self.hosts = allowed_hosts()
         if not self.hosts:
-            logger.warning("ALLOWED_HOSTS 가 비어 있습니다. 운영 도메인을 지정하면 DNS rebinding 공격을 막을 수 있습니다.")
+            logger.warning(
+                "ALLOWED_HOSTS 가 비어 있습니다. 운영 도메인을 지정하면 DNS rebinding 공격을 막을 수 있습니다."
+            )
         self.headers = dict(SECURITY_HEADERS)
         if hsts:
-            self.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
-            self.headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY + "; upgrade-insecure-requests"
+            self.headers["Strict-Transport-Security"] = (
+                "max-age=63072000; includeSubDomains"
+            )
+            self.headers["Content-Security-Policy"] = (
+                CONTENT_SECURITY_POLICY + "; upgrade-insecure-requests"
+            )
 
-    async def _reject(self, scope: Scope, receive: Receive, send: Send, status: int, text: str) -> None:
+    async def _reject(
+        self, scope: Scope, receive: Receive, send: Send, status: int, text: str
+    ) -> None:
         if scope["type"] == "websocket":
             await send({"type": "websocket.close", "code": 1008})
             return
@@ -137,11 +149,17 @@ class SecurityMiddleware:
         is_websocket = scope["type"] == "websocket"
 
         if self.hosts and _hostname(headers.get("host") or "") not in self.hosts:
-            logger.warning("허용되지 않은 Host 차단 · host=%s · path=%s", headers.get("host"), scope.get("path"))
+            logger.warning(
+                "허용되지 않은 Host 차단 · host=%s · path=%s",
+                headers.get("host"),
+                scope.get("path"),
+            )
             await self._reject(scope, receive, send, 400, "Bad Request")
             return
 
-        if (is_websocket or scope["method"] in UNSAFE_METHODS) and not is_same_origin(headers):
+        if (is_websocket or scope["method"] in UNSAFE_METHODS) and not is_same_origin(
+            headers
+        ):
             logger.warning(
                 "교차 출처 요청 차단 · path=%s · origin=%s",
                 scope.get("path"),
@@ -158,7 +176,11 @@ class SecurityMiddleware:
     def _with_headers(self, send: Send) -> Send:
         async def send_wrapper(message: Message) -> None:
             if message["type"] == "http.response.start":
-                raw = [(k, v) for k, v in message.get("headers", []) if k.lower() != b"server"]
+                raw = [
+                    (k, v)
+                    for k, v in message.get("headers", [])
+                    if k.lower() != b"server"
+                ]
                 present = {name.lower() for name, _ in raw}
                 for name, value in self.headers.items():
                     key = name.lower().encode("latin-1")
@@ -220,15 +242,25 @@ class LoginRateLimiter:
             if len(failures) >= self.max_attempts:
                 self._locked_until[key] = now + self.lockout_seconds
                 failures.clear()
-                logger.warning("로그인 시도 제한 · client=%s · %s초 잠금", key, self.lockout_seconds)
+                logger.warning(
+                    "로그인 시도 제한 · client=%s · %s초 잠금",
+                    key,
+                    self.lockout_seconds,
+                )
 
             self._global_failures.append(now)
-            while self._global_failures and now - self._global_failures[0] > self.global_window_seconds:
+            while (
+                self._global_failures
+                and now - self._global_failures[0] > self.global_window_seconds
+            ):
                 self._global_failures.popleft()
             if len(self._global_failures) >= self.global_max_attempts:
                 self._global_locked_until = now + self.global_lockout_seconds
                 self._global_failures.clear()
-                logger.error("전체 로그인 실패가 너무 많아 %s초 동안 모든 로그인을 잠급니다.", self.global_lockout_seconds)
+                logger.error(
+                    "전체 로그인 실패가 너무 많아 %s초 동안 모든 로그인을 잠급니다.",
+                    self.global_lockout_seconds,
+                )
             if len(self._failures) > 10000:
                 self._prune(now)
 
@@ -238,7 +270,11 @@ class LoginRateLimiter:
             self._locked_until.pop(key, None)
 
     def _prune(self, now: float) -> None:
-        for key in [k for k, v in self._failures.items() if not v or now - v[-1] > self.window_seconds]:
+        for key in [
+            k
+            for k, v in self._failures.items()
+            if not v or now - v[-1] > self.window_seconds
+        ]:
             self._failures.pop(key, None)
         for key in [k for k, until in self._locked_until.items() if until <= now]:
             self._locked_until.pop(key, None)

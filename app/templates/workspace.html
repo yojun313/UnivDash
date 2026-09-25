@@ -160,7 +160,6 @@
                         </div>
                         <div id="attachTray" class="attach-tray hidden gap-2 overflow-x-auto no-scrollbar px-2 md:px-3 pt-2" aria-label="첨부 파일"></div>
                         <form id="composerForm" class="flex items-end gap-2 p-2 md:p-3" autocomplete="off">
-                            <button id="snippetBtn" type="button" class="composer-btn" title="빠른 문구 · 최근 기록" aria-label="빠른 문구와 최근 기록"><i class="fas fa-bolt text-sm"></i></button>
                             <button id="modelBtn" type="button" class="model-chip hidden" title="모델 바꾸기" aria-label="모델 바꾸기"><i class="fas fa-microchip"></i><span id="modelLabel">—</span></button>
                             <div class="relative flex-1 min-w-0">
                                 <textarea id="promptInput" rows="1" enterkeyhint="send" placeholder="프롬프트 입력" spellcheck="false" autocapitalize="off"
@@ -174,8 +173,8 @@
                         </form>
                         <div class="flex items-center justify-between gap-2 px-3 md:px-4 pb-2 -mt-1 text-[10px] text-white/40">
                             <div class="flex items-center gap-1 min-w-0">
-                                <button id="submitToggle" type="button" class="submit-toggle" aria-pressed="true"><i class="fas fa-check-circle"></i> Enter 자동 제출</button>
                                 <button id="keyBarToggle" type="button" class="submit-toggle" aria-expanded="true" aria-controls="keyBar"><i class="fas fa-chevron-down"></i> 키 접기</button>
+                                <button id="snippetBtn" type="button" class="submit-toggle qs-btn" title="최근 보낸 프롬프트 · 빠른 문구" aria-label="히스토리 (최근 보낸 프롬프트 · 빠른 문구)">히스토리</button>
                             </div>
                             <div class="flex items-center gap-1 min-w-0">
                                 <span id="composerHint" class="truncate hidden sm:inline">⌘/Ctrl+Enter 전송</span>

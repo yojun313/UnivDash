@@ -31,7 +31,9 @@ def _fail(error: Exception):
     if isinstance(error, PermissionError):
         raise HTTPException(status_code=403, detail="권한이 없습니다.") from error
     if isinstance(error, FileNotFoundError):
-        raise HTTPException(status_code=404, detail="파일이나 폴더가 없습니다.") from error
+        raise HTTPException(
+            status_code=404, detail="파일이나 폴더가 없습니다."
+        ) from error
     logger.warning("파일 작업 실패: %s", error)
     raise HTTPException(status_code=500, detail="파일 작업에 실패했습니다.") from error
 
@@ -44,7 +46,11 @@ async def explorer_page(request: Request):
 @router.get("/api/fs/prefs", dependencies=api_auth)
 async def get_prefs():
     prefs = await asyncio.to_thread(ExplorerPrefsStore.load)
-    return {"prefs": prefs.model_dump(), "roots": [str(p) for p in fs_service.roots()], "home": fs_service.home()}
+    return {
+        "prefs": prefs.model_dump(),
+        "roots": [str(p) for p in fs_service.roots()],
+        "home": fs_service.home(),
+    }
 
 
 @router.put("/api/fs/prefs", dependencies=api_auth)
@@ -66,7 +72,9 @@ def _read(path: str) -> dict:
     kind = preview_service.kind(file) if file.is_file() else None
     if kind:  # 서버에서 변환해서 보여줄 파일: 내용은 읽지 않고 종류만 알려준다
         info = fs_service._entry(file) or {}
-        info.update({"preview": kind, "binary": True, "mtime_ns": str(file.stat().st_mtime_ns)})
+        info.update(
+            {"preview": kind, "binary": True, "mtime_ns": str(file.stat().st_mtime_ns)}
+        )
         return info
     return fs_service.read_file(path)
 
@@ -117,7 +125,14 @@ async def preview_image(path: str = Query(..., max_length=4096)):
         image = await preview_service.image_png(path)
     except (FsError, OSError) as error:
         _fail(error)
-    return FileResponse(image, media_type="image/png", headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"})
+    return FileResponse(
+        image,
+        media_type="image/png",
+        headers={
+            "Cache-Control": "private, max-age=86400",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.get("/api/fs/raw", dependencies=api_auth)
@@ -149,13 +164,20 @@ async def pdf_info(path: str = Query(..., max_length=4096)):
 
 
 @router.get("/api/fs/pdf/page", dependencies=api_auth)
-async def pdf_page(path: str = Query(..., max_length=4096), page: int = Query(1, ge=1, le=pdf_service.MAX_PAGES), w: int = Query(1000, ge=100, le=4000)):
+async def pdf_page(
+    path: str = Query(..., max_length=4096),
+    page: int = Query(1, ge=1, le=pdf_service.MAX_PAGES),
+    w: int = Query(1000, ge=100, le=4000),
+):
     """PDF 한 페이지를 서버에서 PNG 로 그려 보낸다. URL 에 버전(v)이 붙으므로 오래 캐시해도 된다."""
     try:
         image = await pdf_service.page(path, page, w)
     except (FsError, OSError) as error:
         _fail(error)
-    headers = {"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"}
+    headers = {
+        "Cache-Control": "private, max-age=86400",
+        "X-Content-Type-Options": "nosniff",
+    }
     return FileResponse(image, media_type="image/png", headers=headers)
 
 
@@ -181,7 +203,9 @@ async def make_zip(body: ZipRequest):
     for token in [t for t, (_, _, made) in _zips.items() if now - made > ZIP_TTL]:
         _drop_zip(token)
     try:
-        archive, name = await asyncio.to_thread(fs_service.zip_folder, body.path, body.skip_ignored)
+        archive, name = await asyncio.to_thread(
+            fs_service.zip_folder, body.path, body.skip_ignored
+        )
     except (FsError, OSError) as error:
         _fail(error)
     token = secrets.token_urlsafe(24)
@@ -194,11 +218,17 @@ async def make_zip(body: ZipRequest):
 async def get_zip(token: str):
     item = _zips.pop(token, None)
     if not item or not item[0].exists():
-        raise HTTPException(status_code=404, detail="다운로드가 만료되었습니다. 다시 시도하세요.")
+        raise HTTPException(
+            status_code=404, detail="다운로드가 만료되었습니다. 다시 시도하세요."
+        )
     archive, name, _ = item
     return FileResponse(
-        archive, media_type="application/zip",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}", "X-Content-Type-Options": "nosniff"},
+        archive,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}",
+            "X-Content-Type-Options": "nosniff",
+        },
         background=BackgroundTask(lambda: archive.unlink(missing_ok=True)),
     )
 
@@ -220,7 +250,11 @@ async def folder_usage(path: str = Query(..., max_length=4096)):
 
 
 @router.get("/api/fs/search", dependencies=api_auth)
-async def search(root: str = Query(..., max_length=4096), q: str = Query(..., max_length=200), hidden: bool = False):
+async def search(
+    root: str = Query(..., max_length=4096),
+    q: str = Query(..., max_length=200),
+    hidden: bool = False,
+):
     try:
         return await asyncio.to_thread(fs_service.search, root, q, hidden)
     except (FsError, OSError) as error:
@@ -230,16 +264,26 @@ async def search(root: str = Query(..., max_length=4096), q: str = Query(..., ma
 class FsWrite(BaseModel):
     path: str = Field(min_length=1, max_length=4096)
     content: str = Field(max_length=fs_service.MAX_WRITE)
-    mtime_ns: str | None = Field(default=None, pattern=r"^\d{1,25}$")   # 열 때 받은 값(문자열). 그 사이 바뀌었으면 409
-    force: bool = False               # 충돌을 알고도 덮어쓰기
+    mtime_ns: str | None = Field(
+        default=None, pattern=r"^\d{1,25}$"
+    )  # 열 때 받은 값(문자열). 그 사이 바뀌었으면 409
+    force: bool = False  # 충돌을 알고도 덮어쓰기
 
 
 @router.put("/api/fs/write", dependencies=api_auth)
 async def write_file(body: FsWrite):
     try:
-        result = await asyncio.to_thread(fs_service.write_file, body.path, body.content, None if body.force or body.mtime_ns is None else int(body.mtime_ns))
+        result = await asyncio.to_thread(
+            fs_service.write_file,
+            body.path,
+            body.content,
+            None if body.force or body.mtime_ns is None else int(body.mtime_ns),
+        )
     except FileExistsError as error:
-        raise HTTPException(status_code=409, detail="다른 곳에서 파일이 바뀌었습니다. 다시 불러오거나 덮어쓰기를 선택하세요.") from error
+        raise HTTPException(
+            status_code=409,
+            detail="다른 곳에서 파일이 바뀌었습니다. 다시 불러오거나 덮어쓰기를 선택하세요.",
+        ) from error
     except (FsError, OSError) as error:
         _fail(error)
     logger.info("파일 저장 · %s · %d bytes", body.path, result.get("size", 0))
@@ -257,7 +301,14 @@ class CloneRequest(BaseModel):
 @router.post("/api/fs/clone", dependencies=api_auth)
 async def git_clone(body: CloneRequest):
     try:
-        result = await asyncio.to_thread(fs_service.git_clone, body.url, body.parent, body.name, body.branch, body.depth)
+        result = await asyncio.to_thread(
+            fs_service.git_clone,
+            body.url,
+            body.parent,
+            body.name,
+            body.branch,
+            body.depth,
+        )
     except (FsError, OSError) as error:
         _fail(error)
     logger.info("git clone · %s → %s", body.url.split("@")[-1][:200], result["path"])
@@ -275,13 +326,20 @@ class FsOperation(BaseModel):
 async def operation(body: FsOperation):
     try:
         if body.op in {"mkdir", "touch"}:
-            result = await asyncio.to_thread(fs_service.make, body.path, body.name, "dir" if body.op == "mkdir" else "file")
+            result = await asyncio.to_thread(
+                fs_service.make,
+                body.path,
+                body.name,
+                "dir" if body.op == "mkdir" else "file",
+            )
         elif body.op == "rename":
             result = await asyncio.to_thread(fs_service.rename, body.path, body.name)
         elif body.op == "delete":
             result = await asyncio.to_thread(fs_service.delete, body.path)
         else:
-            result = await asyncio.to_thread(fs_service.transfer, body.path, body.dest, body.op == "move")
+            result = await asyncio.to_thread(
+                fs_service.transfer, body.path, body.dest, body.op == "move"
+            )
     except (FsError, OSError) as error:
         _fail(error)
     logger.info("파일 작업 · %s · %s", body.op, body.path)
@@ -294,8 +352,15 @@ async def upload(request: Request, dir: str = Query(..., max_length=4096)):
     limit = upload_service.max_bytes()
     try:
         if int(request.headers.get("content-length", "0")) > limit:
-            raise HTTPException(status_code=413, detail=f"파일이 너무 큽니다 (최대 {limit // (1024 * 1024)}MB).")
-        target = await asyncio.to_thread(fs_service.upload_target, dir, unquote(request.headers.get("x-filename", "")))
+            raise HTTPException(
+                status_code=413,
+                detail=f"파일이 너무 큽니다 (최대 {limit // (1024 * 1024)}MB).",
+            )
+        target = await asyncio.to_thread(
+            fs_service.upload_target,
+            dir,
+            unquote(request.headers.get("x-filename", "")),
+        )
     except ValueError:
         raise HTTPException(status_code=400, detail="잘못된 요청입니다.") from None
     except (FsError, OSError) as error:
@@ -313,6 +378,8 @@ async def upload(request: Request, dir: str = Query(..., max_length=4096)):
         target.unlink(missing_ok=True)
         if isinstance(error, HTTPException):
             raise
-        _fail(error if isinstance(error, OSError) else FsError("업로드가 중단되었습니다."))
+        _fail(
+            error if isinstance(error, OSError) else FsError("업로드가 중단되었습니다.")
+        )
     logger.info("파일 업로드 · %s · %d bytes", target, written)
     return {"path": str(target), "size": written}

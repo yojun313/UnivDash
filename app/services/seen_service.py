@@ -31,7 +31,11 @@ def _load() -> dict[str, float]:
     if _seen is None:
         try:
             raw = json.loads(_file().read_text(encoding="utf-8"))
-            _seen = {k: float(v) for k, v in raw.items() if isinstance(k, str) and isinstance(v, (int, float))}
+            _seen = {
+                k: float(v)
+                for k, v in raw.items()
+                if isinstance(k, str) and isinstance(v, (int, float))
+            }
         except (OSError, ValueError, AttributeError):
             _seen = {}
     return _seen
@@ -57,7 +61,13 @@ def mark(items: dict) -> bool:
     with _lock:
         seen = _load()
         for key, value in list(items.items())[:500]:
-            if not isinstance(key, str) or not key or len(key) > 200 or isinstance(value, bool) or not isinstance(value, (int, float)):
+            if (
+                not isinstance(key, str)
+                or not key
+                or len(key) > 200
+                or isinstance(value, bool)
+                or not isinstance(value, (int, float))
+            ):
                 continue
             value = float(value)
             if value > seen.get(key, float("-inf")):
@@ -79,7 +89,7 @@ def rename_session(old: str, new: str) -> None:
     with _lock:
         seen = _load()
         for key in [k for k in seen if k.startswith(prefix)]:
-            seen[f"{new}:{key[len(prefix):]}"] = seen.pop(key)
+            seen[f"{new}:{key[len(prefix) :]}"] = seen.pop(key)
         _version += 1
         _dirty_since = _dirty_since or time.monotonic()
 
@@ -88,7 +98,9 @@ def flush(force: bool = False) -> None:
     """바뀐 뒤 잠시 모았다가 파일로 저장한다 (읽을 때마다 디스크에 쓰지 않도록)."""
     global _dirty_since
     with _lock:
-        if _dirty_since is None or (not force and time.monotonic() - _dirty_since < SAVE_DELAY):
+        if _dirty_since is None or (
+            not force and time.monotonic() - _dirty_since < SAVE_DELAY
+        ):
             return
         payload = json.dumps(_seen or {}, ensure_ascii=False)
         _dirty_since = None

@@ -26,20 +26,86 @@ from pathlib import Path
 from app.services.fs_service import FsError, resolve
 
 OFFICE_EXT = {
-    ".doc", ".docx", ".docm", ".dot", ".dotx", ".odt", ".ott", ".rtf", ".wpd", ".pages",
-    ".xls", ".xlsx", ".xlsm", ".xlsb", ".ods", ".ots", ".numbers",
-    ".ppt", ".pptx", ".pptm", ".pps", ".ppsx", ".odp", ".otp", ".key",
-    ".odg", ".vsd", ".vsdx", ".pub", ".hwp", ".cwk", ".wps", ".wk1", ".dbf",
+    ".doc",
+    ".docx",
+    ".docm",
+    ".dot",
+    ".dotx",
+    ".odt",
+    ".ott",
+    ".rtf",
+    ".wpd",
+    ".pages",
+    ".xls",
+    ".xlsx",
+    ".xlsm",
+    ".xlsb",
+    ".ods",
+    ".ots",
+    ".numbers",
+    ".ppt",
+    ".pptx",
+    ".pptm",
+    ".pps",
+    ".ppsx",
+    ".odp",
+    ".otp",
+    ".key",
+    ".odg",
+    ".vsd",
+    ".vsdx",
+    ".pub",
+    ".hwp",
+    ".cwk",
+    ".wps",
+    ".wk1",
+    ".dbf",
 }
 HWPX_EXT = {".hwpx"}
-ARCHIVE_EXT = {".zip", ".jar", ".war", ".whl", ".apk", ".epub", ".tar", ".tgz", ".gz", ".tbz2", ".bz2", ".txz", ".xz", ".7z", ".rar"}
+ARCHIVE_EXT = {
+    ".zip",
+    ".jar",
+    ".war",
+    ".whl",
+    ".apk",
+    ".epub",
+    ".tar",
+    ".tgz",
+    ".gz",
+    ".tbz2",
+    ".bz2",
+    ".txz",
+    ".xz",
+    ".7z",
+    ".rar",
+}
 SQLITE_EXT = {".db", ".sqlite", ".sqlite3", ".db3"}
-CONVERT_IMAGE_EXT = {".heic", ".heif", ".tif", ".tiff", ".tga", ".dds", ".jp2", ".exr", ".hdr", ".pcx", ".ppm", ".pgm", ".pbm", ".xbm", ".xpm"}
+CONVERT_IMAGE_EXT = {
+    ".heic",
+    ".heif",
+    ".tif",
+    ".tiff",
+    ".tga",
+    ".dds",
+    ".jp2",
+    ".exr",
+    ".hdr",
+    ".pcx",
+    ".ppm",
+    ".pgm",
+    ".pbm",
+    ".xbm",
+    ".xpm",
+}
 
 TIMEOUT = 120
-MAX_ZIP_MEMBER = 60 * 1024 * 1024     # hwpx 안의 XML · 그림 하나의 최대 크기 (압축 폭탄 방지)
+MAX_ZIP_MEMBER = (
+    60 * 1024 * 1024
+)  # hwpx 안의 XML · 그림 하나의 최대 크기 (압축 폭탄 방지)
 MAX_INLINE_IMAGES = 25 * 1024 * 1024
-_office_lock = asyncio.Semaphore(1)   # LibreOffice 는 한 번에 하나씩 (같은 프로필을 동시에 쓰면 실패)
+_office_lock = asyncio.Semaphore(
+    1
+)  # LibreOffice 는 한 번에 하나씩 (같은 프로필을 동시에 쓰면 실패)
 _image_lock = asyncio.Semaphore(2)
 
 
@@ -67,13 +133,23 @@ def cache_dir(sub: str) -> Path:
 
 def _key(file: Path) -> str:
     st = file.stat()
-    return hashlib.sha256(f"{file}\0{st.st_mtime_ns}\0{st.st_size}".encode()).hexdigest()[:32]
+    return hashlib.sha256(
+        f"{file}\0{st.st_mtime_ns}\0{st.st_size}".encode()
+    ).hexdigest()[:32]
 
 
 async def _run(args: list[str], cwd: Path | None = None) -> None:
     process = await asyncio.create_subprocess_exec(
-        *args, cwd=cwd, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
-        env={**os.environ, "HOME": str(cache_dir("lo-home")), "SAL_USE_VCLPLUGIN": "svp"},
+        *args,
+        cwd=cwd,
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+        env={
+            **os.environ,
+            "HOME": str(cache_dir("lo-home")),
+            "SAL_USE_VCLPLUGIN": "svp",
+        },
     )
     try:
         _, err = await asyncio.wait_for(process.communicate(), TIMEOUT)
@@ -82,7 +158,9 @@ async def _run(args: list[str], cwd: Path | None = None) -> None:
         await process.wait()
         raise FsError("변환 시간이 너무 깁니다.") from error
     if process.returncode != 0:
-        raise FsError(f"변환하지 못했습니다. ({err.decode(errors='replace').strip()[-160:]})")
+        raise FsError(
+            f"변환하지 못했습니다. ({err.decode(errors='replace').strip()[-160:]})"
+        )
 
 
 # ── 오피스 문서 → PDF ─────────────────────────────────────────────────────
@@ -104,13 +182,28 @@ async def office_pdf(path: str) -> Path:
             source = work / f"input{file.suffix.lower()}"
             shutil.copyfile(file, source)
             profile = cache_dir("lo-profile")
-            await _run([
-                "soffice", f"-env:UserInstallation=file://{profile}", "--headless", "--norestore", "--nolockcheck",
-                "--nodefault", "--nologo", "--convert-to", "pdf", "--outdir", str(work), str(source),
-            ], cwd=work)
+            await _run(
+                [
+                    "soffice",
+                    f"-env:UserInstallation=file://{profile}",
+                    "--headless",
+                    "--norestore",
+                    "--nolockcheck",
+                    "--nodefault",
+                    "--nologo",
+                    "--convert-to",
+                    "pdf",
+                    "--outdir",
+                    str(work),
+                    str(source),
+                ],
+                cwd=work,
+            )
             produced = work / "input.pdf"
             if not produced.exists():
-                raise FsError("이 문서를 변환하지 못했습니다 (지원하지 않는 형식일 수 있어요).")
+                raise FsError(
+                    "이 문서를 변환하지 못했습니다 (지원하지 않는 형식일 수 있어요)."
+                )
             os.replace(produced, target)
         finally:
             shutil.rmtree(work, ignore_errors=True)
@@ -120,7 +213,9 @@ async def office_pdf(path: str) -> Path:
 
 def _prune(root: Path, limit: int) -> None:
     try:
-        files = sorted((p for p in root.iterdir() if p.is_file()), key=lambda p: p.stat().st_atime)
+        files = sorted(
+            (p for p in root.iterdir() if p.is_file()), key=lambda p: p.stat().st_atime
+        )
         total = sum(p.stat().st_size for p in files)
         for file in files:
             if total <= limit:
@@ -141,7 +236,22 @@ async def image_png(path: str) -> Path:
         return target
     async with _image_lock:
         temp = target.with_suffix(f".{time.monotonic_ns()}.png")
-        await _run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(file), "-frames:v", "1", "-vf", "scale='min(3000,iw)':-2", str(temp)])
+        await _run(
+            [
+                "ffmpeg",
+                "-nostdin",
+                "-v",
+                "error",
+                "-y",
+                "-i",
+                str(file),
+                "-frames:v",
+                "1",
+                "-vf",
+                "scale='min(3000,iw)':-2",
+                str(temp),
+            ]
+        )
         if not temp.exists():
             raise FsError("이미지를 변환하지 못했습니다.")
         os.replace(temp, target)
@@ -161,8 +271,17 @@ def archive_list(path: str) -> dict:
                     if len(entries) >= 3000:
                         truncated = True
                         break
-                    entries.append({"name": info.filename, "size": info.file_size, "packed": info.compress_size, "dir": info.is_dir(),
-                                    "mtime": int(time.mktime(info.date_time + (0, 0, -1))) if info.date_time[0] > 1980 else None})
+                    entries.append(
+                        {
+                            "name": info.filename,
+                            "size": info.file_size,
+                            "packed": info.compress_size,
+                            "dir": info.is_dir(),
+                            "mtime": int(time.mktime(info.date_time + (0, 0, -1)))
+                            if info.date_time[0] > 1980
+                            else None,
+                        }
+                    )
             return {"format": "zip", "entries": entries, "truncated": truncated}
         if tarfile.is_tarfile(file):
             with tarfile.open(file) as archive:
@@ -170,13 +289,32 @@ def archive_list(path: str) -> dict:
                     if len(entries) >= 3000 or time.monotonic() > deadline:
                         truncated = True
                         break
-                    entries.append({"name": info.name + ("/" if info.isdir() else ""), "size": info.size, "dir": info.isdir(), "mtime": int(info.mtime)})
+                    entries.append(
+                        {
+                            "name": info.name + ("/" if info.isdir() else ""),
+                            "size": info.size,
+                            "dir": info.isdir(),
+                            "mtime": int(info.mtime),
+                        }
+                    )
             return {"format": "tar", "entries": entries, "truncated": truncated}
     except (OSError, zipfile.BadZipFile, tarfile.TarError, EOFError) as error:
         raise FsError(f"압축 파일을 읽지 못했습니다. ({error})") from error
     if name.endswith((".gz", ".bz2", ".xz")):
-        return {"format": "compressed", "entries": [{"name": re.sub(r"\.(gz|bz2|xz)$", "", file.name), "size": None, "dir": False}], "truncated": False}
-    raise FsError("이 압축 형식(7z · rar 등)은 목록을 볼 수 없습니다. 다운로드해서 여세요.")
+        return {
+            "format": "compressed",
+            "entries": [
+                {
+                    "name": re.sub(r"\.(gz|bz2|xz)$", "", file.name),
+                    "size": None,
+                    "dir": False,
+                }
+            ],
+            "truncated": False,
+        }
+    raise FsError(
+        "이 압축 형식(7z · rar 등)은 목록을 볼 수 없습니다. 다운로드해서 여세요."
+    )
 
 
 # ── SQLite ────────────────────────────────────────────────────────────────
@@ -193,17 +331,33 @@ def sqlite_preview(path: str, limit: int = 100) -> dict:
     try:
         connection.execute("PRAGMA query_only = 1")
         tables = []
-        rows = connection.execute("SELECT name, type FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY name").fetchall()
+        rows = connection.execute(
+            "SELECT name, type FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        ).fetchall()
         for name, kind_ in rows[:40]:
             quoted = '"' + name.replace('"', '""') + '"'
             try:
-                cursor = connection.execute(f"SELECT * FROM {quoted} LIMIT {int(limit)}")
+                cursor = connection.execute(
+                    f"SELECT * FROM {quoted} LIMIT {int(limit)}"
+                )
                 columns = [c[0] for c in cursor.description or []]
                 data = [[_cell(v) for v in row] for row in cursor.fetchall()]
-                count = connection.execute(f"SELECT COUNT(*) FROM {quoted}").fetchone()[0] if kind_ == "table" else None
+                count = (
+                    connection.execute(f"SELECT COUNT(*) FROM {quoted}").fetchone()[0]
+                    if kind_ == "table"
+                    else None
+                )
             except sqlite3.Error as error:
                 columns, data, count = [], [], f"읽기 실패: {error}"
-            tables.append({"name": name, "type": kind_, "columns": columns, "rows": data, "count": count})
+            tables.append(
+                {
+                    "name": name,
+                    "type": kind_,
+                    "columns": columns,
+                    "rows": data,
+                    "count": count,
+                }
+            )
         return {"tables": tables, "more": len(rows) > 40}
     finally:
         connection.close()
@@ -222,7 +376,11 @@ def hex_head(path: str, size: int = 16 * 1024) -> dict:
     file = resolve(path)
     with file.open("rb") as handle:
         data = handle.read(size)
-    return {"data": base64.b64encode(data).decode(), "size": file.stat().st_size, "shown": len(data)}
+    return {
+        "data": base64.b64encode(data).decode(),
+        "size": file.stat().st_size,
+        "shown": len(data),
+    }
 
 
 # ── 한글 hwpx → HTML ──────────────────────────────────────────────────────
@@ -252,7 +410,12 @@ def _border_css(element) -> str | None:
         width = max(1, round(float(element.get("width", "0.12").split()[0]) * 3.78))
     except ValueError:
         width = 1
-    style = {"DASH": "dashed", "DOT": "dotted", "DOUBLE_SLIM": "double", "DOUBLE": "double"}.get(element.get("type"), "solid")
+    style = {
+        "DASH": "dashed",
+        "DOT": "dotted",
+        "DOUBLE_SLIM": "double",
+        "DOUBLE": "double",
+    }.get(element.get("type"), "solid")
     return f"{width}px {style} {element.get('color', '#000')}"
 
 
@@ -307,23 +470,41 @@ class _Hwpx:
                 css.append(f"text-decoration:{' '.join(deco)}")
             ref = pr.find("{%s}fontRef" % NS["hh"])
             if ref is not None and self.fonts.get(ref.get("hangul")):
-                css.append(f"font-family:'{self.fonts[ref.get('hangul')]}',var(--hwp-font)")
+                css.append(
+                    f"font-family:'{self.fonts[ref.get('hangul')]}',var(--hwp-font)"
+                )
             self.chars[pr.get("id")] = ";".join(css)
         for pr in head.iter("{%s}paraPr" % NS["hh"]):
             css = []
             align = pr.find("{%s}align" % NS["hh"])
             if align is not None:
-                css.append("text-align:" + {"CENTER": "center", "RIGHT": "right", "JUSTIFY": "justify", "DISTRIBUTE": "justify"}.get(align.get("horizontal"), "left"))
+                css.append(
+                    "text-align:"
+                    + {
+                        "CENTER": "center",
+                        "RIGHT": "right",
+                        "JUSTIFY": "justify",
+                        "DISTRIBUTE": "justify",
+                    }.get(align.get("horizontal"), "left")
+                )
             margin = pr.find(".//{%s}margin" % NS["hh"])
             if margin is not None:
-                for child, prop in (("left", "margin-left"), ("right", "margin-right"), ("prev", "margin-top"), ("next", "margin-bottom"), ("intent", "text-indent")):
+                for child, prop in (
+                    ("left", "margin-left"),
+                    ("right", "margin-right"),
+                    ("prev", "margin-top"),
+                    ("next", "margin-bottom"),
+                    ("intent", "text-indent"),
+                ):
                     element = margin.find(HC + child)
                     if element is not None and element.get("value") not in (None, "0"):
                         css.append(f"{prop}:{_px(element.get('value')) / 2}px")
             spacing = pr.find(".//{%s}lineSpacing" % NS["hh"])
             if spacing is not None and spacing.get("type") == "PERCENT":
                 try:
-                    css.append(f"line-height:{max(1.0, int(spacing.get('value', '160')) / 100):.2f}")
+                    css.append(
+                        f"line-height:{max(1.0, int(spacing.get('value', '160')) / 100):.2f}"
+                    )
                 except ValueError:
                     pass
             self.paras[pr.get("id")] = ";".join(css)
@@ -333,7 +514,11 @@ class _Hwpx:
                 value = _border_css(fill.find("{%s}%sBorder" % (NS["hh"], side)))
                 css.append(f"border-{side}:{value}" if value else f"border-{side}:0")
             brush = fill.find(".//{%s}winBrush" % NS["hc"])
-            if brush is not None and brush.get("faceColor") not in (None, "none", "#FFFFFF"):
+            if brush is not None and brush.get("faceColor") not in (
+                None,
+                "none",
+                "#FFFFFF",
+            ):
                 css.append(f"background:{brush.get('faceColor')}")
             self.borders[fill.get("id")] = ";".join(css)
         try:
@@ -360,12 +545,19 @@ class _Hwpx:
                     parts.append(self.table(child))
                 elif tag in (HP + "pic", HP + "picture"):
                     parts.append(self.picture(child))
-                elif tag in (HP + "rect", HP + "container", HP + "ellipse", HP + "polygon"):
+                elif tag in (
+                    HP + "rect",
+                    HP + "container",
+                    HP + "ellipse",
+                    HP + "polygon",
+                ):
                     parts.append(self.shape(child))
                 elif tag in (HP + "equation",):
                     script = child.find(HP + "script")
                     if script is not None and script.text:
-                        parts.append(f'<code class="hwp-eq">{html.escape(script.text)}</code>')
+                        parts.append(
+                            f'<code class="hwp-eq">{html.escape(script.text)}</code>'
+                        )
             if text:
                 parts.append(f'<span style="{style}">{"".join(text)}</span>')
         body = "".join(parts) or "&nbsp;"
@@ -387,7 +579,11 @@ class _Hwpx:
         sub = element.find(HP + "subList")
         if sub is None:
             sub = element.find(".//" + HP + "subList")
-        return "".join(self.paragraph(p) for p in sub.findall(HP + "p")) if sub is not None else ""
+        return (
+            "".join(self.paragraph(p) for p in sub.findall(HP + "p"))
+            if sub is not None
+            else ""
+        )
 
     def table(self, tbl) -> str:
         rows = []
@@ -403,15 +599,28 @@ class _Hwpx:
                         attrs.append(f'colspan="{int(span.get("colSpan"))}"')
                     if span.get("rowSpan", "1") != "1":
                         attrs.append(f'rowspan="{int(span.get("rowSpan"))}"')
-                css = [self.borders.get(tc.get("borderFillIDRef"), "border:1px solid #000")]
+                css = [
+                    self.borders.get(tc.get("borderFillIDRef"), "border:1px solid #000")
+                ]
                 if size is not None:
-                    css.append(f"width:{_px(size.get('width'))}px;height:{_px(size.get('height'))}px")
+                    css.append(
+                        f"width:{_px(size.get('width'))}px;height:{_px(size.get('height'))}px"
+                    )
                 if margin is not None:
-                    css.append(f"padding:{_px(margin.get('top'))}px {_px(margin.get('right'))}px {_px(margin.get('bottom'))}px {_px(margin.get('left'))}px")
+                    css.append(
+                        f"padding:{_px(margin.get('top'))}px {_px(margin.get('right'))}px {_px(margin.get('bottom'))}px {_px(margin.get('left'))}px"
+                    )
                 sub = tc.find(HP + "subList")
                 if sub is not None:
-                    css.append("vertical-align:" + {"CENTER": "middle", "BOTTOM": "bottom"}.get(sub.get("vertAlign"), "top"))
-                cells.append(f'<td {" ".join(attrs)} style="{";".join(css)}">{self.sublist(tc)}</td>')
+                    css.append(
+                        "vertical-align:"
+                        + {"CENTER": "middle", "BOTTOM": "bottom"}.get(
+                            sub.get("vertAlign"), "top"
+                        )
+                    )
+                cells.append(
+                    f'<td {" ".join(attrs)} style="{";".join(css)}">{self.sublist(tc)}</td>'
+                )
             rows.append(f"<tr>{''.join(cells)}</tr>")
         size = tbl.find(HP + "sz")
         width = f"width:{_px(size.get('width'))}px" if size is not None else ""
@@ -429,13 +638,25 @@ class _Hwpx:
             return '<span class="hwp-missing">[그림 생략: 문서가 너무 큼]</span>'
         self.image_bytes += info.file_size
         ext = Path(href).suffix.lower().lstrip(".")
-        mime = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png", "gif": "gif", "bmp": "bmp", "webp": "webp", "svg": "svg+xml"}.get(ext)
+        mime = {
+            "jpg": "jpeg",
+            "jpeg": "jpeg",
+            "png": "png",
+            "gif": "gif",
+            "bmp": "bmp",
+            "webp": "webp",
+            "svg": "svg+xml",
+        }.get(ext)
         if not mime:
             return f'<span class="hwp-missing">[그림: {html.escape(ext)}]</span>'
         size = pic.find(HP + "curSz")
         if size is None or size.get("width") in (None, "0"):
             size = pic.find(HP + "sz")
-        width = f'width="{_px(size.get("width"))}"' if size is not None and size.get("width") not in (None, "0") else ""
+        width = (
+            f'width="{_px(size.get("width"))}"'
+            if size is not None and size.get("width") not in (None, "0")
+            else ""
+        )
         data = base64.b64encode(self.read(href)).decode()
         return f'<img class="hwp-img" {width} src="data:image/{mime};base64,{data}" alt="">'
 
@@ -446,7 +667,14 @@ class _Hwpx:
         return f'<div class="hwp-box">{inner}{pics}</div>' if inner or pics else ""
 
     def render(self) -> str:
-        sections = sorted((n for n in self.zip.namelist() if re.fullmatch(r"Contents/section\d+\.xml", n)), key=lambda n: int(re.findall(r"\d+", n)[0]))
+        sections = sorted(
+            (
+                n
+                for n in self.zip.namelist()
+                if re.fullmatch(r"Contents/section\d+\.xml", n)
+            ),
+            key=lambda n: int(re.findall(r"\d+", n)[0]),
+        )
         pages = []
         for name in sections:
             root = ET.fromstring(self.read(name))
@@ -458,7 +686,9 @@ class _Hwpx:
                 if margin is not None:
                     padding = f"{_px(margin.get('top'))}px {_px(margin.get('right'))}px {_px(margin.get('bottom'))}px {_px(margin.get('left'))}px"
             body = "".join(self.paragraph(p) for p in root.findall(HP + "p"))
-            pages.append(f'<section class="hwp-page" style="width:{width}px;padding:{padding}">{body}</section>')
+            pages.append(
+                f'<section class="hwp-page" style="width:{width}px;padding:{padding}">{body}</section>'
+            )
         return "".join(pages)
 
 

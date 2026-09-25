@@ -25,6 +25,7 @@ router = APIRouter()
 api_auth = [Depends(AuthService.require_user)]
 logger = logging.getLogger(__name__)
 
+
 @router.get("/")
 async def workspace_page(request: Request):
     return render_page(request, "workspace")
@@ -38,11 +39,15 @@ async def organize_page(request: Request):
 
 def _raise_for(error: Exception):
     if isinstance(error, KeyError):
-        raise HTTPException(status_code=404, detail=str(error.args[0] if error.args else "없음")) from error
+        raise HTTPException(
+            status_code=404, detail=str(error.args[0] if error.args else "없음")
+        ) from error
     if isinstance(error, ValueError):
         raise HTTPException(status_code=400, detail=str(error)) from error
     logger.warning("tmux 명령 실패: %s", error)
-    raise HTTPException(status_code=502, detail="tmux 명령을 실행하지 못했습니다.") from error
+    raise HTTPException(
+        status_code=502, detail="tmux 명령을 실행하지 못했습니다."
+    ) from error
 
 
 async def _state() -> dict:
@@ -77,7 +82,9 @@ class CreateSessionRequest(BaseModel):
 @router.post("/api/sessions", dependencies=api_auth)
 async def api_create_session(body: CreateSessionRequest):
     try:
-        pane = await asyncio.to_thread(tmux_service.create_session, body.name, body.path, body.command)
+        pane = await asyncio.to_thread(
+            tmux_service.create_session, body.name, body.path, body.command
+        )
     except (TmuxError, ValueError) as error:
         _raise_for(error)
     logger.info("세션 생성 · %s", body.name)
@@ -91,9 +98,13 @@ async def _resolve_log(pane: str):
     if target is None:
         raise KeyError("존재하지 않는 pane 입니다.")
     window, pane_info = target
-    agent = pane_info.command if pane_info.command in tmux_service.AGENTS else window.agent
+    agent = (
+        pane_info.command if pane_info.command in tmux_service.AGENTS else window.agent
+    )
     cwd = os.path.expanduser(pane_info.path)
-    path = await asyncio.to_thread(transcript_service.find_log, pane_info.pid, agent, cwd)
+    path = await asyncio.to_thread(
+        transcript_service.find_log, pane_info.pid, agent, cwd
+    )
     return path, agent
 
 
@@ -105,7 +116,11 @@ async def api_agent_model(pane: str):
         path, agent = await _resolve_log(pane)
     except (TmuxError, KeyError) as error:
         _raise_for(error)
-    model = await asyncio.to_thread(transcript_service.current_model, path, agent) if path else None
+    model = (
+        await asyncio.to_thread(transcript_service.current_model, path, agent)
+        if path
+        else None
+    )
     return {"agent": agent, "model": model}
 
 
@@ -139,12 +154,16 @@ class RenameSessionRequest(BaseModel):
 async def api_rename_session(body: RenameSessionRequest):
     """tmux 세션 이름 변경 + 정리 설정의 키도 새 이름으로 옮긴다."""
     try:
-        old, new = await asyncio.to_thread(tmux_service.rename_session, body.session, body.name)
+        old, new = await asyncio.to_thread(
+            tmux_service.rename_session, body.session, body.name
+        )
     except (TmuxError, KeyError, ValueError) as error:
         _raise_for(error)
     prefs = PreferencesStore.load()
     if old != new:
-        prefs = await asyncio.to_thread(PreferencesStore.save, rename_session_keys(prefs, old, new))
+        prefs = await asyncio.to_thread(
+            PreferencesStore.save, rename_session_keys(prefs, old, new)
+        )
         seen_service.rename_session(old, new)
         logger.info("세션 이름 변경 · %s → %s", old, new)
     return {"old": old, "name": new, "preferences": prefs.model_dump()}
@@ -265,7 +284,11 @@ async def push_log(channel: _Channel, loop) -> None:
         return
     channel.log_size = size
     data = await asyncio.to_thread(
-        transcript_service.read, channel.log_path, channel.log_agent, max(0, channel.log_since - 12), 300
+        transcript_service.read,
+        channel.log_path,
+        channel.log_agent,
+        max(0, channel.log_since - 12),
+        300,
     )
     channel.log_since = data["total"]
     await channel.send({"t": "log", "pane": pane, **data})
@@ -338,10 +361,21 @@ async def _handle(channel: _Channel, message: dict) -> None:
             raise ValueError("잘못된 입력입니다.")
         attachments = message.get("attachments", [])
         if not isinstance(attachments, list) or len(attachments) > MAX_ATTACHMENTS:
-            raise ValueError(f"첨부 파일은 한 번에 {MAX_ATTACHMENTS}개까지 보낼 수 있습니다.")
+            raise ValueError(
+                f"첨부 파일은 한 번에 {MAX_ATTACHMENTS}개까지 보낼 수 있습니다."
+            )
         # 클라이언트가 준 경로가 아니라 업로드 ID 를 받아 서버가 경로를 정한다.
-        paths = [str(await asyncio.to_thread(upload_service.resolve, item)) for item in attachments]
-        await asyncio.to_thread(tmux_service.send_prompt, pane, text, bool(message.get("submit", True)), paths)
+        paths = [
+            str(await asyncio.to_thread(upload_service.resolve, item))
+            for item in attachments
+        ]
+        await asyncio.to_thread(
+            tmux_service.send_prompt,
+            pane,
+            text,
+            bool(message.get("submit", True)),
+            paths,
+        )
     elif kind == "text":
         text = message.get("text", "")
         if not isinstance(text, str):
@@ -396,11 +430,21 @@ async def websocket_endpoint(websocket: WebSocket):
                 if "id" in message:
                     await channel.send({"t": "ack", "id": message["id"]})
             except (KeyError, ValueError, TmuxError) as error:
-                detail = error.args[0] if error.args and isinstance(error.args[0], str) else "요청을 처리하지 못했습니다."
+                detail = (
+                    error.args[0]
+                    if error.args and isinstance(error.args[0], str)
+                    else "요청을 처리하지 못했습니다."
+                )
                 if isinstance(error, TmuxError):
                     logger.warning("tmux 입력 실패: %s", error)
                     detail = "tmux 명령을 실행하지 못했습니다."
-                await channel.send({"t": "error", "message": detail, "id": message.get("id") if isinstance(message, dict) else None})
+                await channel.send(
+                    {
+                        "t": "error",
+                        "message": detail,
+                        "id": message.get("id") if isinstance(message, dict) else None,
+                    }
+                )
     except WebSocketDisconnect:
         pass
     finally:

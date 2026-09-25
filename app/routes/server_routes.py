@@ -77,7 +77,15 @@ async def get_pm2_status_api():
     return await asyncio.to_thread(PM2Service.get_process_summaries)
 
 
-CPU_SENSORS = ("coretemp", "k10temp", "zenpower", "cpu_thermal", "cpu-thermal", "soc_thermal", "acpitz")
+CPU_SENSORS = (
+    "coretemp",
+    "k10temp",
+    "zenpower",
+    "cpu_thermal",
+    "cpu-thermal",
+    "soc_thermal",
+    "acpitz",
+)
 
 
 def _cpu_temperature() -> dict | None:
@@ -87,10 +95,16 @@ def _cpu_temperature() -> dict | None:
     except (AttributeError, OSError):
         return None
     for name in CPU_SENSORS:
-        readings = [r for r in sensors.get(name, []) if r.current and 0 < r.current < 150]
+        readings = [
+            r for r in sensors.get(name, []) if r.current and 0 < r.current < 150
+        ]
         if not readings:
             continue
-        packages = [r for r in readings if r.label.lower().startswith(("package", "tctl", "tdie"))] or readings
+        packages = [
+            r
+            for r in readings
+            if r.label.lower().startswith(("package", "tctl", "tdie"))
+        ] or readings
         cores = [r for r in readings if r.label.lower().startswith("core")]
         top = max(packages, key=lambda r: r.current)
         high = top.high if top.high and top.high < 150 else None
@@ -231,12 +245,19 @@ async def restart_all():
     for proc in processes:
         if proc["pm_id"] == me:
             continue
-        ok = await asyncio.to_thread(PM2Service.run_command, "restart", str(proc["pm_id"]), ["--update-env"])
+        ok = await asyncio.to_thread(
+            PM2Service.run_command, "restart", str(proc["pm_id"]), ["--update-env"]
+        )
         (restarted if ok else failed).append(proc["name"])
     self_name = next((p["name"] for p in processes if p["pm_id"] == me), None)
     if self_name:
         PM2Service.restart_self_later(me)
-    logger.info("PM2 전체 재시작 · 성공 %d · 실패 %s · 자기 자신 %s", len(restarted), failed or "-", self_name or "-")
+    logger.info(
+        "PM2 전체 재시작 · 성공 %d · 실패 %s · 자기 자신 %s",
+        len(restarted),
+        failed or "-",
+        self_name or "-",
+    )
     return {"restarted": restarted, "failed": failed, "self": self_name}
 
 
@@ -265,7 +286,9 @@ class EcosystemAppRequest(BaseModel):
 
 def _ecosystem_error(error: Exception):
     if isinstance(error, KeyError):
-        raise HTTPException(status_code=404, detail=str(error.args[0] if error.args else error)) from error
+        raise HTTPException(
+            status_code=404, detail=str(error.args[0] if error.args else error)
+        ) from error
     if isinstance(error, ValueError):
         raise HTTPException(status_code=400, detail=str(error)) from error
     raise HTTPException(status_code=503, detail=str(error)) from error
@@ -277,8 +300,16 @@ async def get_ecosystem():
     try:
         apps = await asyncio.to_thread(ecosystem_service.load_apps, path)
     except EcosystemError as error:
-        return {"path": str(path), "exists": path.exists(), "error": str(error), "apps": []}
-    running = {proc["name"]: proc["pm2_env"]["status"] for proc in await asyncio.to_thread(PM2Service.get_process_summaries)}
+        return {
+            "path": str(path),
+            "exists": path.exists(),
+            "error": str(error),
+            "apps": [],
+        }
+    running = {
+        proc["name"]: proc["pm2_env"]["status"]
+        for proc in await asyncio.to_thread(PM2Service.get_process_summaries)
+    }
     for app in apps:
         app["status"] = running.get(app.get("name"))
     return {"path": str(path), "exists": path.exists(), "apps": apps}
@@ -313,5 +344,7 @@ async def start_ecosystem_app(name: str):
     except (ValueError, KeyError, EcosystemError) as error:
         _ecosystem_error(error)
     if not ok:
-        raise HTTPException(status_code=500, detail=output or "pm2 start 가 실패했습니다.")
+        raise HTTPException(
+            status_code=500, detail=output or "pm2 start 가 실패했습니다."
+        )
     return {"started": True, "output": output}

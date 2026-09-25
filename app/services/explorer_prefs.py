@@ -17,19 +17,31 @@ SORT_MODES = {"name", "mixed", "type", "modified", "size", "manual"}
 def _paths(values: list[str], limit: int = 500) -> list[str]:
     seen, result = set(), []
     for value in values:
-        if isinstance(value, str) and value.startswith("/") and "\0" not in value and len(value) <= 4096 and value not in seen:
+        if (
+            isinstance(value, str)
+            and value.startswith("/")
+            and "\0" not in value
+            and len(value) <= 4096
+            and value not in seen
+        ):
             seen.add(value)
             result.append(value)
     return result[:limit]
 
 
 class ExplorerPrefs(BaseModel):
-    pinned: list[str] = Field(default_factory=list, max_length=50)       # 루트로 쓸 고정 폴더
-    hidden: list[str] = Field(default_factory=list, max_length=2000)     # 사용자가 가린 항목(절대 경로)
-    orders: dict[str, list[str]] = Field(default_factory=dict)           # 폴더별 직접 지정 순서 (이름 목록)
+    pinned: list[str] = Field(
+        default_factory=list, max_length=50
+    )  # 루트로 쓸 고정 폴더
+    hidden: list[str] = Field(
+        default_factory=list, max_length=2000
+    )  # 사용자가 가린 항목(절대 경로)
+    orders: dict[str, list[str]] = Field(
+        default_factory=dict
+    )  # 폴더별 직접 지정 순서 (이름 목록)
     sort: str = "name"
-    show_dotfiles: bool = False                                          # . 으로 시작하는 파일
-    show_hidden: bool = False                                            # 가린 항목도 흐리게 보기
+    show_dotfiles: bool = False  # . 으로 시작하는 파일
+    show_hidden: bool = False  # 가린 항목도 흐리게 보기
 
     @field_validator("pinned", "hidden")
     @classmethod
@@ -46,8 +58,16 @@ class ExplorerPrefs(BaseModel):
     def validate_orders(cls, value: dict[str, list[str]]) -> dict[str, list[str]]:
         cleaned = {}
         for directory, names in list(value.items())[:500]:
-            if isinstance(directory, str) and directory.startswith("/") and isinstance(names, list):
-                cleaned[directory] = [n for n in names if isinstance(n, str) and n and "/" not in n and len(n) <= 255][:5000]
+            if (
+                isinstance(directory, str)
+                and directory.startswith("/")
+                and isinstance(names, list)
+            ):
+                cleaned[directory] = [
+                    n
+                    for n in names
+                    if isinstance(n, str) and n and "/" not in n and len(n) <= 255
+                ][:5000]
         return cleaned
 
 

@@ -19,7 +19,11 @@ _UNSAFE = re.compile(r"[^\w.\-]+")
 
 def upload_dir() -> Path:
     configured = os.getenv("UNIVDASH_UPLOAD_DIR")
-    base = Path(configured).expanduser() if configured else Path.home() / ".univdash" / "uploads"
+    base = (
+        Path(configured).expanduser()
+        if configured
+        else Path.home() / ".univdash" / "uploads"
+    )
     base.mkdir(parents=True, exist_ok=True, mode=0o700)
     return base.resolve()
 
@@ -80,7 +84,11 @@ def cleanup(now: float | None = None) -> int:
     removed = 0
     for path in upload_dir().iterdir():
         try:
-            if path.is_file() and UPLOAD_ID.match(path.name) and now - path.stat().st_mtime > ttl:
+            if (
+                path.is_file()
+                and UPLOAD_ID.match(path.name)
+                and now - path.stat().st_mtime > ttl
+            ):
                 path.unlink()
                 removed += 1
         except OSError:

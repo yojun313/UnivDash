@@ -19,7 +19,17 @@ from pathlib import Path
 
 APP_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
-SCRIPT_CANDIDATES = ["run.py", "main.py", "app.py", "manage.py", "server.py", "server.js", "index.js", "app.js", "main.js"]
+SCRIPT_CANDIDATES = [
+    "run.py",
+    "main.py",
+    "app.py",
+    "manage.py",
+    "server.py",
+    "server.js",
+    "index.js",
+    "app.js",
+    "main.js",
+]
 _lock = threading.Lock()
 
 
@@ -29,7 +39,11 @@ class EcosystemError(Exception):
 
 def ecosystem_path() -> Path:
     configured = os.getenv("PM2_ECOSYSTEM_FILE")
-    return Path(configured).expanduser() if configured else Path.home() / "ecosystem.config.js"
+    return (
+        Path(configured).expanduser()
+        if configured
+        else Path.home() / "ecosystem.config.js"
+    )
 
 
 def child_env() -> dict[str, str]:
@@ -72,12 +86,20 @@ def load_apps(path: Path | None = None) -> list[dict]:
     try:
         result = subprocess.run(
             [_node(), "-e", _LOAD_JS, str(path.resolve())],
-            capture_output=True, text=True, timeout=10, check=False, env=child_env(),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+            env=child_env(),
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         raise EcosystemError("ecosystem 파일을 읽지 못했습니다.") from error
     if result.returncode != 0:
-        detail = result.stderr.strip().splitlines()[-1] if result.stderr.strip() else f"node 종료 코드 {result.returncode}"
+        detail = (
+            result.stderr.strip().splitlines()[-1]
+            if result.stderr.strip()
+            else f"node 종료 코드 {result.returncode}"
+        )
         raise EcosystemError(f"ecosystem 파일을 해석하지 못했습니다: {detail}")
     try:
         apps = json.loads(result.stdout or "[]")
@@ -91,7 +113,9 @@ def inspect_directory(cwd: str) -> dict:
     directory = Path(os.path.expanduser(cwd or "")).resolve() if cwd else None
     if directory is None or not directory.is_dir():
         return {"exists": False}
-    script = next((name for name in SCRIPT_CANDIDATES if (directory / name).is_file()), "")
+    script = next(
+        (name for name in SCRIPT_CANDIDATES if (directory / name).is_file()), ""
+    )
     interpreter = ""
     if script.endswith(".py"):
         venv = directory / ".venv" / "bin" / "python"
@@ -99,7 +123,9 @@ def inspect_directory(cwd: str) -> dict:
     return {
         "exists": True,
         "cwd": str(directory),
-        "name": re.sub(r"[^A-Za-z0-9._-]+", "-", directory.name).strip("-._").lower()[:64],
+        "name": re.sub(r"[^A-Za-z0-9._-]+", "-", directory.name)
+        .strip("-._")
+        .lower()[:64],
         "script": script,
         "interpreter": interpreter,
     }
@@ -163,10 +189,14 @@ def _entry_source(app: dict, indent: str, step: str) -> str:
             env_items = list(value.items())
             for env_position, (env_key, env_value) in enumerate(env_items):
                 env_comma = "," if env_position < len(env_items) - 1 else ""
-                lines.append(f"{indent}{step}{step}{env_key}: {json.dumps(env_value, ensure_ascii=False)}{env_comma}")
+                lines.append(
+                    f"{indent}{step}{step}{env_key}: {json.dumps(env_value, ensure_ascii=False)}{env_comma}"
+                )
             lines.append(f"{indent}{step}}}{comma}")
         else:
-            lines.append(f"{indent}{step}{key}: {json.dumps(value, ensure_ascii=False)}{comma}")
+            lines.append(
+                f"{indent}{step}{key}: {json.dumps(value, ensure_ascii=False)}{comma}"
+            )
     lines.append(f"{indent}}}")
     return "\n".join(lines)
 
@@ -191,7 +221,9 @@ def build_app(data: dict) -> dict:
             raise ValueError("인터프리터 값이 올바르지 않습니다.")
         if "/" in interpreter and not Path(os.path.expanduser(interpreter)).exists():
             raise ValueError(f"인터프리터를 찾을 수 없습니다: {interpreter}")
-        app["interpreter"] = os.path.expanduser(interpreter) if "/" in interpreter else interpreter
+        app["interpreter"] = (
+            os.path.expanduser(interpreter) if "/" in interpreter else interpreter
+        )
     args = str(data.get("args") or "").strip()
     if args:
         if "\n" in args or len(args) > 500:
@@ -233,7 +265,7 @@ def add_app(data: dict, path: Path | None = None) -> dict:
             indent, step = ("    ", "  ")
             if indent_match:
                 indent = indent_match.group(1)
-                step = indent_match.group(2)[len(indent):] or "  "
+                step = indent_match.group(2)[len(indent) :] or "  "
             # 주석을 가린 코드 기준으로 마지막 문자가 [ 나 , 가 아니면 쉼표를 붙인다.
             last_code = _mask_code(source[:end]).rstrip()[-1:]
             if last_code not in {"[", ","}:
@@ -241,13 +273,19 @@ def add_app(data: dict, path: Path | None = None) -> dict:
                 code_end = len(_mask_code(source[:end]).rstrip())
                 head = source[:code_end] + "," + source[code_end:end].rstrip()
             separator = ""
-            closing_indent = re.search(r"([ \t]*)$", source[: end]).group(1)
+            closing_indent = re.search(r"([ \t]*)$", source[:end]).group(1)
             new_source = f"{head}{separator}\n{_entry_source(app, indent, step)}\n{closing_indent}{source[end:]}"
         else:
-            new_source = "module.exports = {\n  apps: [\n" + _entry_source(app, "    ", "  ") + "\n  ]\n};\n"
+            new_source = (
+                "module.exports = {\n  apps: [\n"
+                + _entry_source(app, "    ", "  ")
+                + "\n  ]\n};\n"
+            )
 
         directory = path.parent
-        fd, temp_name = tempfile.mkstemp(dir=directory, prefix=".ecosystem.", suffix=".js")
+        fd, temp_name = tempfile.mkstemp(
+            dir=directory, prefix=".ecosystem.", suffix=".js"
+        )
         temp = Path(temp_name)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -256,11 +294,17 @@ def add_app(data: dict, path: Path | None = None) -> dict:
                 os.chmod(temp, path.stat().st_mode & 0o777)
             # 쓰기 전에 node 로 다시 읽어 기존 앱 + 새 앱이 그대로 나오는지 확인한다.
             verified = load_apps(temp)
-            if [a.get("name") for a in verified] != [a.get("name") for a in existing] + [app["name"]]:
-                raise EcosystemError("수정한 ecosystem 파일을 검증하지 못해 저장하지 않았습니다.")
+            if [a.get("name") for a in verified] != [
+                a.get("name") for a in existing
+            ] + [app["name"]]:
+                raise EcosystemError(
+                    "수정한 ecosystem 파일을 검증하지 못해 저장하지 않았습니다."
+                )
             backup = None
             if path.exists():
-                backup = path.with_name(f"{path.name}.bak-{time.strftime('%Y%m%d-%H%M%S')}")
+                backup = path.with_name(
+                    f"{path.name}.bak-{time.strftime('%Y%m%d-%H%M%S')}"
+                )
                 shutil.copy2(path, backup)
             os.replace(temp, path)
         except BaseException:
@@ -281,7 +325,12 @@ def start_app(name: str, path: Path | None = None) -> tuple[bool, str]:
     try:
         result = subprocess.run(
             [pm2, "start", str(path), "--only", name],
-            capture_output=True, text=True, timeout=60, check=False, cwd=str(path.parent), env=child_env(),
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+            cwd=str(path.parent),
+            env=child_env(),
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         raise EcosystemError("pm2 start 를 실행하지 못했습니다.") from error

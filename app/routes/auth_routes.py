@@ -15,11 +15,17 @@ login_limiter = LoginRateLimiter()
 ERROR_MESSAGE = "로그인 정보가 올바르지 않습니다."
 
 
-def _login_page(request: Request, error: str | None = None, status_code: int = 200, headers=None):
+def _login_page(
+    request: Request, error: str | None = None, status_code: int = 200, headers=None
+):
     return templates.TemplateResponse(
         request=request,
         name="login.html",
-        context={"error": error, "setup_problem": config_problem(), "totp": AuthService.totp_enabled()},
+        context={
+            "error": error,
+            "setup_problem": config_problem(),
+            "totp": AuthService.totp_enabled(),
+        },
         status_code=status_code,
         headers=headers,
     )
@@ -79,5 +85,7 @@ async def logout_all(request: Request):
     if not AuthService.is_authenticated(request):
         return RedirectResponse(url="/login", status_code=303)
     count = AuthService.end_all_sessions(request)
-    logger.warning("전체 기기 로그아웃 · %d개 세션 · client=%s", count, client_key(request))
+    logger.warning(
+        "전체 기기 로그아웃 · %d개 세션 · client=%s", count, client_key(request)
+    )
     return RedirectResponse(url="/login", status_code=303)

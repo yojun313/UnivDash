@@ -33,11 +33,27 @@ AGENTS = {"claude", "codex"}
 
 # 모바일 키 툴바와 직접 입력 모드에서 보낼 수 있는 tmux 키 이름 (send-keys 인자 그대로)
 NAMED_KEYS = {
-    "Enter", "Escape", "Tab", "BTab", "BSpace", "Space", "DC",
-    "Up", "Down", "Left", "Right", "Home", "End", "PageUp", "PageDown", "IC",
+    "Enter",
+    "Escape",
+    "Tab",
+    "BTab",
+    "BSpace",
+    "Space",
+    "DC",
+    "Up",
+    "Down",
+    "Left",
+    "Right",
+    "Home",
+    "End",
+    "PageUp",
+    "PageDown",
+    "IC",
     *(f"F{n}" for n in range(1, 13)),
 }
-MODIFIED_KEY = re.compile(r"^(?:C-|M-|C-M-|S-)(?:[a-z0-9\[\]\\/_@^]|Enter|Tab|Up|Down|Left|Right|BSpace|Space)$")
+MODIFIED_KEY = re.compile(
+    r"^(?:C-|M-|C-M-|S-)(?:[a-z0-9\[\]\\/_@^]|Enter|Tab|Up|Down|Left|Right|BSpace|Space)$"
+)
 
 _PANE_FIELDS = [
     ("session_id", "#{session_id}"),
@@ -62,7 +78,9 @@ _PANE_FIELDS = [
 ]
 _PANE_FORMAT = SEP.join(fmt for _, fmt in _PANE_FIELDS)
 
-_BUSY_TEXT = re.compile(r"esc to interrupt|esc to cancel|ctrl\+c to interrupt", re.IGNORECASE)
+_BUSY_TEXT = re.compile(
+    r"esc to interrupt|esc to cancel|ctrl\+c to interrupt", re.IGNORECASE
+)
 # 권한/선택 프롬프트: "❯ 1. Yes" (Claude Code), "› 1. Yes, proceed" (Codex), 폴더 신뢰 확인, y/n 질문
 _WAITING_TEXT = re.compile(
     # Codex 선택 창(/model 등)은 커서가 현재 항목에 있어 1. 이 아닐 수 있고 안내문이 "Press ⏎ to confirm or esc …" 이다
@@ -137,7 +155,9 @@ def _run(args: list[str], *, input_text: str | None = None, timeout: float = 5) 
 
 def _short_path(path: str) -> str:
     home = str(Path.home())
-    return "~" + path[len(home):] if path == home or path.startswith(home + "/") else path
+    return (
+        "~" + path[len(home) :] if path == home or path.startswith(home + "/") else path
+    )
 
 
 def _clean_title(title: str) -> str:
@@ -149,7 +169,9 @@ def _clean_title(title: str) -> str:
 
 def detect_status(window: Window, tail: str) -> str:
     """에이전트(claude/codex) 창의 상태를 화면 하단 텍스트로 추정한다."""
-    pane = next((p for p in window.panes if p.active), window.panes[0] if window.panes else None)
+    pane = next(
+        (p for p in window.panes if p.active), window.panes[0] if window.panes else None
+    )
     if pane is None or pane.dead:
         return "dead"
     if window.agent is None:
@@ -212,7 +234,9 @@ def list_windows(with_status: bool = True) -> list[Window]:
             if window.agent:
                 try:
                     tail = "\n".join(
-                        _run(["capture-pane", "-p", "-t", (agent_pane or active).id]).rstrip().splitlines()[-12:]
+                        _run(["capture-pane", "-p", "-t", (agent_pane or active).id])
+                        .rstrip()
+                        .splitlines()[-12:]
                     )
                 except TmuxError:
                     tail = ""
@@ -251,13 +275,21 @@ def _window_ids() -> set[str]:
 
 
 def require_pane(pane_id: str) -> str:
-    if not isinstance(pane_id, str) or not PANE_ID.match(pane_id) or pane_id not in _pane_ids():
+    if (
+        not isinstance(pane_id, str)
+        or not PANE_ID.match(pane_id)
+        or pane_id not in _pane_ids()
+    ):
         raise KeyError("존재하지 않는 pane 입니다.")
     return pane_id
 
 
 def require_window(window_id: str) -> str:
-    if not isinstance(window_id, str) or not WINDOW_ID.match(window_id) or window_id not in _window_ids():
+    if (
+        not isinstance(window_id, str)
+        or not WINDOW_ID.match(window_id)
+        or window_id not in _window_ids()
+    ):
         raise KeyError("존재하지 않는 창입니다.")
     return window_id
 
@@ -266,12 +298,29 @@ def capture(pane_id: str, history: int = 300) -> dict:
     """pane 화면 + 스크롤백을 ANSI 색상 그대로 가져온다 (HTML 변환은 브라우저가 한다)."""
     history = max(0, min(int(history), MAX_HISTORY))
     content = _run(["capture-pane", "-p", "-e", "-t", pane_id, "-S", f"-{history}"])
-    info = _run(
-        [
-            "display-message", "-p", "-t", pane_id,
-            SEP.join(["#{cursor_x}", "#{cursor_y}", "#{cursor_flag}", "#{pane_width}", "#{pane_height}", "#{alternate_on}", "#{pane_in_mode}"]),
-        ]
-    ).strip().split(SEP)
+    info = (
+        _run(
+            [
+                "display-message",
+                "-p",
+                "-t",
+                pane_id,
+                SEP.join(
+                    [
+                        "#{cursor_x}",
+                        "#{cursor_y}",
+                        "#{cursor_flag}",
+                        "#{pane_width}",
+                        "#{pane_height}",
+                        "#{alternate_on}",
+                        "#{pane_in_mode}",
+                    ]
+                ),
+            ]
+        )
+        .strip()
+        .split(SEP)
+    )
     cx, cy, cflag, width, height, alternate, in_mode = (info + ["0"] * 7)[:7]
     return {
         "pane": pane_id,
@@ -312,7 +361,9 @@ def _paste(pane_id: str, text: str) -> None:
     _run(["paste-buffer", "-p", "-d", "-b", buffer, "-t", pane_id])
 
 
-def send_prompt(pane_id: str, text: str, submit: bool = True, attachments: list[str] | tuple = ()) -> None:
+def send_prompt(
+    pane_id: str, text: str, submit: bool = True, attachments: list[str] | tuple = ()
+) -> None:
     """프롬프트 전송.
 
     여러 줄은 bracketed paste 로 붙여넣어 Claude Code / Codex 가 줄바꿈마다 제출하지 않게 하고,
@@ -352,7 +403,17 @@ def create_session(name: str, path: str, command: str) -> str:
     if len(command) > 500 or "\n" in command:
         raise ValueError("시작 명령이 올바르지 않습니다.")
     pane_id = _run(
-        ["new-session", "-d", "-P", "-F", "#{pane_id}", "-s", name, "-c", str(directory)]
+        [
+            "new-session",
+            "-d",
+            "-P",
+            "-F",
+            "#{pane_id}",
+            "-s",
+            name,
+            "-c",
+            str(directory),
+        ]
     ).strip()
     if command and PANE_ID.match(pane_id):
         time.sleep(0.3)  # 셸이 뜨기 전에 입력하면 프롬프트 초기화 중에 먹힐 수 있다.
@@ -368,8 +429,15 @@ def rename_session(session_id: str, name: str) -> tuple[str, str]:
         raise KeyError("존재하지 않는 세션입니다.")
     name = (name or "").strip()
     if not SESSION_NAME.match(name):
-        raise ValueError("세션 이름은 글자 · 숫자 · - · _ 로 50자 이하여야 합니다 (첫 글자는 - 불가, 공백 · : · . 불가).")
-    rows = [line.split(SEP) for line in _run(["list-sessions", "-F", f"#{{session_id}}{SEP}#{{session_name}}"]).splitlines()]
+        raise ValueError(
+            "세션 이름은 글자 · 숫자 · - · _ 로 50자 이하여야 합니다 (첫 글자는 - 불가, 공백 · : · . 불가)."
+        )
+    rows = [
+        line.split(SEP)
+        for line in _run(
+            ["list-sessions", "-F", f"#{{session_id}}{SEP}#{{session_name}}"]
+        ).splitlines()
+    ]
     names = {row[0]: row[1] for row in rows if len(row) == 2}
     if session_id not in names:
         raise KeyError("존재하지 않는 세션입니다.")

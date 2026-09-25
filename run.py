@@ -23,7 +23,9 @@ if __name__ == "__main__":
             "PORT 값이 올바르지 않아 기본 포트 %s를 사용합니다.", port
         )
 
-    show_startup_banner(host=host, port=port, log_level=log_level, environment=environment)
+    show_startup_banner(
+        host=host, port=port, log_level=log_level, environment=environment
+    )
     uvicorn.run(
         "app.main:app",
         host=host,

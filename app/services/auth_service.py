@@ -28,7 +28,16 @@ from app.paths import data_dir
 logger = logging.getLogger(__name__)
 
 MIN_PASSWORD_LENGTH = 12
-WEAK_PASSWORDS = {"changeme", "admin", "admin1234", "password", "1234", "12345678", "qwerty", "password123"}
+WEAK_PASSWORDS = {
+    "changeme",
+    "admin",
+    "admin1234",
+    "password",
+    "1234",
+    "12345678",
+    "qwerty",
+    "password123",
+}
 PBKDF2_ITERATIONS = 600_000
 
 
@@ -44,6 +53,7 @@ SESSION_IDLE = _int_env("SESSION_IDLE_MINUTES", 240) * 60
 
 
 # ── 자격 증명 ────────────────────────────────────────────────────────────────
+
 
 def _username() -> str:
     # 예전 .env 키(ADMIN_USERNAME)도 읽는다.
@@ -74,7 +84,9 @@ def verify_password_hash(password: str, encoded: str) -> bool:
         if algorithm != "pbkdf2_sha256":
             return False
         expected = base64.b64decode(digest)
-        actual = hashlib.pbkdf2_hmac("sha256", password.encode(), base64.b64decode(salt), int(iterations))
+        actual = hashlib.pbkdf2_hmac(
+            "sha256", password.encode(), base64.b64decode(salt), int(iterations)
+        )
     except (ValueError, TypeError):
         return False
     return hmac.compare_digest(actual, expected)
@@ -105,6 +117,7 @@ def config_problem() -> str | None:
 
 # ── TOTP (RFC 6238) ──────────────────────────────────────────────────────────
 
+
 def _b32decode(secret: str) -> bytes:
     try:
         return base64.b32decode(secret + "=" * (-len(secret) % 8), casefold=True)
@@ -113,7 +126,9 @@ def _b32decode(secret: str) -> bytes:
 
 
 def totp_code(secret: str, counter: int, digits: int = 6) -> str:
-    digest = hmac.new(_b32decode(secret), struct.pack(">Q", counter), hashlib.sha1).digest()
+    digest = hmac.new(
+        _b32decode(secret), struct.pack(">Q", counter), hashlib.sha1
+    ).digest()
     offset = digest[-1] & 0x0F
     value = int.from_bytes(digest[offset : offset + 4], "big") & 0x7FFFFFFF
     return str(value % 10**digits).zfill(digits)
@@ -133,7 +148,9 @@ class _TotpGuard:
         current = int((now if now is not None else time.time()) // 30)
         with self.lock:
             for counter in (current - 1, current, current + 1):
-                if counter > self.last_counter and hmac.compare_digest(totp_code(secret, counter), code):
+                if counter > self.last_counter and hmac.compare_digest(
+                    totp_code(secret, counter), code
+                ):
                     self.last_counter = counter
                     return True
         return False
@@ -143,6 +160,7 @@ totp_guard = _TotpGuard()
 
 
 # ── 세션 목록 ────────────────────────────────────────────────────────────────
+
 
 class SessionRegistry:
     """서버가 발급한 세션 목록. 쿠키의 세션 ID 는 여기에 SHA-256 으로만 저장한다."""
@@ -166,7 +184,9 @@ class SessionRegistry:
         self.path = path
         try:
             self.data = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(self.data.get("sessions"), dict) or not isinstance(self.data.get("salt"), str):
+            if not isinstance(self.data.get("sessions"), dict) or not isinstance(
+                self.data.get("salt"), str
+            ):
                 raise ValueError
         except (OSError, ValueError, AttributeError):
             self.data = {"salt": secrets.token_hex(16), "sessions": {}}
@@ -191,14 +211,18 @@ class SessionRegistry:
 
     def fingerprint(self) -> str:
         """계정 정보(비밀번호 · TOTP)의 지문. 느린 해시라 세션 파일이 새도 비밀번호를 역산하기 어렵다."""
-        material = "\0".join([_username(), _password_hash() or _plain_password(), _totp_secret()])
+        material = "\0".join(
+            [_username(), _password_hash() or _plain_password(), _totp_secret()]
+        )
         with self.lock:
             self._load()
             salt = self.data["salt"]
         cache_key = hashlib.sha256((salt + "\0" + material).encode()).hexdigest()
         cached = self._fp_cache.get(cache_key)
         if cached is None:
-            cached = hashlib.pbkdf2_hmac("sha256", material.encode(), salt.encode(), 200_000).hex()[:32]
+            cached = hashlib.pbkdf2_hmac(
+                "sha256", material.encode(), salt.encode(), 200_000
+            ).hex()[:32]
             self._fp_cache = {cache_key: cached}
         return cached
 
@@ -208,10 +232,20 @@ class SessionRegistry:
         with self.lock:
             self._load()
             sessions = self.data["sessions"]
-            stale = [k for k, v in sessions.items() if now - v.get("created", 0) > SESSION_MAX_AGE or v.get("fp") != fingerprint]
+            stale = [
+                k
+                for k, v in sessions.items()
+                if now - v.get("created", 0) > SESSION_MAX_AGE
+                or v.get("fp") != fingerprint
+            ]
             for key in stale:
                 sessions.pop(key, None)
-            sessions[self._key(sid)] = {"created": now, "seen": now, "fp": fingerprint, **meta}
+            sessions[self._key(sid)] = {
+                "created": now,
+                "seen": now,
+                "fp": fingerprint,
+                **meta,
+            }
             self._save()
 
     def validate(self, sid: str) -> dict | None:
@@ -292,10 +326,13 @@ class AuthService:
         # 세션 고정 공격 방지: 로그인 전 세션 내용을 버리고 새로 발급한다.
         request.session.clear()
         sid = secrets.token_urlsafe(32)
-        sessions.create(sid, {
-            "ip": request.client.host if request.client else "",
-            "ua": (request.headers.get("user-agent") or "")[:200],
-        })
+        sessions.create(
+            sid,
+            {
+                "ip": request.client.host if request.client else "",
+                "ua": (request.headers.get("user-agent") or "")[:200],
+            },
+        )
         request.session.update({"user": username, "sid": sid})
 
     @staticmethod

@@ -20,7 +20,11 @@ _lock = threading.Lock()
 
 def data_dir() -> Path:
     configured = os.getenv("UNIVDASH_DATA_DIR")
-    base = Path(configured).expanduser() if configured else Path.home() / ".univdash" / "data"
+    base = (
+        Path(configured).expanduser()
+        if configured
+        else Path.home() / ".univdash" / "data"
+    )
     if not configured:
         _migrate_legacy(base)
     return base
@@ -44,4 +48,6 @@ def _migrate_legacy(target: Path) -> None:
                 os.chmod(destination, 0o600)
                 logger.info("데이터 파일을 옮겼습니다 · %s → %s", source, destination)
             except OSError as error:
-                logger.warning("데이터 파일을 옮기지 못했습니다 · %s: %s", source, error)
+                logger.warning(
+                    "데이터 파일을 옮기지 못했습니다 · %s: %s", source, error
+                )

@@ -38,11 +38,17 @@ def cmd_totp() -> None:
     secret = base64.b32encode(secrets.token_bytes(20)).decode().rstrip("=")
     user = input("인증 앱에 표시할 계정 이름 [admin]: ").strip() or "admin"
     uri = f"otpauth://totp/UnivDash:{quote(user)}?secret={secret}&issuer=UnivDash&digits=6&period=30"
-    print("\n1) 인증 앱(Google Authenticator, 1Password, iOS 암호 앱 등)에 '설정 키'로 아래 값을 추가하세요:\n")
-    print(f"   {' '.join(secret[i:i + 4] for i in range(0, len(secret), 4))}")
+    print(
+        "\n1) 인증 앱(Google Authenticator, 1Password, iOS 암호 앱 등)에 '설정 키'로 아래 값을 추가하세요:\n"
+    )
+    print(f"   {' '.join(secret[i : i + 4] for i in range(0, len(secret), 4))}")
     print(f"\n   (또는 이 주소를 지원하는 앱에서 열기: {uri})")
-    print(f"\n2) 앱에 나온 코드가 지금 코드와 같은지 확인하세요: {totp_code(secret, int(time.time() // 30))}")
-    print("\n3) .env 에 아래 줄을 넣고 서버를 재시작하세요 (기존 로그인은 모두 풀립니다):\n")
+    print(
+        f"\n2) 앱에 나온 코드가 지금 코드와 같은지 확인하세요: {totp_code(secret, int(time.time() // 30))}"
+    )
+    print(
+        "\n3) .env 에 아래 줄을 넣고 서버를 재시작하세요 (기존 로그인은 모두 풀립니다):\n"
+    )
     print(f"ADMIN_TOTP_SECRET={secret}")
 
 
@@ -50,7 +56,11 @@ def cmd_secret_key() -> None:
     print(f"SECRET_KEY={secrets.token_urlsafe(48)}")
 
 
-COMMANDS = {"hash-password": cmd_hash_password, "totp": cmd_totp, "secret-key": cmd_secret_key}
+COMMANDS = {
+    "hash-password": cmd_hash_password,
+    "totp": cmd_totp,
+    "secret-key": cmd_secret_key,
+}
 
 if __name__ == "__main__":
     if len(sys.argv) != 2 or sys.argv[1] not in COMMANDS:
