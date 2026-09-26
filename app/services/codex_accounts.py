@@ -157,7 +157,11 @@ def refresh_saved_auth(account_id: str, previous: dict, current: dict) -> None:
         if not record or record.get("auth") != previous or account_id == sync_current():
             return
         previous_info, current_info = _info(previous), _info(current)
-        if not previous_info or not current_info or previous_info["email"] != current_info["email"]:
+        if (
+            not previous_info
+            or not current_info
+            or previous_info["email"] != current_info["email"]
+        ):
             return
         record["auth"] = current
         _write_secret(path, json.dumps(record, ensure_ascii=False))

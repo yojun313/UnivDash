@@ -106,6 +106,10 @@
                                                 <span id="gitCommitSummaryLength">요약 0/72</span>
                                                 <span id="gitCommitHint"></span>
                                             </div>
+                                            <div class="mt-2 flex items-center gap-1.5">
+                                                <button id="gitAiMessage" type="button" class="git-ai-btn" title="변경 내용을 보고 AI 가 커밋 메시지를 씁니다"><i class="fas fa-wand-magic-sparkles"></i><span>AI로 작성</span></button>
+                                                <button id="gitAiSettings" type="button" class="git-ai-gear" title="AI 설정 (OpenAI 호환 API 주소 · 토큰 · 모델)" aria-label="AI 설정"><i class="fas fa-gear"></i></button>
+                                            </div>
                                             <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-bold text-white/50">
                                                 <label class="flex cursor-pointer items-center gap-1.5"><input id="gitCommitAmend" type="checkbox" class="h-3.5 w-3.5 accent-violet-500">마지막 커밋 수정 (amend)</label>
                                                 <label class="flex cursor-pointer items-center gap-1.5"><input id="gitCommitStageAll" type="checkbox" checked class="h-3.5 w-3.5 accent-violet-500">모든 변경 포함</label>

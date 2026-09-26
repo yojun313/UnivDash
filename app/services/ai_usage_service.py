@@ -45,7 +45,13 @@ class AIUsageService:
             accounts_version = (data_dir() / "codex-accounts").stat().st_mtime_ns
         except OSError:
             accounts_version = 0
-        cache_key = (days, str(claude_root), str(codex_root), auth_version, accounts_version)
+        cache_key = (
+            days,
+            str(claude_root),
+            str(codex_root),
+            auth_version,
+            accounts_version,
+        )
 
         with cls._cache_lock:
             cached = cls._cache.get(cache_key)
@@ -83,12 +89,14 @@ class AIUsageService:
             codex_root, cutoff, dates, now, unassigned_only=True
         )
         if unknown["has_data"]:
-            unknown.update({
-                "account": "계정 미확인 (이전 기록)",
-                "active": False,
-                "accent": "#94a3b8",
-                "limits": None,
-            })
+            unknown.update(
+                {
+                    "account": "계정 미확인 (이전 기록)",
+                    "active": False,
+                    "accent": "#94a3b8",
+                    "limits": None,
+                }
+            )
             codex_summaries.append(unknown)
         if not codex_summaries:
             codex = cls._collect_codex(codex_root, cutoff, dates, now)
@@ -106,8 +114,12 @@ class AIUsageService:
         return result
 
     _limits_cache: ClassVar[tuple[float, int, dict] | None] = None
-    _codex_live_cache: ClassVar[dict[tuple[str, int], tuple[float, dict[str, Any]]]] = {}
-    _codex_saved_limits_cache: ClassVar[dict[str, tuple[int, float, dict[str, Any]]]] = {}
+    _codex_live_cache: ClassVar[
+        dict[tuple[str, int], tuple[float, dict[str, Any]]]
+    ] = {}
+    _codex_saved_limits_cache: ClassVar[
+        dict[str, tuple[int, float, dict[str, Any]]]
+    ] = {}
 
     @classmethod
     def limits(cls) -> dict[str, Any]:
@@ -243,13 +255,32 @@ class AIUsageService:
                     continue
                 email = cls._clean_email(claims.get("email"))
                 user_id = cls._codex_user_id_from_claims(claims)
-                if not email or not user_id or hashlib.sha256(email.lower().encode()).hexdigest()[:12] != path.stem:
+                if (
+                    not email
+                    or not user_id
+                    or hashlib.sha256(email.lower().encode()).hexdigest()[:12]
+                    != path.stem
+                ):
                     continue
-                accounts.append({"email": email, "user_id": user_id, "active": email == active_email, "path": path})
+                accounts.append(
+                    {
+                        "email": email,
+                        "user_id": user_id,
+                        "active": email == active_email,
+                        "path": path,
+                    }
+                )
         if active_email and not any(a["active"] for a in accounts):
             user_id = cls._codex_user_id(root)
             if user_id:
-                accounts.append({"email": active_email, "user_id": user_id, "active": True, "path": None})
+                accounts.append(
+                    {
+                        "email": active_email,
+                        "user_id": user_id,
+                        "active": True,
+                        "path": None,
+                    }
+                )
         accounts.sort(key=lambda a: (not a["active"], a["email"].lower()))
         return accounts
 
@@ -269,7 +300,9 @@ class AIUsageService:
             auth = record.get("auth")
             if not isinstance(auth, dict):
                 return None
-            with tempfile.TemporaryDirectory(prefix="univdash-codex-usage-") as temporary:
+            with tempfile.TemporaryDirectory(
+                prefix="univdash-codex-usage-"
+            ) as temporary:
                 auth_file = Path(temporary) / "auth.json"
                 fd = os.open(auth_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
                 with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -278,13 +311,18 @@ class AIUsageService:
                 updated_auth = json.loads(auth_file.read_text(encoding="utf-8"))
             if updated_auth != auth:
                 from app.services import codex_accounts
+
                 codex_accounts.refresh_saved_auth(path.stem, auth, updated_auth)
                 mtime = path.stat().st_mtime_ns
         except (OSError, ValueError, AttributeError):
             return None
         if limits is not None:
             with cls._cache_lock:
-                cls._codex_saved_limits_cache[str(path)] = (mtime, time.monotonic(), limits)
+                cls._codex_saved_limits_cache[str(path)] = (
+                    mtime,
+                    time.monotonic(),
+                    limits,
+                )
         return limits
 
     @staticmethod
@@ -327,17 +365,28 @@ class AIUsageService:
         env.pop("OPENAI_API_KEY", None)
         env.pop("CODEX_API_KEY", None)
         messages = (
-            {"method": "initialize", "id": 0, "params": {"clientInfo": {
-                "name": "univdash", "title": "UnivDash", "version": "0.2.0"
-            }}},
+            {
+                "method": "initialize",
+                "id": 0,
+                "params": {
+                    "clientInfo": {
+                        "name": "univdash",
+                        "title": "UnivDash",
+                        "version": "0.2.0",
+                    }
+                },
+            },
             {"method": "initialized", "params": {}},
             {"method": "account/rateLimits/read", "id": 1},
         )
         process = None
         try:
             process = subprocess.Popen(
-                [codex, "app-server"], stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env,
+                [codex, "app-server"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                env=env,
             )
             for message in messages:
                 process.stdin.write((json.dumps(message) + "\n").encode())
@@ -363,11 +412,15 @@ class AIUsageService:
                     if response.get("id") != 1:
                         continue
                     result = response.get("result")
-                    if not isinstance(result, dict) or result.get("accountId") != account_id:
+                    if (
+                        not isinstance(result, dict)
+                        or result.get("accountId") != account_id
+                    ):
                         return None
                     snapshot = result.get("rateLimits")
                     if not isinstance(snapshot, dict):
                         return None
+
                     def window(value):
                         if not isinstance(value, dict):
                             return None
@@ -376,6 +429,7 @@ class AIUsageService:
                             "window_minutes": value.get("windowDurationMins"),
                             "resets_at": value.get("resetsAt"),
                         }
+
                     credits = snapshot.get("credits")
                     normalized = {
                         "primary": window(snapshot.get("primary")),
@@ -385,14 +439,18 @@ class AIUsageService:
                             "has_credits": credits.get("hasCredits"),
                             "unlimited": credits.get("unlimited"),
                             "balance": credits.get("balance"),
-                        } if isinstance(credits, dict) else None,
+                        }
+                        if isinstance(credits, dict)
+                        else None,
                     }
                     limits = cls._codex_limits(normalized, now, now)
                     if use_cache and auth_file.stat().st_mtime_ns != auth_mtime:
                         return None
                     if use_cache:
                         with cls._cache_lock:
-                            cls._codex_live_cache = {cache_key: (time.monotonic(), limits)}
+                            cls._codex_live_cache = {
+                                cache_key: (time.monotonic(), limits)
+                            }
                     return limits
         except (OSError, ValueError, AttributeError):
             return None
@@ -681,8 +739,13 @@ class AIUsageService:
     # ── Codex ───────────────────────────────────────────────────────────
     @classmethod
     def _collect_codex(
-        cls, root: Path, cutoff: datetime, dates: list[Any], now: datetime,
-        user_id: str | None = None, unassigned_only: bool = False,
+        cls,
+        root: Path,
+        cutoff: datetime,
+        dates: list[Any],
+        now: datetime,
+        user_id: str | None = None,
+        unassigned_only: bool = False,
     ) -> dict[str, Any]:
         files = cls._recent_jsonl_files(root / "sessions", cutoff)
         if unassigned_only:
@@ -692,7 +755,9 @@ class AIUsageService:
         else:
             user_id = cls._codex_user_id(root)
             if user_id:
-                files = [path for path in files if cls._codex_log_owner(path) == user_id]
+                files = [
+                    path for path in files if cls._codex_log_owner(path) == user_id
+                ]
         summary = cls._empty_summary(
             provider_id="codex",
             name="Codex",

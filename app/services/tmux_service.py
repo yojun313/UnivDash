@@ -254,14 +254,21 @@ def list_windows(with_status: bool = True) -> list[Window]:
                         pane.pid, window.agent, os.path.expanduser(pane.path)
                     )
                     if log:
-                        items = transcript_service.read(log, window.agent, None, 300)["items"]
+                        items = transcript_service.read(log, window.agent, None, 300)[
+                            "items"
+                        ]
                         latest = next(
-                            (item.get("ts") for item in reversed(items)
-                             if item.get("kind") == "assistant" and item.get("ts")),
+                            (
+                                item.get("ts")
+                                for item in reversed(items)
+                                if item.get("kind") == "assistant" and item.get("ts")
+                            ),
                             None,
                         )
                         if latest:
-                            window.reply_activity = int(datetime.fromisoformat(latest).timestamp())
+                            window.reply_activity = int(
+                                datetime.fromisoformat(latest).timestamp()
+                            )
                 except (OSError, ValueError, KeyError):
                     pass
     return result

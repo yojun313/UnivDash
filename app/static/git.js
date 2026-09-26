@@ -901,6 +901,71 @@
   }
   $('gitCommitStageAll').addEventListener('change', updateCommitCount);
 
+  // ── AI 커밋 메시지 (VS Code Copilot 처럼): 커밋할 변경을 OpenAI 호환 API 에 보내 메시지를 받는다 ──
+  // 설정(주소 · 모델 · 토큰)은 서버에만 저장되고, 토큰은 브라우저로 돌아오지 않는다.
+  const UI = () => window.UnivDashUI;
+  async function aiSettingsSheet({ thenGenerate = false } = {}) {
+    let current;
+    try { current = await api('/api/git/ai/settings'); } catch (error) { toast(error.message, 'error'); return; }
+    UI().formSheet({
+      title: 'AI 커밋 메시지 설정',
+      subtitle: 'OpenAI API 와 호환되는 /chat/completions 주소면 됩니다 (OpenAI · OpenRouter · Ollama · vLLM · LM Studio 등). 토큰은 서버에만 저장돼요.',
+      fields: [
+        { name: 'base_url', label: 'API 주소 (Base URL)', value: current.base_url, placeholder: 'https://api.openai.com/v1', maxlength: 500 },
+        { name: 'model', label: '모델', value: current.model, placeholder: '예: gpt-5-mini, openrouter/model, qwen2.5-coder', maxlength: 120 },
+        { name: 'token', label: `Bearer 토큰${current.token_set ? ' (저장됨 · 바꿀 때만 입력)' : ''}`, value: '', placeholder: current.token_set ? '••••••••  (비워 두면 그대로)' : 'sk-...', maxlength: 1000 },
+      ],
+      extraHtml: `<label>메시지 언어<select name="language">
+          <option value="auto" ${current.language === 'auto' ? 'selected' : ''}>자동 (최근 커밋과 같은 언어)</option>
+          <option value="ko" ${current.language === 'ko' ? 'selected' : ''}>한국어</option>
+          <option value="en" ${current.language === 'en' ? 'selected' : ''}>English</option></select></label>
+        ${current.token_set ? '<label class="check-row"><input type="checkbox" name="clear_token"> 저장된 토큰 지우기</label>' : ''}`,
+      submitLabel: '저장',
+      onMount: (body) => {
+        const token = body.querySelector('input[name="token"]');
+        token.type = 'password';
+        token.autocomplete = 'new-password';
+      },
+      onSubmit: async (values) => {
+        const token = values.clear_token ? '' : (values.token ? values.token : null);
+        await api('/api/git/ai/settings', { method: 'PUT', body: { base_url: values.base_url || '', model: values.model || '', token, language: values.language || 'auto' } });
+        toast('AI 설정을 저장했어요.', 'success');
+        if (thenGenerate) setTimeout(generateCommitMessage, 50);
+      },
+    });
+  }
+  async function generateCommitMessage() {
+    if (!state.selectedId) return;
+    const button = $('gitAiMessage');
+    try {
+      const settings = await api('/api/git/ai/settings');
+      if (!settings.configured) { aiSettingsSheet({ thenGenerate: true }); return; }
+    } catch (error) { toast(error.message, 'error'); return; }
+    const input = $('gitCommitMessage');
+    if (input.value.trim() && !confirm('지금 쓴 커밋 메시지를 AI 가 쓴 것으로 바꿀까요?')) return;
+    button.disabled = true;
+    button.classList.add('busy');
+    button.querySelector('i').className = 'fas fa-circle-notch fa-spin';
+    button.querySelector('span').textContent = 'AI가 쓰는 중…';
+    try {
+      const result = await api(`/api/git/ai/commit-message/${encodeURIComponent(state.selectedId)}`, { method: 'POST', body: { stage_all: $('gitCommitStageAll').checked } });
+      input.value = result.message;
+      updateSummaryLength();
+      saveDraft();
+      input.focus();
+      if (result.truncated) toast('변경이 많아 앞부분만 보고 썼어요. 한 번 확인해 주세요.', 'info');
+    } catch (error) {
+      toast(error.message, 'error');
+    } finally {
+      button.disabled = false;
+      button.classList.remove('busy');
+      button.querySelector('i').className = 'fas fa-wand-magic-sparkles';
+      button.querySelector('span').textContent = 'AI로 작성';
+    }
+  }
+  $('gitAiMessage').addEventListener('click', generateCommitMessage);
+  $('gitAiSettings').addEventListener('click', () => aiSettingsSheet());
+
   async function commit(pushAfter) {
     const detail = state.detail;
     if (!detail) return;

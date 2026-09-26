@@ -47,6 +47,58 @@ async def git_manager_page(request: Request):
     return render_page(request, "git")
 
 
+class AISettingsRequest(BaseModel):
+    base_url: str = Field(default="", max_length=500)
+    model: str = Field(default="", max_length=120)
+    token: str | None = Field(
+        default=None, max_length=1000
+    )  # None: 그대로 두기, "": 지우기
+    language: str = Field(default="auto", pattern=r"^(auto|ko|en)$")
+
+
+class AICommitRequest(BaseModel):
+    stage_all: bool = True
+
+
+@router.get("/api/git/ai/settings", dependencies=api_auth)
+async def get_ai_settings():
+    """AI 커밋 메시지 설정 (토큰은 설정 여부만)."""
+    from app.services import ai_commit_service
+
+    return await asyncio.to_thread(ai_commit_service.public_settings)
+
+
+@router.put("/api/git/ai/settings", dependencies=api_auth)
+async def save_ai_settings(body: AISettingsRequest):
+    from app.services import ai_commit_service
+
+    try:
+        return await asyncio.to_thread(
+            ai_commit_service.save_settings,
+            body.base_url,
+            body.model,
+            body.token,
+            body.language,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.post("/api/git/ai/commit-message/{repository_id}", dependencies=api_auth)
+async def ai_commit_message(repository_id: str, body: AICommitRequest):
+    """커밋할 변경을 읽어 AI 로 커밋 메시지를 만든다 (저장소는 바꾸지 않는다)."""
+    from app.services import ai_commit_service
+
+    try:
+        return await asyncio.to_thread(
+            ai_commit_service.generate, repository_id, body.stage_all
+        )
+    except ai_commit_service.AICommitError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except (KeyError, ValueError, RuntimeError) as error:
+        _raise_for(error)
+
+
 @router.get("/api/git/repositories", dependencies=api_auth)
 async def get_repositories(status: bool = True):
     repositories = await asyncio.to_thread(GitService.list_repositories, status)
