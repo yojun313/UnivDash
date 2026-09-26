@@ -6,6 +6,8 @@
 - 다시 내려받는 API 는 없다. 업로드와 삭제만 있다.
 """
 
+import asyncio
+import logging
 import os
 import re
 import secrets
@@ -15,6 +17,8 @@ from pathlib import Path
 
 UPLOAD_ID = re.compile(r"^[0-9a-f]{12}-[\w.\-]{1,120}$")
 _UNSAFE = re.compile(r"[^\w.\-]+")
+logger = logging.getLogger(__name__)
+CLEANUP_INTERVAL = 300  # 업로드가 없어도 5분마다 만료된 첨부 원본을 정리한다.
 
 
 def upload_dir() -> Path:
@@ -38,9 +42,9 @@ def max_bytes() -> int:
 
 def ttl_seconds() -> float:
     try:
-        days = float(os.getenv("UNIVDASH_UPLOAD_TTL_DAYS", "7"))
+        days = float(os.getenv("UNIVDASH_UPLOAD_TTL_DAYS", "1"))
     except ValueError:
-        days = 7
+        days = 1
     return max(0.0, days) * 86400
 
 
@@ -80,17 +84,29 @@ def cleanup(now: float | None = None) -> int:
     ttl = ttl_seconds()
     if not ttl:
         return 0
-    now = now or time.time()
+    now = time.time() if now is None else now
     removed = 0
     for path in upload_dir().iterdir():
         try:
             if (
                 path.is_file()
                 and UPLOAD_ID.match(path.name)
-                and now - path.stat().st_mtime > ttl
+                and now - path.stat().st_mtime >= ttl
             ):
                 path.unlink()
                 removed += 1
         except OSError:
             continue
     return removed
+
+
+async def cleanup_loop() -> None:
+    """서버 시작 시와 이후 주기적으로 정리한다. 브라우저 연결 여부와 무관하다."""
+    while True:
+        try:
+            removed = await asyncio.to_thread(cleanup)
+            if removed:
+                logger.info("보관 기간이 지난 첨부 원본 %d개 삭제", removed)
+        except OSError:
+            logger.exception("첨부 파일 자동 정리 실패")
+        await asyncio.sleep(CLEANUP_INTERVAL)

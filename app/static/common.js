@@ -154,7 +154,7 @@
   }
 
   // 눌림 표시: 누르는 순간 바로(0ms) 어두워지고, 뗄 때 천천히(200ms) 돌아온다.
-  // - 버튼은 즉시, 목록 줄은 70ms 뒤에 (스크롤하려고 댄 손가락에 줄이 번쩍이지 않게 — UITableView 와 같은 방식)
+  // - 버튼은 즉시, 목록 줄은 50ms 뒤에 (스크롤하려고 댄 손가락에 줄이 번쩍이지 않게 — UITableView 와 같은 방식)
   // - 손가락이 움직이거나 스크롤이 시작되면 바로 취소
   const PRESSABLE = 'button, [role="button"], a[href], summary, label.check-row, .key-chip, .tab-item, .filter-chip, .win-item, .ex-row, .ex-root, .sheet-action, .wt, .tt-tab, .exv-tab, .fp-row, .folder-head, .org-item, .git-file-row, .git-repo-item';
   const ROW = '.win-item, .ex-row, .ex-root, .sheet-action, .fp-row, .folder-head, .org-item, .git-file-row, .git-repo-item';
@@ -179,7 +179,7 @@
     if (!target || target.disabled || target.getAttribute('aria-disabled') === 'true' || target.closest('.xterm')) return;
     pressed = target;
     pressStart = { x: event.clientX, y: event.clientY };
-    if (event.pointerType !== 'mouse' && target.matches(ROW)) pressTimer = setTimeout(() => pressed?.classList.add('is-pressed'), 70);
+    if (event.pointerType !== 'mouse' && target.matches(ROW)) pressTimer = setTimeout(() => pressed?.classList.add('is-pressed'), 50);
     else target.classList.add('is-pressed');
   }, { capture: true, passive: true });
   document.addEventListener('pointermove', (event) => {
@@ -187,7 +187,7 @@
     if (Math.hypot(event.clientX - pressStart.x, event.clientY - pressStart.y) > 10) release(false);
   }, { capture: true, passive: true });
   document.addEventListener('pointerup', () => {
-    // 줄을 짧게 톡 친 경우(70ms 전에 뗌)도 눌림을 한 번 보여 준다
+    // 줄을 짧게 톡 친 경우(50ms 전에 뗌)도 눌림을 한 번 보여 준다
     if (pressed && !pressed.classList.contains('is-pressed')) {
       clearTimeout(pressTimer);
       const el = pressed;
@@ -204,6 +204,26 @@
   document.addEventListener('click', (event) => {
     if (event.target.closest?.('.ws-switch button, .filter-chip, .pmd-mode-switch, .sheet-form input[type="checkbox"], [data-yes], [data-haptic]')) haptic(6);
   });
+  // 탭바 · 사이드바 이동은 손가락이 닿는 순간 시작한다 (iOS 탭바처럼 — 떼기를 기다리는 ~100ms 절약).
+  // 선택 표시도 바로 옮겨서 서버 응답 전에 눌린 탭이 켜진다.
+  let navTo = '';
+  document.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    const link = event.target.closest?.('.tabbar a.tab-item, a.nav-link');
+    if (!link || link.getAttribute('aria-current') === 'page' || link.target) return;
+    // 사이드바는 휴대폰에서 스크롤되는 서랍이라 터치는 평소처럼 click 에서
+    if (event.pointerType !== 'mouse' && !link.closest('.tabbar')) return;
+    for (const other of document.querySelectorAll('.tabbar a.tab-item.active')) other.classList.remove('active');
+    if (link.classList.contains('tab-item')) link.classList.add('active');
+    navTo = link.href;
+    location.href = link.href;
+  }, { capture: true });
+  document.addEventListener('click', (event) => {
+    const link = event.target.closest?.('a[href]');
+    if (link && navTo && link.href === navTo) event.preventDefault();   // 이미 이동 중 — 두 번 이동하지 않게
+  }, true);
+  window.addEventListener('pageshow', () => { navTo = ''; });
+
   // iOS Safari 는 touchstart 리스너가 하나라도 있어야 :active 를 적용한다 (CSS :active 만 쓰는 곳 대비)
   document.addEventListener('touchstart', () => {}, { passive: true });
 
@@ -215,5 +235,34 @@
     try { return await work(); } finally { button.classList.remove('is-busy'); button.removeAttribute('aria-busy'); }
   }
 
-  window.UnivDash = { escapeHtml, api, toast, formatNumber, relativeTime, duration, formatDate, chartColors, typingOrBusy, plainKey, haptic, busy };
+  // 수식 (탐색기 마크다운 · 채팅 공용): marked 가 \qquad · _ · \\ 같은 TeX 기호를 망가뜨리므로, 변환 전에 수식을 자리표시(KTXM0Z)로 빼 두고
+  // marked → DOMPurify 정리가 끝난 뒤 KaTeX 로 그려 넣는다 (KaTeX 결과는 trust:false 라 링크 · HTML 명령이 막혀 있다).
+  // 코드 블록(``` ~~~)과 인라인 코드(`…`) 안의 $ 는 건드리지 않는다.
+  function extractMath(src) {
+    const math = [];
+    if (!window.katex || !/\$|\\\(|\\\[/.test(src)) return { text: src, math };
+    const put = (tex, display) => { math.push({ tex: tex.trim(), display }); return `KTXM${math.length - 1}Z`; };
+    const inText = (text) => text
+      .replace(/\$\$([\s\S]+?)\$\$/g, (m, tex) => put(tex, true))
+      .replace(/\\\[([\s\S]+?)\\\]/g, (m, tex) => put(tex, true))
+      .replace(/\\\(([\s\S]+?)\\\)/g, (m, tex) => put(tex, false))
+      // $…$: 여는 $ 뒤 · 닫는 $ 앞에 공백이 없고, 닫는 $ 뒤가 숫자가 아닐 때만 ($5 와 $10 같은 금액 제외)
+      .replace(/(^|[^\\$])\$(?![\s$])((?:\\.|[^$\n\\])+?)(?<!\s)\$(?!\d)/g, (m, pre, tex) => pre + put(tex, false));
+    const text = src.split(/(^[ \t]*(?:```|~~~)[^\n]*\n[\s\S]*?^[ \t]*(?:```|~~~)[ \t]*$)/m)
+      .map((part, i) => (i % 2 ? part : part.split(/(`+[^`\n]*?`+)/).map((piece, j) => (j % 2 ? piece : inText(piece))).join('')))
+      .join('');
+    return { text, math };
+  }
+  function renderMath(html, math) {
+    if (!math.length) return html;
+    return html.replace(/KTXM(\d+)Z/g, (m, index) => {
+      const item = math[Number(index)];
+      if (!item) return m;
+      try {
+        return window.katex.renderToString(item.tex, { displayMode: item.display, throwOnError: false, trust: false, strict: 'ignore', maxSize: 50, maxExpand: 1000, output: 'htmlAndMathml' });
+      } catch (e) { return `<code>${escapeHtml(item.tex)}</code>`; }
+    });
+  }
+
+  window.UnivDash = { escapeHtml, api, toast, formatNumber, relativeTime, duration, formatDate, chartColors, typingOrBusy, plainKey, haptic, busy, math: { extract: extractMath, render: renderMath } };
 })();

@@ -1256,11 +1256,12 @@
     }
     function renderMarkdown(file, entry) {
       if (!window.marked || !window.DOMPurify) return null;
-      const raw = window.marked.parse(file.content, { gfm: true, breaks: false });
+      const { text, math } = window.UnivDash.math.extract(file.content);
+      const raw = window.marked.parse(text, { gfm: true, breaks: false });
       const html = window.DOMPurify.sanitize(raw, { USE_PROFILES: { html: true }, FORBID_TAGS: ['style', 'form', 'input', 'button', 'iframe'], FORBID_ATTR: ['style'] });
       const box = document.createElement('div');
       box.className = 'exv-md';
-      box.innerHTML = html;
+      box.innerHTML = window.UnivDash.math.render(html, math);
       box.querySelectorAll('img[src]').forEach((img) => {
         const src = img.getAttribute('src');
         if (/^(https?:|data:|\/\/)/i.test(src)) return;
@@ -1307,7 +1308,8 @@
       $('[data-act="wrap"]').classList.toggle('hidden', rich && mdRendered);
       let rendered = null;
       if (rich && mdRendered) { try { rendered = renderRich(file, entry); } catch (e) { rendered = null; } }
-      bodyEl.innerHTML = metaHtml(file) + (rendered || renderCode({ ...file, name: entry.name, ext: file.ext || entry.ext }));
+      bodyEl.innerHTML = metaHtml(file) + (rendered ? `<div class="exv-rich">${rendered}</div>` : renderCode({ ...file, name: entry.name, ext: file.ext || entry.ext }));
+      if (rendered) { sizeRich(); showZoom(); } else $('.exv-zoom').classList.add('hidden');
     }
 
     // Jupyter 노트북: 마크다운 셀 · 코드 셀(강조) · 출력(텍스트 · 이미지 · 오류)
@@ -1383,6 +1385,7 @@
         const safe = window.DOMPurify ? window.DOMPurify.sanitize(data.html, { FORBID_TAGS: ['script', 'iframe', 'form', 'style', 'link'], ADD_DATA_URI_TAGS: ['img'] }) : escapeHtml(data.html);
         bodyEl.innerHTML = `${metaHtml(file, ' · 한글(hwpx) 미리보기')}<div class="hwp-doc">${safe}</div>`;
         fitHwp();
+        showZoom();
       } else if (file.preview === 'archive') {
         const data = await api(`/api/fs/preview/archive?${q}`);
         if (seq !== renderSeq) return;
@@ -1410,13 +1413,15 @@
         pick(view.table);
       } else if (file.preview === 'image') {
         bodyEl.innerHTML = `${metaHtml(file, ' · 서버에서 변환')}<div class="exv-image"><img src="/api/fs/preview/image?${q}&v=${file.mtime}" alt="${escapeHtml(entry.name)}"></div>`;
+        bodyEl.querySelector('.exv-image img').addEventListener('load', () => { if (seq === renderSeq) sizeImage(); }, { once: true });
+        showZoom();
       }
     }
     function fitHwp() {
       const doc = bodyEl.querySelector('.hwp-doc');
       if (!doc) return;
       const widest = Math.max(...[...doc.querySelectorAll('.hwp-page')].map((p) => parseFloat(p.style.width) || 794), 300);
-      doc.style.zoom = String(Math.min(1, (bodyEl.clientWidth - 24) / widest));
+      doc.style.zoom = String(Math.min(1, (bodyEl.clientWidth - 24) / widest) * ((current && viewOf(current.path).zoom) || 1));
     }
     async function renderHex(file, entry, seq) {
       const data = await api(`/api/fs/preview/hex?path=${encodeURIComponent(entry.path)}`);
@@ -1435,20 +1440,40 @@
 
     // ── PDF: 서버가 페이지를 PNG 로 그려 보낸다 (보이는 페이지만 지연 로드) ──
     let pdfInfo = null;
-    const ZOOMS = [0.5, 0.67, 0.8, 1, 1.25, 1.5, 2, 3];
+    const ZOOMS = [0.5, 0.67, 0.8, 1, 1.25, 1.5, 2, 3, 4];
+    const ZOOM_MIN = 0.5;
+    const ZOOM_MAX = 4;
+    function pdfSize(zoom) {
+      const available = Math.max(200, bodyEl.clientWidth - 24);
+      const cssWidth = Math.round(Math.min(available, 1000) * zoom);
+      return { cssWidth, pixels: Math.min(3200, Math.round(cssWidth * Math.min(window.devicePixelRatio || 1, 2))) };
+    }
+    const pdfSrc = (path, info, page, pixels) => `/api/fs/pdf/page?path=${encodeURIComponent(path)}&page=${page}&w=${pixels}&v=${info.version}`;
     function renderPdf(entry, info) {
       pdfInfo = info;
       const zoom = viewOf(entry.path).zoom || 1;
-      $('.exv-zoom-label').textContent = `${Math.round(zoom * 100)}%`;
-      const available = Math.max(200, bodyEl.clientWidth - 24);
-      const cssWidth = Math.round(Math.min(available, 1000) * zoom);
-      const pixels = Math.min(2000, Math.round(cssWidth * Math.min(window.devicePixelRatio || 1, 2)));
+      setZoomLabel(zoom);
+      const { cssWidth, pixels } = pdfSize(zoom);
       const pages = Array.from({ length: info.pages }, (_, i) => {
         const [w, h] = info.sizes[i] || info.sizes[0];
-        const src = `/api/fs/pdf/page?path=${encodeURIComponent(entry.path)}&page=${i + 1}&w=${pixels}&v=${info.version}`;
-        return `<div class="exv-pdf-page" data-page="${i + 1}" style="width:${cssWidth}px;aspect-ratio:${w} / ${h}"><img src="${src}" alt="${i + 1} 페이지" loading="lazy" decoding="async"></div>`;
+        return `<div class="exv-pdf-page" data-page="${i + 1}" style="width:${cssWidth}px;aspect-ratio:${w} / ${h}"><img src="${pdfSrc(entry.path, info, i + 1, pixels)}" alt="${i + 1} 페이지" loading="lazy" decoding="async"></div>`;
       }).join('');
       bodyEl.innerHTML = `${metaHtml(info, ` · ${info.pages}쪽`)}<div class="exv-pdf">${pages}</div>`;
+    }
+    // 확대 · 축소 때는 페이지를 새로 만들지 않고 폭만 바꾼다. 새 해상도 그림은 다 받은 뒤에 바꿔 끼워 깜빡이지 않게.
+    function resizePdf(zoom) {
+      const { cssWidth, pixels } = pdfSize(zoom);
+      bodyEl.querySelectorAll('.exv-pdf-page').forEach((page) => {
+        page.style.width = `${cssWidth}px`;
+        const img = page.querySelector('img');
+        const src = pdfSrc(current.path, pdfInfo, page.dataset.page, pixels);
+        if (!img || img.getAttribute('src') === src) return;
+        if (!img.complete || !img.naturalWidth) { img.src = src; return; }   // 아직 안 받은(화면 밖) 페이지
+        const next = new Image();
+        next.decoding = 'async';
+        next.onload = () => { if (img.isConnected) img.src = src; };
+        next.src = src;
+      });
     }
     function updatePageNo() {
       if (!pdfInfo || !bodyEl.querySelector('.exv-pdf')) { pageNo.classList.add('hidden'); return; }
@@ -1462,17 +1487,124 @@
       clearTimeout(pageNo.timer);
       pageNo.timer = setTimeout(() => pageNo.classList.add('hidden'), 1400);
     }
-    function setZoom(delta) {
-      if (!current || !pdfInfo) return;
+    // ── 확대 · 축소: ± 버튼, 트랙패드 핀치(Chrome · Edge · Firefox 는 ctrl+휠, Safari 는 gesture 이벤트), 휴대폰 두 손가락 ──
+    // 문서(PDF · 오피스 · 한글)와 그림만. 손가락을 벌리는 동안은 transform 으로 바로 키우고(부드럽게),
+    // 손을 떼면 그 배율로 다시 그린 뒤(PDF 는 그 배율에 맞는 해상도) 손가락 아래 있던 지점이 그대로 있게 스크롤을 맞춘다.
+    const zoomable = () => bodyEl.querySelector('.exv-pdf, .hwp-doc, .exv-image img, .exv-rich');
+    const clampZoom = (z) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+    function setZoomLabel(zoom) { $('.exv-zoom-label').textContent = `${Math.round(zoom * 100)}%`; }
+    function showZoom() { $('.exv-zoom').classList.remove('hidden'); setZoomLabel((current && viewOf(current.path).zoom) || 1); }
+    function applyZoom(zoom) {
       const view = viewOf(current.path);
-      const index = ZOOMS.indexOf(view.zoom || 1);
-      const next = ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, (index < 0 ? 3 : index) + delta))];
-      const ratio = bodyEl.scrollHeight > bodyEl.clientHeight ? bodyEl.scrollTop / (bodyEl.scrollHeight - bodyEl.clientHeight) : 0;
-      view.zoom = next;
-      renderPdf(current, pdfInfo);
-      bodyEl.scrollTop = ratio * (bodyEl.scrollHeight - bodyEl.clientHeight);
+      view.zoom = zoom;
       saveTabs();
+      setZoomLabel(zoom);
+      if (pdfInfo && bodyEl.querySelector('.exv-pdf')) resizePdf(zoom);
+      else if (bodyEl.querySelector('.hwp-doc')) fitHwp();
+      else if (bodyEl.querySelector('.exv-image img')) sizeImage();
+      else if (bodyEl.querySelector('.exv-rich')) sizeRich();
     }
+    // 마크다운 · 노트북 · 표: 글자 · 그림 · 수식을 함께 키운다 (CSS zoom 은 줄바꿈도 다시 맞춘다)
+    function sizeRich() {
+      const rich = bodyEl.querySelector('.exv-rich');
+      if (rich && current) rich.style.zoom = String((viewOf(current.path).zoom || 1));
+    }
+    // (cx, cy) 화면 지점을 기준으로 확대: 그 지점 아래 내용이 그대로 있게 한다
+    function zoomAt(zoom, cx, cy) {
+      const target = zoomable();
+      if (!target || !current) return;
+      const before = viewOf(current.path).zoom || 1;
+      zoom = clampZoom(zoom);
+      if (Math.abs(zoom - before) < 0.005) return;
+      const rect = target.getBoundingClientRect();
+      const ox = cx - rect.left;
+      const oy = cy - rect.top;
+      applyZoom(zoom);
+      const after = zoomable()?.getBoundingClientRect();
+      if (!after) return;
+      const k = zoom / before;
+      bodyEl.scrollLeft += after.left + ox * k - cx;
+      bodyEl.scrollTop += after.top + oy * k - cy;
+    }
+    function setZoom(delta) {
+      if (!current || !zoomable()) return;
+      const now = viewOf(current.path).zoom || 1;
+      const next = delta > 0 ? ZOOMS.find((z) => z > now + 0.01) : [...ZOOMS].reverse().find((z) => z < now - 0.01);
+      if (!next) return;
+      const box = bodyEl.getBoundingClientRect();
+      zoomAt(next, box.left + box.width / 2, box.top + box.height / 3);
+    }
+    function sizeImage() {
+      const img = bodyEl.querySelector('.exv-image img');
+      if (!img || !img.naturalWidth || !current) return;
+      const zoom = viewOf(current.path).zoom || 1;
+      const wrap = img.closest('.exv-image');
+      wrap.classList.toggle('zoomed', zoom !== 1);
+      if (zoom === 1) { img.style.width = ''; return; }
+      const fit = Math.min(1, (bodyEl.clientWidth - 32) / img.naturalWidth, (window.innerHeight * 0.8) / img.naturalHeight);
+      img.style.width = `${Math.round(img.naturalWidth * fit * zoom)}px`;
+    }
+    const pinch = { target: null, base: 1, zoom: 1, cx: 0, cy: 0, acc: 1, timer: 0, gesture: false, dist: 0 };
+    function pinchStart(cx, cy) {
+      const target = zoomable();
+      if (!target || !current || editing) return false;
+      const rect = target.getBoundingClientRect();
+      Object.assign(pinch, { target, base: viewOf(current.path).zoom || 1, cx, cy, acc: 1 });
+      pinch.zoom = pinch.base;
+      target.style.transformOrigin = `${cx - rect.left}px ${cy - rect.top}px`;
+      target.style.willChange = 'transform';
+      return true;
+    }
+    function pinchMove(scale) {
+      if (!pinch.target) return;
+      pinch.zoom = clampZoom(pinch.base * scale);
+      pinch.target.style.transform = `scale(${pinch.zoom / pinch.base})`;
+      setZoomLabel(pinch.zoom);
+    }
+    function pinchEnd() {
+      const { target, zoom, cx, cy } = pinch;
+      if (!target) return;
+      pinch.target = null;
+      target.style.transform = '';
+      target.style.transformOrigin = '';
+      target.style.willChange = '';
+      zoomAt(zoom, cx, cy);
+      setZoomLabel(viewOf(current.path).zoom || 1);
+    }
+    // 트랙패드 핀치 (Chrome · Edge · Firefox): ctrlKey 가 붙은 wheel 로 온다. 브라우저 화면 확대 대신 문서만.
+    bodyEl.addEventListener('wheel', (event) => {
+      if (!event.ctrlKey || pinch.gesture || !zoomable()) return;
+      event.preventDefault();
+      if (!pinch.target && !pinchStart(event.clientX, event.clientY)) return;
+      const delta = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+      pinch.acc *= Math.exp(-Math.max(-50, Math.min(50, delta)) * 0.01);
+      pinchMove(pinch.acc);
+      clearTimeout(pinch.timer);
+      pinch.timer = setTimeout(pinchEnd, 160);
+    }, { passive: false });
+    // Safari (Mac 트랙패드): gesture 이벤트
+    bodyEl.addEventListener('gesturestart', (event) => {
+      if (!zoomable()) return;
+      event.preventDefault();
+      pinch.gesture = pinchStart(event.clientX, event.clientY);
+    }, { passive: false });
+    bodyEl.addEventListener('gesturechange', (event) => { if (!pinch.gesture) return; event.preventDefault(); pinchMove(event.scale); }, { passive: false });
+    bodyEl.addEventListener('gestureend', (event) => { if (!pinch.gesture) return; event.preventDefault(); pinch.gesture = false; pinchEnd(); }, { passive: false });
+    // 휴대폰 · 태블릿: 두 손가락
+    const touchDist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    bodyEl.addEventListener('touchstart', (event) => {
+      if (event.touches.length !== 2 || !zoomable()) return;
+      const [a, b] = event.touches;
+      if (pinchStart((a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2)) pinch.dist = touchDist(event.touches) || 1;
+    }, { passive: true });
+    bodyEl.addEventListener('touchmove', (event) => {
+      if (!pinch.target || event.touches.length !== 2) return;
+      event.preventDefault();
+      pinchMove(touchDist(event.touches) / pinch.dist);
+    }, { passive: false });
+    const touchDone = (event) => { if (pinch.target && event.touches.length < 2 && !pinch.gesture) pinchEnd(); };
+    bodyEl.addEventListener('touchend', touchDone);
+    bodyEl.addEventListener('touchcancel', touchDone);
 
     // ── 편집 ──────────────────────────────────────────────────────────
     // 저장 안 한 내용은 파일별로 localStorage 에 초안으로 남겨 다른 탭 · 페이지에 갔다 와도 이어서 고친다.
@@ -1731,9 +1863,11 @@
           $('[data-act="wrap"]').classList.add('hidden');
           bodyEl.innerHTML = `${metaHtml(file)}<div class="exv-image ${viewOf(entry.path).actual ? 'actual' : ''}"><img src="${raw}" alt="${escapeHtml(entry.name)}" title="눌러서 원본 크기 / 화면 맞춤"></div>`;
           const img = bodyEl.querySelector('img');
-          img.addEventListener('load', () => { if (seq === renderSeq) restoreScroll(entry); }, { once: true });
+          showZoom();
+          img.addEventListener('load', () => { if (seq === renderSeq) { sizeImage(); restoreScroll(entry); } }, { once: true });
           img.addEventListener('click', () => {
             const view = viewOf(entry.path);
+            if ((view.zoom || 1) !== 1) { view.actual = false; bodyEl.querySelector('.exv-image').classList.remove('actual'); applyZoom(1); return; }   // 확대해 둔 그림은 누르면 맞춤으로
             view.actual = !view.actual;
             bodyEl.querySelector('.exv-image').classList.toggle('actual', view.actual);
             saveTabs();
@@ -1854,6 +1988,13 @@
         bodyEl.scrollTop = ratio * (bodyEl.scrollHeight - bodyEl.clientHeight);
       }, 200);
     }).observe(bodyEl);
+    // +/- 키 확대 · 축소 (아래 공용 키 처리가 마지막으로 만진 뷰어를 고른다)
+    zoomViewers.push({
+      container,
+      canZoom: () => !!current && !editing && !!zoomable(),
+      step: (delta) => setZoom(delta),
+      reset() { const box = bodyEl.getBoundingClientRect(); zoomAt(1, box.left + box.width / 2, box.top + box.height / 3); },
+    });
     // Ctrl/⌘+W 는 브라우저 창 닫기라 가로채지 않는다. Alt+W 로 현재 탭 닫기.
     container.addEventListener('keydown', (event) => {
       if (event.altKey && event.key.toLowerCase() === 'w' && current) { event.preventDefault(); closeTab(current.path); }
@@ -1868,6 +2009,26 @@
       iconFor: (entry) => iconFor({ ...entry, type: 'file' }),
     };
   }
+
+  // ── 뷰어 확대 · 축소 단축키: + (=) 확대 · - 축소 · 0 원래 크기 ──
+  // 입력 중이 아닐 때, Ctrl/⌘ 조합(브라우저 화면 확대)은 건드리지 않는다.
+  // 대상: 마지막으로 누르거나 포커스한 뷰어, 없으면 화면에 보이는 뷰어 (Workspace 분할 화면에서도 하나만).
+  const zoomViewers = [];
+  let lastViewer = null;
+  const viewerOf = (el) => zoomViewers.find((v) => v.container.contains(el));
+  document.addEventListener('pointerdown', (event) => { lastViewer = viewerOf(event.target) || lastViewer; }, true);
+  document.addEventListener('focusin', (event) => { lastViewer = viewerOf(event.target) || lastViewer; });
+  const visible = (v) => v.container.isConnected && v.container.getClientRects().length > 0 && v.container.offsetParent !== null;
+  document.addEventListener('keydown', (event) => {
+    if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.repeat && event.key === '0') return;
+    const action = { '+': 1, '=': 1, '-': -1, _: -1, '0': 0 }[event.key]
+      ?? { NumpadAdd: 1, NumpadSubtract: -1, Numpad0: 0 }[event.code];
+    if (action === undefined || window.UnivDash.typingOrBusy(event)) return;
+    const target = [lastViewer, ...zoomViewers].find((v) => v && visible(v) && v.canZoom());
+    if (!target) return;
+    event.preventDefault();
+    if (action === 0) target.reset(); else target.step(action);
+  });
 
   window.UnivDashExplorer = { mountTree, mountViewer, copyText, loadPrefs, shared };
 

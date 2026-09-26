@@ -1,3 +1,5 @@
+import asyncio
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -10,6 +12,7 @@ from starlette.middleware.sessions import SessionMiddleware
 load_dotenv()
 
 from app.routes import (
+    account_routes,
     auth_routes,
     fs_routes,
     git_routes,
@@ -20,9 +23,24 @@ from app.routes import (
 )
 from app.security import SecurityMiddleware, env_flag, resolve_secret_key
 from app.services.auth_service import SESSION_MAX_AGE
+from app.services import upload_service
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    cleanup_task = asyncio.create_task(upload_service.cleanup_loop())
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await cleanup_task
+
 
 # 관리용 대시보드이므로 API 문서(/docs, /redoc, /openapi.json)는 노출하지 않는다.
-app = FastAPI(title="UnivDash", docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(
+    title="UnivDash", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan
+)
 
 https_only = env_flag("SESSION_HTTPS_ONLY")
 
@@ -52,6 +70,7 @@ app.mount(
 )
 
 app.include_router(auth_routes.router)
+app.include_router(account_routes.router)
 app.include_router(tmux_routes.router)
 app.include_router(upload_routes.router)
 app.include_router(server_routes.router)

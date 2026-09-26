@@ -16,6 +16,8 @@ from starlette.datastructures import Headers
 from starlette.responses import PlainTextResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.assets import static_cache_control
+
 logger = logging.getLogger(__name__)
 
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -171,9 +173,17 @@ class SecurityMiddleware:
         if is_websocket:
             await self.app(scope, receive, send)
         else:
-            await self.app(scope, receive, self._with_headers(send))
+            await self.app(scope, receive, self._with_headers(send, scope))
 
-    def _with_headers(self, send: Send) -> Send:
+    def _with_headers(self, send: Send, scope: Scope | None = None) -> Send:
+        cache_control = (
+            static_cache_control(
+                scope.get("path", ""), scope.get("query_string", b"").decode("latin-1")
+            )
+            if scope
+            else None
+        )
+
         async def send_wrapper(message: Message) -> None:
             if message["type"] == "http.response.start":
                 raw = [
@@ -187,7 +197,8 @@ class SecurityMiddleware:
                     if key not in present:
                         raw.append((key, value.encode("latin-1")))
                 if b"cache-control" not in present:
-                    raw.append((b"cache-control", b"no-store"))
+                    # 정적 파일만 캐시 허용 (버전 붙은 주소는 1년), 페이지 · API 는 저장 금지
+                    raw.append((b"cache-control", cache_control or b"no-store"))
                 message["headers"] = raw
             await send(message)
 

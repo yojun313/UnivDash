@@ -4,9 +4,11 @@ from fastapi import Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from app.assets import install as install_assets
 from app.services.auth_service import AuthService
 
 templates = Jinja2Templates(directory="app/templates")
+install_assets(templates)
 
 # active_page → (템플릿, 제목)
 PAGES = {

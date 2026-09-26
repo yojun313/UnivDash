@@ -14,6 +14,7 @@ import subprocess
 import threading
 import time
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -84,7 +85,7 @@ _BUSY_TEXT = re.compile(
 # 권한/선택 프롬프트: "❯ 1. Yes" (Claude Code), "› 1. Yes, proceed" (Codex), 폴더 신뢰 확인, y/n 질문
 _WAITING_TEXT = re.compile(
     # Codex 선택 창(/model 등)은 커서가 현재 항목에 있어 1. 이 아닐 수 있고 안내문이 "Press ⏎ to confirm or esc …" 이다
-    r"^\s*[❯›]\s*1\.\s|press enter to continue|enter to confirm|to confirm or|esc to dismiss|esc to go back|enter select|enter default|esc back|enter continue|\(y/n\)|\[y/n\]",
+    r"^\s*[❯›]\s*1\.\s|press enter to continue|enter to confirm|to confirm or|esc to dismiss|esc to go back|enter select|enter default|esc back|enter to set as default|use this session only|enter continue|\(y/n\)|\[y/n\]",
     re.IGNORECASE | re.MULTILINE,
 )
 # Claude Code 는 작업 중 터미널 제목 앞에 점자 스피너를, 쉬는 중에는 ✳ 를 붙인다.
@@ -123,6 +124,7 @@ class Window:
     attached: bool
     activity: int
     panes: list[Pane] = field(default_factory=list)
+    reply_activity: int = 0  # 마지막 실제 에이전트 답변 시각 (화면 다시 그리기 제외)
     agent: str | None = None
     title: str = ""
     path: str = ""
@@ -241,6 +243,27 @@ def list_windows(with_status: bool = True) -> list[Window]:
                 except TmuxError:
                     tail = ""
             window.status = detect_status(window, tail)
+            if window.agent:
+                # tmux window_activity 는 Codex 의 유휴 화면 갱신에도 바뀌므로
+                # 읽지 않은 답변은 실제 대화 로그의 마지막 assistant 메시지로 판단한다.
+                from app.services import transcript_service
+
+                pane = agent_pane or active
+                try:
+                    log = transcript_service.find_log(
+                        pane.pid, window.agent, os.path.expanduser(pane.path)
+                    )
+                    if log:
+                        items = transcript_service.read(log, window.agent, None, 300)["items"]
+                        latest = next(
+                            (item.get("ts") for item in reversed(items)
+                             if item.get("kind") == "assistant" and item.get("ts")),
+                            None,
+                        )
+                        if latest:
+                            window.reply_activity = int(datetime.fromisoformat(latest).timestamp())
+                except (OSError, ValueError, KeyError):
+                    pass
     return result
 
 
@@ -457,3 +480,24 @@ def kill_window(window_id: str) -> None:
 
 def select_pane(pane_id: str) -> None:
     _run(["select-pane", "-t", pane_id])
+
+
+# Codex 화면 아래 상태 줄: "  GPT-6-Luna low · ~" (모델 · 추론 수준 · 폴더)
+_CODEX_FOOTER = re.compile(
+    r"^\s{1,6}((?:gpt|o\d|codex)[\w.\-]*(?: [\w.\-]+)?)\s+(minimal|low|medium|high|xhigh|extra high|max|ultra)?\s*·\s",
+    re.IGNORECASE,
+)
+
+
+def codex_footer_model(pane_id: str) -> str | None:
+    try:
+        text = _run(["capture-pane", "-p", "-t", pane_id])
+    except TmuxError:
+        return None
+    lines = [line for line in text.split("\n") if line.strip()][-8:]
+    for line in reversed(lines):
+        match = _CODEX_FOOTER.match(line)
+        if match:
+            model, effort = match.group(1).strip(), (match.group(2) or "").strip()
+            return f"{model} {effort}".strip()[:60]
+    return None

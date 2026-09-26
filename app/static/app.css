@@ -531,8 +531,8 @@ html.kb-open .composer.safe-bottom { padding-bottom: 0.25rem !important; }
     background: rgba(17, 22, 36, .94); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
     box-shadow: 0 8px 24px rgba(0,0,0,.35);
 }
-.chat-status.hidden { display: none; }
 .chat-status.busy { display: block; padding: 9px 10px 9px 14px; color: #93c5fd; font-size: 13px; }
+.chat-status.hidden { display: none; }
 .chat-status-row { display: flex; align-items: center; gap: 10px; }
 .chat-live-toggle { background: rgba(255,255,255,.06) !important; border-color: rgba(255,255,255,.12) !important; color: #cbd5e1 !important; padding: 6px 9px !important; }
 .chat-live { margin: 8px 0 2px; padding: 8px 10px; max-height: 38vh; overflow: auto; border-radius: 10px; background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.06);
@@ -710,6 +710,8 @@ html[data-ui-theme-mode="light"] .exv-zoom button, html[data-ui-theme-mode="ligh
 .exv-image.actual { display: block; overflow: visible; }
 .exv-image.actual img { max-width: none; max-height: none; cursor: zoom-out; }
 .exv-image img { cursor: zoom-in; }
+.exv-image.zoomed { display: block; overflow: visible; }   /* 두 손가락으로 확대한 그림: 스크롤로 구석까지 */
+.exv-image.zoomed img { display: block; margin: 0 auto; max-width: none; max-height: none; }
 .exv-media { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 20px 12px; min-height: 50%; }
 .exv-media video { width: 100%; max-height: 75vh; border-radius: 10px; background: #000; }
 .exv-media audio { width: min(100%, 520px); }
@@ -1021,7 +1023,9 @@ html[data-ui-theme-mode="light"] .model-chip { color: #6d28d9; background: rgba(
 .usage-mini { display: none; align-items: center; gap: 12px; flex-shrink: 0; margin-right: 4px; }
 .usage-mini:not(.hidden) { display: flex; }
 @media (max-width: 639.98px) { .usage-mini { gap: 8px; } .um-label { font-size: 10px; } .um-bar { width: 30px !important; height: 6px; } .um-val { min-width: 26px; font-size: 10.5px; } }
-.um-provider { font-size: 10.5px; font-weight: 800; letter-spacing: .04em; color: rgba(255,255,255,.45); white-space: nowrap; }
+.um-provider { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.2; font-size: 10.5px; font-weight: 800; letter-spacing: .04em; color: rgba(255,255,255,.45); white-space: nowrap; }
+.um-account { max-width: 190px; overflow: hidden; text-overflow: ellipsis; font-size: 10px; font-weight: 600; letter-spacing: 0; opacity: .85; }
+#usageMini, .tp-usage { cursor: pointer; }
 .um { display: flex; align-items: center; gap: 6px; }
 .um-label { font-size: 11px; font-weight: 700; color: rgba(255,255,255,.55); }
 .um-bar { position: relative; width: 64px; height: 7px; border-radius: 999px; background: rgba(255,255,255,.1); overflow: hidden; }
@@ -1029,10 +1033,15 @@ html[data-ui-theme-mode="light"] .model-chip { color: #6d28d9; background: rgba(
 .um.mid .um-bar i { background: #fbbf24; }
 .um.low .um-bar i { background: #f87171; }
 .um-val { font-size: 11px; font-weight: 800; font-variant-numeric: tabular-nums; color: rgba(255,255,255,.8); min-width: 32px; }
+.um-reset { font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255,255,255,.6); white-space: nowrap; }
+.um-reset-label { color: rgba(255,255,255,.4); }
 @media (max-width: 1279.98px) { .um-provider { display: none; } .um-bar { width: 44px; } }
+@media (max-width: 639.98px) { .um-reset-label { display: none; } }
 html[data-ui-theme-mode="light"] .um-provider, html[data-ui-theme-mode="light"] .um-label { color: #64748b; }
 html[data-ui-theme-mode="light"] .um-bar { background: rgba(15,23,42,.1); }
 html[data-ui-theme-mode="light"] .um-val { color: #1e293b; }
+html[data-ui-theme-mode="light"] .um-reset { color: #475569; }
+html[data-ui-theme-mode="light"] .um-reset-label { color: #94a3b8; }
 
 /* 창 목록 ↔ 파일 사이드바 좌우 바꾸기 (데스크톱) */
 @media (min-width: 1024px) {
@@ -1204,3 +1213,47 @@ html[data-ui-theme-mode="light"] :is(.win-item, .ex-row, .ex-root, .sheet-action
         content: ''; position: absolute; inset: -8px;
     }
 }
+
+/* 페이지 이동: 새 페이지가 그려질 준비가 될 때까지 이전 화면을 그대로 둔다 (흰 화면 깜빡임 없음).
+   애니메이션은 0 — 모양은 그대로, 깜빡임만 없앤다. (Chrome 126+ · Safari 18.2+) */
+@view-transition { navigation: auto; }
+::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation-duration: 0s; }
+
+/* 목록형 선택 창 카드 (/model 등): 누르면 커서만 옮기고 아래 버튼으로 확정 */
+.chat-picker { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; max-height: 320px; overflow-y: auto; overscroll-behavior: contain; }
+.chat-status .chat-picker button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 8px 10px; border-radius: 10px;
+    border: 1px solid transparent; background: rgba(148,163,184,.07); color: #e2e8f0; font-size: 13px; font-weight: 600; }
+.chat-status .chat-picker button > b { width: 18px; flex-shrink: 0; text-align: right; font-size: 11px; opacity: .5; font-variant-numeric: tabular-nums; }
+.chat-picker .cp-main { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.chat-picker .cp-label { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-picker .cp-label em { font-style: normal; font-size: 10.5px; font-weight: 700; opacity: .55; margin-left: 4px; }
+.chat-picker .cp-desc { font-size: 11px; font-weight: 500; opacity: .55; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-status .chat-picker button.on { background: rgba(59,130,246,.16); border-color: rgba(96,165,250,.5); }
+.chat-picker button.on > i { color: #60a5fa; font-size: 12px; }
+.chat-picker-effort { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 8px; font-size: 12.5px; font-weight: 700; color: #e2e8f0; }
+.chat-status .chat-picker-effort button { width: 36px; height: 32px; padding: 0; color: #e2e8f0; background: rgba(148,163,184,.12); border-color: rgba(148,163,184,.25); }
+.chat-picker-actions { margin-top: 10px; justify-content: flex-end; }
+.chat-status .chat-picker-actions button.primary { color: #fff; background: #3b82f6; border-color: #3b82f6; }
+html[data-ui-theme-mode="light"] .chat-status .chat-picker button { background: rgba(15,23,42,.04); color: #1e293b; border-color: transparent; }
+html[data-ui-theme-mode="light"] .chat-status .chat-picker-effort button { background: rgba(100,116,139,.1); border-color: rgba(100,116,139,.25); }
+html[data-ui-theme-mode="light"] .chat-status .chat-picker button.on { background: rgba(37,99,235,.08); border-color: rgba(37,99,235,.35); }
+html[data-ui-theme-mode="light"] .chat-picker-effort, html[data-ui-theme-mode="light"] .chat-status .chat-picker-effort button { color: #1e293b; }
+
+/* 채팅 수식 (KaTeX): 말풍선은 줄바꿈을 그대로 쓰는(pre-wrap) 곳이라 수식 안은 일반 공백 처리 */
+.msg-body .katex { white-space: normal; font-size: 1.05em; }
+.msg-body .katex-display { margin: .4em 0; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+
+/* AI Usage: Codex 계정 전환 · 추가 */
+.ai-accounts-btn { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 8px; font-size: 11px; font-weight: 700; color: #93c5fd; background: rgba(59,130,246,.12); border: 1px solid rgba(96,165,250,.28); }
+html[data-ui-theme-mode="light"] .ai-accounts-btn { color: #1d4ed8; background: rgba(37,99,235,.07); border-color: rgba(37,99,235,.25); }
+.cx-login { display: flex; flex-direction: column; gap: 12px; font-size: 13px; }
+.cx-steps { display: flex; flex-direction: column; gap: 14px; padding-left: 18px; list-style: decimal; }
+.cx-steps li > span { display: block; margin-bottom: 6px; font-weight: 600; }
+.cx-steps small { opacity: .6; font-weight: 500; }
+.cx-link { display: inline-flex; align-items: center; gap: 6px; word-break: break-all; color: #60a5fa; text-decoration: underline; }
+.cx-code { display: inline-flex; align-items: center; gap: 10px; padding: 10px 16px; border-radius: 12px; font-family: 'JetBrains Mono', monospace; font-size: 22px; font-weight: 800; letter-spacing: .08em; background: rgba(148,163,184,.12); border: 1px solid rgba(148,163,184,.3); }
+.cx-code i { font-size: 13px; opacity: .6; }
+.cx-wait { opacity: .7; }
+.cx-note { font-size: 11.5px; opacity: .55; }
+.cx-done { color: #34d399; font-weight: 700; }
+.cx-error { color: #f87171; font-weight: 600; }

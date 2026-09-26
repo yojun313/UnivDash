@@ -4,11 +4,13 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from app.assets import install as install_assets
 from app.security import LoginRateLimiter, client_key
 from app.services.auth_service import AuthService, config_problem
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
+install_assets(templates)
 logger = logging.getLogger(__name__)
 login_limiter = LoginRateLimiter()
 

@@ -1,8 +1,9 @@
 {% extends '_layout.html' %}
 
 {% block head_extra %}
-    <link rel="stylesheet" href="/static/vendor/highlight-github-dark.min.css">
-    <link rel="stylesheet" href="/static/vendor/highlight-github-light.scoped.css">
+    <link rel="stylesheet" href="{{ asset('vendor/highlight-github-dark.min.css') }}">
+    <link rel="stylesheet" href="{{ asset('vendor/katex/katex.min.css') }}">
+    <link rel="stylesheet" href="{{ asset('vendor/highlight-github-light.scoped.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -28,9 +29,10 @@
 {% endblock %}
 
 {% block scripts %}
-    <script src="/static/vendor/Sortable.min.js" defer></script>
-    <script src="/static/vendor/highlight.min.js" defer></script>
-    <script src="/static/vendor/marked.min.js" defer></script>
-    <script src="/static/vendor/purify.min.js" defer></script>
-    <script src="/static/explorer.js" defer></script>
+    <script src="{{ asset('vendor/Sortable.min.js') }}" defer></script>
+    <script src="{{ asset('vendor/highlight.min.js') }}" defer></script>
+    <script src="{{ asset('vendor/marked.min.js') }}" defer></script>
+    <script src="{{ asset('vendor/katex/katex.min.js') }}" defer></script>
+    <script src="{{ asset('vendor/purify.min.js') }}" defer></script>
+    <script src="{{ asset('explorer.js') }}" defer></script>
 {% endblock %}

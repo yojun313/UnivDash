@@ -172,11 +172,14 @@
                             <button id="sendBtn" type="submit" class="send-btn btn-glow" aria-label="보내기"><i class="fas fa-paper-plane text-sm"></i></button>
                         </form>
                         <div class="flex items-center justify-between gap-2 px-3 md:px-4 pb-2 -mt-1 text-[10px] text-white/40">
-                            <div class="flex items-center gap-1 min-w-0">
+                            <div class="flex flex-1 items-center gap-1 min-w-0 overflow-x-auto no-scrollbar whitespace-nowrap">
                                 <button id="keyBarToggle" type="button" class="submit-toggle" aria-expanded="true" aria-controls="keyBar"><i class="fas fa-chevron-down"></i> 키 접기</button>
                                 <button id="snippetBtn" type="button" class="submit-toggle qs-btn" title="최근 보낸 프롬프트 · 빠른 문구" aria-label="히스토리 (최근 보낸 프롬프트 · 빠른 문구)">히스토리</button>
+                                <button id="agentUpdateBtn" type="button" class="submit-toggle qs-btn hidden" title="에이전트를 업데이트하고 같은 대화로 다시 켜기" aria-label="업데이트 (업데이트 후 같은 대화로 다시 켜기)">업데이트</button>
+                                <button id="codexAccountBtn" type="button" class="submit-toggle qs-btn hidden" title="다른 Codex 계정으로 변경하기">계정 변경</button>
+                                <button id="agentSwitchBtn" type="button" class="submit-toggle qs-btn hidden" title="지금 에이전트를 끄고 다른 에이전트를 새 대화로 켜기">Codex로 바꾸기</button>
                             </div>
-                            <div class="flex items-center gap-1 min-w-0">
+                            <div class="flex flex-shrink-0 items-center gap-1 min-w-0">
                                 <span id="composerHint" class="truncate hidden sm:inline">⌘/Ctrl+Enter 전송</span>
                                 <button id="histPrev" type="button" class="hist-btn" title="이전 프롬프트 (↑)" aria-label="이전 프롬프트"><i class="fas fa-chevron-up"></i></button>
                                 <button id="histNext" type="button" class="hist-btn" title="다음 프롬프트 (↓)" aria-label="다음 프롬프트"><i class="fas fa-chevron-down"></i></button>
@@ -216,19 +219,21 @@
 {% endblock %}
 
 {% block head_extra %}
-    <link rel="stylesheet" href="/static/vendor/highlight-github-dark.min.css">
-    <link rel="stylesheet" href="/static/vendor/highlight-github-light.scoped.css">
-    <link rel="stylesheet" href="/static/vendor/xterm.css">
+    <link rel="stylesheet" href="{{ asset('vendor/highlight-github-dark.min.css') }}">
+    <link rel="stylesheet" href="{{ asset('vendor/katex/katex.min.css') }}">
+    <link rel="stylesheet" href="{{ asset('vendor/highlight-github-light.scoped.css') }}">
+    <link rel="stylesheet" href="{{ asset('vendor/xterm.css') }}">
 {% endblock %}
 
 {% block scripts %}
-    <script src="/static/vendor/Sortable.min.js" defer></script>
-    <script src="/static/vendor/highlight.min.js" defer></script>
-    <script src="/static/vendor/marked.min.js" defer></script>
-    <script src="/static/vendor/purify.min.js" defer></script>
-    <script src="/static/explorer.js" defer></script>
-    <script src="/static/vendor/xterm.min.js" defer></script>
-    <script src="/static/vendor/xterm-addon-fit.min.js" defer></script>
-    <script src="/static/vendor/xterm-addon-web-links.min.js" defer></script>
-    <script src="/static/pty.js" defer></script>
+    <script src="{{ asset('vendor/Sortable.min.js') }}" defer></script>
+    <script src="{{ asset('vendor/highlight.min.js') }}" defer></script>
+    <script src="{{ asset('vendor/marked.min.js') }}" defer></script>
+    <script src="{{ asset('vendor/katex/katex.min.js') }}" defer></script>
+    <script src="{{ asset('vendor/purify.min.js') }}" defer></script>
+    <script src="{{ asset('explorer.js') }}" defer></script>
+    <script src="{{ asset('vendor/xterm.min.js') }}" defer></script>
+    <script src="{{ asset('vendor/xterm-addon-fit.min.js') }}" defer></script>
+    <script src="{{ asset('vendor/xterm-addon-web-links.min.js') }}" defer></script>
+    <script src="{{ asset('pty.js') }}" defer></script>
 {% endblock %}

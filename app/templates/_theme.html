@@ -1,4 +1,4 @@
-<script src="/static/theme-boot.js"></script>
+<script src="{{ asset('theme-boot.js') }}"></script>
 <meta name="theme-color" content="#05070f">
 <!-- 홈 화면 앱(PWA): Safari 공유 → "홈 화면에 추가" 하면 아이콘과 전체 화면으로 실행된다 -->
 <link rel="manifest" href="/static/manifest.webmanifest">
@@ -12,10 +12,10 @@
 <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png">
 <!-- 모든 CSS/폰트/스크립트는 자체 호스팅 (외부 CDN 없음 → CSP script-src 'self') -->
-<link rel="stylesheet" href="/static/vendor/fonts.css">
-<link rel="stylesheet" href="/static/vendor/fontawesome/css/all.min.css">
-<link rel="stylesheet" href="/static/theme.css">
-<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="{{ asset('vendor/fonts.css') }}">
+<link rel="stylesheet" href="{{ asset('vendor/fontawesome/css/all.min.css') }}">
+<link rel="stylesheet" href="{{ asset('theme.css') }}">
+<link rel="stylesheet" href="{{ asset('app.css') }}">
 <!-- Play CDN 처럼 유틸리티가 테마 CSS 뒤에 오도록 마지막에 둔다 -->
-<link rel="stylesheet" href="/static/vendor/tailwind.css">
-<script src="/static/theme.js" defer></script>
+<link rel="stylesheet" href="{{ asset('vendor/tailwind.css') }}">
+<script src="{{ asset('theme.js') }}" defer></script>

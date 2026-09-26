@@ -88,6 +88,11 @@ async def api_create_session(body: CreateSessionRequest):
     except (TmuxError, ValueError) as error:
         _raise_for(error)
     logger.info("세션 생성 · %s", body.name)
+    if body.command.strip().split(" ")[0] in tmux_service.AGENTS:
+        from app.services import agent_restart
+
+        # 신뢰 · 권한 질문에 자동으로 "예"
+        agent_restart.watch_startup(pane, agent=body.command.strip().split(" ")[0])
     return {"pane": pane}
 
 
@@ -116,12 +121,71 @@ async def api_agent_model(pane: str):
         path, agent = await _resolve_log(pane)
     except (TmuxError, KeyError) as error:
         _raise_for(error)
-    model = (
-        await asyncio.to_thread(transcript_service.current_model, path, agent)
+    status = (
+        await asyncio.to_thread(transcript_service.model_status, path, agent)
         if path
-        else None
+        else {"model": None, "error": None, "error_at": None}
     )
-    return {"agent": agent, "model": model}
+    # Codex 는 화면 아래에 지금 모델을 늘 보여 준다 ("GPT-6-Luna low · ~") — 세션만 바꾼 모델까지 가장 정확하다.
+    # Claude 는 답변이 아직 없으면 기록에 모델이 없으므로 기본 설정(settings.json)의 모델을 보여 준다.
+    if agent == "codex":
+        shown = await asyncio.to_thread(tmux_service.codex_footer_model, pane)
+        if shown:
+            status["model"] = shown
+    elif agent == "claude" and not status.get("model"):
+        status["model"] = await asyncio.to_thread(
+            transcript_service.claude_default_model
+        )
+    return {"agent": agent, **status}
+
+
+class AgentRestartRequest(BaseModel):
+    pane: str = Field(min_length=2, max_length=16)
+    update: bool = True
+
+
+@router.post("/api/agent/restart", dependencies=api_auth)
+async def api_agent_restart(body: AgentRestartRequest):
+    """에이전트를 (업데이트하고) 같은 대화로 다시 켠다. 작업 중이면 거절."""
+    from app.services import agent_restart
+
+    try:
+        pane = await asyncio.to_thread(tmux_service.require_pane, body.pane)
+        result = await asyncio.to_thread(agent_restart.restart, pane, body.update)
+    except RuntimeError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except (TmuxError, KeyError, ValueError) as error:
+        _raise_for(error)
+    logger.info(
+        "에이전트 다시 켜기 · pane=%s · %s · update=%s",
+        pane,
+        result["agent"],
+        body.update,
+    )
+    return result
+
+
+class AgentSwitchRequest(BaseModel):
+    pane: str = Field(min_length=2, max_length=16)
+    to: str = Field(pattern=r"^(claude|codex)$")
+
+
+@router.post("/api/agent/switch", dependencies=api_auth)
+async def api_agent_switch(body: AgentSwitchRequest):
+    """에이전트 바꾸기 (Claude ↔ Codex, 셸만 있는 창에서 켜기). 대화는 옮겨지지 않고 새로 시작한다."""
+    from app.services import agent_restart
+
+    try:
+        pane = await asyncio.to_thread(tmux_service.require_pane, body.pane)
+        result = await asyncio.to_thread(agent_restart.switch_agent, pane, body.to)
+    except RuntimeError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except (TmuxError, KeyError, ValueError) as error:
+        _raise_for(error)
+    logger.info(
+        "에이전트 바꾸기 · pane=%s · %s → %s", pane, result["from"], result["to"]
+    )
+    return result
 
 
 @router.get("/api/ai-limits", dependencies=api_auth)
@@ -199,7 +263,7 @@ async def api_kill_window(body: WindowRequest):
 
 MAX_MESSAGE = 64 * 1024
 MAX_ATTACHMENTS = 20
-SCREEN_INTERVAL = 0.4
+SCREEN_INTERVAL = 0.15  # 화면 · 세션 로그 확인 주기 (터미널 글이 채팅에 바로 뜨게)
 WINDOWS_INTERVAL = 1.5
 AUTH_RECHECK = 10
 

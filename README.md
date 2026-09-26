@@ -100,7 +100,7 @@ Create a `.env` file in the root directory. There exists `.env.example` in root 
 | `CLAUDE_DATA_DIR`, `CODEX_DATA_DIR` | Agent data folders if not `~/.claude`, `~/.codex` |
 | `EXPLORER_ROOTS` | Folders the Explorer may open (`:` separated, default: your home folder) |
 | `UNIVDASH_DATA_DIR` | Sessions and settings (default `~/.univdash/data`; keep it outside the project if PM2 watches the folder) |
-| `UNIVDASH_UPLOAD_DIR`, `UNIVDASH_UPLOAD_MAX_MB`, `UNIVDASH_UPLOAD_TTL_DAYS` | Attachment storage (default `~/.univdash/uploads`, 50 MB, kept 7 days) |
+| `UNIVDASH_UPLOAD_DIR`, `UNIVDASH_UPLOAD_MAX_MB`, `UNIVDASH_UPLOAD_TTL_DAYS` | Attachment originals (default `~/.univdash/uploads`, 50 MB, kept 24 hours). Expired files are removed at startup and every 5 minutes, even without new uploads. Claude/Codex session logs are separate. |
 
 ### 4) Run the Server
 

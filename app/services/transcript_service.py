@@ -100,8 +100,27 @@ def _claude_log(proc: psutil.Process) -> Path | None:
     return next((p for p in matches if _inside(p, root)), None)
 
 
+_RESUME_ID = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+)
+
+
 def _codex_log(proc: psutil.Process, cwd: str) -> Path | None:
     root = _data_root("CODEX_DATA_DIR", ".codex")
+    # `codex resume <ID>` 로 켜진 창은 그 대화의 로그가 확실하다 (공유 데몬이 파일을 열고 있어 아래 방법으로는 못 찾을 때가 많다)
+    try:
+        argv = proc.cmdline()
+    except psutil.Error:
+        argv = []
+    if "resume" in argv:
+        index = argv.index("resume")
+        wanted = next(
+            (a for a in argv[index + 1 : index + 2] if _RESUME_ID.match(a)), None
+        )
+        if wanted:
+            found = sorted((root / "sessions").glob(f"*/*/*/rollout-*{wanted}.jsonl"))
+            if found and _inside(found[-1], root):
+                return found[-1]
     for candidate in [proc, *proc.children(recursive=True)]:
         try:
             for handle in candidate.open_files():
@@ -310,6 +329,13 @@ class _Log:
                 continue
             if block.get("type") == "text" and (block.get("text") or "").strip():
                 self._add("assistant", block["text"].strip(), ts)
+            elif (
+                block.get("type") == "thinking"
+                and (block.get("thinking") or "").strip()
+            ):
+                # 요즘 Claude Code 는 실제 생각은 비워 두고(서명만), 작업 중에 사용자에게 보여 주는 진행 안내를
+                # thinking 블록에 적는다 — 터미널은 이것을 일반 답변처럼 보여 주므로 채팅에도 넣는다.
+                self._add("assistant", block["thinking"].strip(), ts)
             elif block.get("type") == "tool_use":
                 self._tool(
                     block.get("id", ""),
@@ -400,20 +426,86 @@ def read(path: Path, agent: str, start: int | None, limit: int) -> dict:
         }
 
 
-def current_model(path: Path, agent: str | None) -> str | None:
-    """세션 로그 끝부분에서 지금 쓰는 모델 이름을 찾는다 (Claude: assistant 메시지의 model, Codex: turn_context 의 model)."""
+# Claude 의 /model 결과 줄 (버전에 따라 모양이 다르다)
+#   예전: type=user,   message.content = "<local-command-stdout>Set model to \x1b[1mSonnet 5\x1b[22m and saved as ...</local-command-stdout>"
+#   요즘: type=system, content         = "<local-command-stdout>Set model to `Opus 5.5` and saved as ...</local-command-stdout>"
+#   실패: "<local-command-stdout>API error: 400 {... "message":"Claude Code 2.1.269 does not support this model; ..."}</local-command-stdout>"
+_MODEL_SET = re.compile(
+    r"<local-command-stdout>\s*(?:Set model to|Kept model as)\s+(.+?)(?:\s+and saved\b[^<]*|\s+for this session\b[^<]*)?\s*</local-command-stdout>",
+    re.DOTALL,
+)
+_STDOUT = re.compile(r"<local-command-stdout>(.*?)</local-command-stdout>", re.DOTALL)
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _local_command_text(record: dict) -> str | None:
+    """로컬 명령(/model 등) 기록이면 그 글자, 아니면 None."""
+    if record.get("type") not in {"user", "system"}:
+        return None
+    content = record.get("content")
+    if not isinstance(content, str):
+        message = (
+            record.get("message") if isinstance(record.get("message"), dict) else {}
+        )
+        content = message.get("content")
+    if (
+        not isinstance(content, str)
+        or "<local-command-" not in content
+        and "<command-name>" not in content
+    ):
+        return None
+    return _ANSI.sub("", content)
+
+
+def _model_set_name(text: str) -> str | None:
+    match = _MODEL_SET.search(text)
+    name = match.group(1).strip().strip("`*").strip().rstrip(".") if match else ""
+    return name[:80] or None
+
+
+def _model_error(text: str) -> str | None:
+    """/model 이 실패했을 때 사람이 읽을 메시지."""
+    match = _STDOUT.search(text)
+    body = match.group(1).strip() if match else ""
+    if (
+        not body.lower().startswith(
+            ("api error", "error", "invalid model", "model not found")
+        )
+        and "not support" not in body
+    ):
+        return None
+    inner = re.search(r'"message"\s*:\s*"((?:[^"\\]|\\.)*)"', body)
+    message = (
+        inner.group(1).encode().decode("unicode_escape", errors="ignore")
+        if inner
+        else body
+    )
+    return message[:300]
+
+
+def model_status(path: Path, agent: str | None) -> dict:
+    """세션 로그 끝부분에서 지금 모델과, 가장 최근 /model 이 실패했으면 그 오류.
+
+    Claude: 가장 최근의 assistant 메시지 model, 또는 그보다 뒤에 있는 /model 결과("Set model to …")의 표시 이름.
+            그보다 더 뒤에 /model 실패(API 오류 등)가 있으면 error · error_at 도 준다.
+    Codex: turn_context 의 model.
+    """
+    result: dict = {"model": None, "error": None, "error_at": None}
     try:
         with path.open("rb") as handle:
             handle.seek(max(0, path.stat().st_size - 1024 * 1024))
             lines = handle.read().decode("utf-8", errors="replace").splitlines()
     except OSError:
-        return None
+        return result
+    pending_error: tuple[str, str | None] | None = None
     for line in reversed(lines):
-        if '"model"' not in line:
+        if "model" not in line:
             continue
         try:
             record = json.loads(line)
         except ValueError:
+            continue
+        if not isinstance(record, dict):
             continue
         if agent == "codex":
             payload = (
@@ -422,7 +514,24 @@ def current_model(path: Path, agent: str | None) -> str | None:
             if record.get("type") == "turn_context" and isinstance(
                 payload.get("model"), str
             ):
-                return payload["model"]
+                result["model"] = payload["model"]
+                return result
+            continue
+        text = _local_command_text(record)
+        if text is not None:
+            switched = _model_set_name(text)
+            if switched:
+                result["model"] = switched
+                return result
+            if "<command-name>/model</command-name>" in text:
+                # 뒤(더 최근)에서 본 실패가 이 /model 의 결과였다
+                if pending_error and result["error"] is None:
+                    result["error"], result["error_at"] = pending_error
+                pending_error = None
+                continue
+            error = _model_error(text)
+            if error and pending_error is None and result["error"] is None:
+                pending_error = (error, record.get("timestamp"))
             continue
         message = (
             record.get("message") if isinstance(record.get("message"), dict) else {}
@@ -434,5 +543,33 @@ def current_model(path: Path, agent: str | None) -> str | None:
             and model
             and not model.startswith("<")
         ):
-            return model
-    return None
+            result["model"] = model
+            return result
+    return result
+
+
+def current_model(path: Path, agent: str | None) -> str | None:
+    return model_status(path, agent)["model"]
+
+
+_ALIASES = {
+    "opus": "Opus",
+    "sonnet": "Sonnet",
+    "haiku": "Haiku",
+    "fable": "Fable",
+    "default": "기본 모델",
+}
+
+
+def claude_default_model() -> str | None:
+    """Claude 기본 모델 (~/.claude/settings.json 의 model) — 새 대화라 기록에 모델이 아직 없을 때."""
+    path = _data_root("CLAUDE_DATA_DIR", ".claude") / "settings.json"
+    try:
+        model = json.loads(path.read_text(encoding="utf-8")).get("model")
+    except (OSError, ValueError, AttributeError):
+        return None
+    if not isinstance(model, str) or not model.strip():
+        return None
+    model = model.strip()[:60]
+    base = model.split("[")[0].lower()
+    return _ALIASES.get(base, model) + (" (1M)" if "[1m]" in model.lower() else "")

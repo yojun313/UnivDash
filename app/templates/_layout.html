@@ -6,7 +6,7 @@
     <meta name="robots" content="noindex, nofollow">
     <title>{{ page_title }} - UnivDash</title>
     {% include '_theme.html' %}
-    <script src="/static/common.js"></script>
+    <script src="{{ asset('common.js') }}"></script>
     {% block head_extra %}{% endblock %}
 </head>
 <body class="app-shell text-white flex overflow-hidden" data-page="{{ active_page }}">
@@ -125,7 +125,7 @@
     </div>
     <div id="toastHost" class="toast-host" aria-live="polite"></div>
 
-    <script src="/static/app.js" defer></script>
+    <script src="{{ asset('app.js') }}" defer></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

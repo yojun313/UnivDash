@@ -1,7 +1,7 @@
 {% extends '_layout.html' %}
 
 {% block head_extra %}
-    <script src="/static/vendor/chart.umd.min.js"></script>
+    <script src="{{ asset('vendor/chart.umd.min.js') }}"></script>
 {% endblock %}
 
 
@@ -231,5 +231,5 @@
 {% endblock %}
 
 {% block scripts %}
-    <script src="/static/server.js"></script>
+    <script src="{{ asset('server.js') }}"></script>
 {% endblock %}
