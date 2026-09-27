@@ -631,11 +631,27 @@ class AIUsageService:
             if isinstance(account, dict)
             else None
         )
+        # Claude Code 가 남긴 사용량 캐시가 없거나(계정을 바꾸면 지워진다) 오래됐으면 직접 가져온다
+        fetched_ms = cached.get("fetchedAtMs") if isinstance(cached, dict) else None
+        stale = (
+            not isinstance(fetched_ms, (int, float))
+            or time.time() - fetched_ms / 1000 > 300
+        )
+        if (
+            not isinstance(cached, dict)
+            or not isinstance(cached.get("utilization"), dict)
+            or stale
+        ):
+            live = cls._fetch_claude_usage(root)
+            if live:
+                cached = {"utilization": live, "fetchedAtMs": time.time() * 1000}
         if not isinstance(cached, dict):
             return None
         utilization = cached.get("utilization")
         if not isinstance(utilization, dict):
             return None
+        if not tier or tier == "default_claude_ai":
+            tier = cls._claude_subscription(root) or tier
 
         windows = []
         limits = utilization.get("limits")
@@ -720,6 +736,63 @@ class AIUsageService:
             "credits": None,
         }
 
+    _claude_usage_cache: tuple[float, str, dict | None] | None = None
+
+    @classmethod
+    def _claude_credentials(cls, root: Path) -> dict | None:
+        """로그인 토큰 파일을 읽기만 한다 (절대 쓰지 않는다)."""
+        try:
+            data = json.loads((root / ".credentials.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        oauth = data.get("claudeAiOauth") if isinstance(data, dict) else None
+        return oauth if isinstance(oauth, dict) else None
+
+    @classmethod
+    def _claude_subscription(cls, root: Path) -> str | None:
+        oauth = cls._claude_credentials(root) or {}
+        kind = oauth.get("subscriptionType")
+        return f"subscription_{kind}" if isinstance(kind, str) and kind else None
+
+    @classmethod
+    def _fetch_claude_usage(cls, root: Path) -> dict | None:
+        """Claude Code 와 같은 방법으로 남은 한도를 가져온다 (GET /api/oauth/usage, 60초 캐시).
+
+        토큰이 만료됐으면 갱신하지 않고 건너뛴다 — 갱신하면 토큰이 바뀌어 실행 중인 Claude 의 로그인이 꼬일 수 있다.
+        """
+        oauth = cls._claude_credentials(root) or {}
+        token = oauth.get("accessToken")
+        expires = oauth.get("expiresAt")
+        if not isinstance(token, str) or not token:
+            return None
+        if isinstance(expires, (int, float)) and expires / 1000 < time.time() + 60:
+            return None
+        key = token[-12:]
+        cached = cls._claude_usage_cache
+        if cached and cached[1] == key and time.monotonic() - cached[0] < 60:
+            return cached[2]
+        result = None
+        try:
+            import httpx
+
+            response = httpx.get(
+                "https://api.anthropic.com/api/oauth/usage",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "anthropic-beta": "oauth-2025-04-20",
+                    "Content-Type": "application/json",
+                },
+                timeout=8,
+                follow_redirects=False,
+            )
+            if response.status_code == 200:
+                data = response.json()
+                result = data if isinstance(data, dict) else None
+        except Exception:  # noqa: BLE001 — 네트워크 오류면 표시만 안 한다
+            result = None
+        cls._claude_usage_cache = (time.monotonic(), key, result)
+        return result
+
     @staticmethod
     def _claude_plan_label(tier: Any) -> str | None:
         if not isinstance(tier, str) or not tier:
@@ -729,6 +802,7 @@ class AIUsageService:
             return f"Max {match.group(1)}x"
         for key, label in (
             ("pro", "Pro"),
+            ("max", "Max"),
             ("team", "Team"),
             ("enterprise", "Enterprise"),
         ):
