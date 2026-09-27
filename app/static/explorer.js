@@ -216,7 +216,7 @@
       const meta = mode === 'size' && entry.type === 'file' ? formatSize(entry.size) : mode === 'modified' ? formatTime(entry.mtime) : '';
       const cut = shared.clipboard?.mode === 'cut' && shared.clipboard.path === entry.path;
       const dim = entry.name.startsWith('.') || isGated(entry.path);
-      const drag = !coarse && prefs().sort !== 'manual' ? 'draggable="true"' : '';
+      const drag = !coarse ? 'draggable="true"' : '';   // 마우스: 끌어서 폴더로 옮기기 · 분할로 띄우기 · (직접 지정이면) 순서 바꾸기
       return `<div class="ex-row ${picked.has(entry.path) ? 'selected' : ''} ${dim ? 'dim' : ''} ${entry.ignored ? 'ignored' : ''} ${cut ? 'cut' : ''}" ${drag} ${entry.ignored ? 'title=".gitignore 에 의해 무시됨"' : ''} data-path="${escapeHtml(entry.path)}" data-type="${entry.type}" style="padding-left:${6 + depth * 14}px" role="treeitem" ${entry.type === 'dir' ? `aria-expanded="${open}"` : ''}>
           ${entry.type === 'dir' ? `<i class="ex-chev fas fa-chevron-right ${open ? 'open' : ''}"></i>` : '<span class="ex-chev"></span>'}
           ${iconFor(entry, open)}
@@ -254,11 +254,13 @@
       setupSortables();
     }
 
-    // 직접 지정 정렬: 같은 폴더 안에서 끌어서 순서 변경 (휴대폰은 길게 눌러 끌기)
+    // 직접 지정 정렬 (휴대폰): 길게 눌러 끌어서 순서 변경.
+    // 마우스는 Sortable 을 쓰지 않는다 — 드래그를 가로채 폴더로 옮기기 · 분할로 띄우기가 안 되므로,
+    // 아래 기본 끌어다 놓기 안에서 순서 바꾸기까지 함께 처리한다 (같은 폴더 항목의 위 · 아래 가장자리).
     function setupSortables() {
       sortables.forEach((s) => s.destroy());
       sortables = [];
-      if (prefs().sort !== 'manual' || !window.Sortable) return;
+      if (prefs().sort !== 'manual' || !window.Sortable || !coarse) return;
       [treeEl, ...container.querySelectorAll('.ex-children')].forEach((list) => {
         sortables.push(new window.Sortable(list, {
           draggable: '.ex-node', animation: 150, forceFallback: true, fallbackTolerance: 4,
@@ -651,7 +653,7 @@
     let hoverTimer = null;
     let hoverDir = null;
     const clearDrop = () => {
-      container.querySelectorAll('.ex-row.drop').forEach((el) => el.classList.remove('drop'));
+      container.querySelectorAll('.ex-row.drop, .ex-row.drop-before, .ex-row.drop-after').forEach((el) => el.classList.remove('drop', 'drop-before', 'drop-after'));
       body.classList.remove('drop-root');
       dropHint.classList.add('hidden');
       clearTimeout(hoverTimer);
@@ -671,8 +673,41 @@
       dragSource = null;
       clearDrop();
     });
+    // 순서 직접 지정: 같은 폴더 항목 위에 놓으면 그 앞 · 뒤로 (폴더 줄은 가운데면 폴더 안으로, 위 · 아래 가장자리면 순서)
+    function reorderSpot(event) {
+      if (prefs().sort !== 'manual' || !dragSource || event.ctrlKey || event.altKey || event.metaKey) return null;
+      const row = event.target.closest?.('.ex-row');
+      if (!row || row.dataset.path === dragSource || dirname(row.dataset.path) !== dirname(dragSource)) return null;
+      const r = row.getBoundingClientRect();
+      const f = (event.clientY - r.top) / r.height;
+      if (row.dataset.type === 'dir' && f > 0.28 && f < 0.72) return null;
+      return { row, before: f < 0.5 };
+    }
+    function reorder(source, target, before) {
+      const dir = dirname(source);
+      const entries = cache.get(dir);
+      if (!Array.isArray(entries)) return;
+      const names = sortEntries(dir, visibleEntries(dir, entries)).map((e) => e.name).filter((n) => n !== basename(source));
+      const at = names.indexOf(basename(target));
+      if (at < 0) return;
+      names.splice(before ? at : at + 1, 0, basename(source));
+      const rest = (prefs().orders[dir] || []).filter((n) => !names.includes(n));
+      prefs().orders[dir] = [...names, ...rest];
+      savePrefs();
+      render();
+    }
     body.addEventListener('dragover', (event) => {
       if (!dragSource) return;
+      const spot = reorderSpot(event);
+      if (spot) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        clearDrop();
+        spot.row.classList.add(spot.before ? 'drop-before' : 'drop-after');
+        dropHint.innerHTML = '<i class="fas fa-arrows-up-down"></i> 순서 바꾸기';
+        dropHint.classList.remove('hidden');
+        return;
+      }
       const dir = dropDir(event);
       const copy = event.ctrlKey || event.altKey || event.metaKey;
       if (!copy && !canMove(dragSource, dir)) { event.dataTransfer.dropEffect = 'none'; clearDrop(); return; }
@@ -696,10 +731,12 @@
       event.preventDefault();
       event.stopPropagation();
       const source = dragSource;
+      const spot = reorderSpot(event);
       const dir = dropDir(event);
       const copy = event.ctrlKey || event.altKey || event.metaKey;
       dragSource = null;
       clearDrop();
+      if (spot) { reorder(source, spot.row.dataset.path, spot.before); return; }
       moveTo(source, dir, { copy });
     });
 
