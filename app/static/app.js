@@ -2367,17 +2367,35 @@
       const today = new Date().toDateString() === date.toDateString();
       return date.toLocaleString('ko-KR', today ? { hour: '2-digit', minute: '2-digit' } : { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     }
-    // 에이전트 답변: 간단한 마크다운 + 수식($…$ · $$…$$ · \(…\) · \[…\] → KaTeX, common.js)
+    // 답변 속 파일 · 폴더 경로 → 누르면 여는 링크. 절대경로(/… ~/…), ./ ../ 로 시작하는 경로,
+    // 확장자가 있는 파일 경로(app/static/app.js, …:123)만 — "and/or" · "1/2" · 웹 주소는 건드리지 않는다.
+    const PATH_RE = /(?<![\w/.:~@-])((?:~|\.{1,2})?(?:\/[\w.@+\-가-힣]+)+\/?|[\w.@+\-가-힣]+(?:\/[\w.@+\-가-힣]+)+\/?)(:\d+(?::\d+)?)?/g;
+    function linkPaths(html) {
+      // 태그 안(속성)은 건드리지 않고 글자 부분에만
+      return html.split(/(<[^>]+>)/).map((part) => (part.startsWith('<') ? part : part.replace(PATH_RE, (whole, raw, line = '') => {
+        let path = raw;
+        let tail = '';
+        while (/[.,;:!?)]$/.test(path)) { tail = path.slice(-1) + tail; path = path.slice(0, -1); }
+        if (!path.includes('/')) return whole;
+        const absolute = /^(~|\/|\.{1,2}\/)/.test(path);
+        const last = path.replace(/\/$/, '').split('/').pop();
+        if (!absolute && !/\.[A-Za-z0-9]{1,8}$/.test(last) && !path.endsWith('/')) return whole;
+        if (/^\d+(\/\d+)+$/.test(path)) return whole;
+        const lineNo = line ? line.slice(1).split(':')[0] : '';
+        return `<a class="path-link" role="link" tabindex="0" data-open-path="${path}"${lineNo ? ` data-line="${lineNo}"` : ''} title="눌러서 열기">${path}${line}</a>${tail}`;
+      }))).join('');
+    }
+    // 에이전트 답변: 간단한 마크다운 + 수식($…$ · $$…$$ · \(…\) · \[…\] → KaTeX, common.js) + 경로 링크
     function mdLite(text) {
       return String(text).split('```').map((part, index) => {
         if (index % 2) return `<pre class="md-code">${escapeHtml(part.replace(/^[\w+.-]*\n/, ''))}</pre>`;
         const { text: plain, math } = window.UnivDash.math.extract(part);
         // 블록 수식 앞뒤 줄바꿈은 수식 상자가 이미 줄을 차지하므로 하나씩 없앤다 (빈 줄이 생기지 않게)
         const tidy = plain.replace(/\n?(KTXM(\d+)Z)\n?/g, (m, token, i) => (math[Number(i)]?.display ? token : m));
-        return window.UnivDash.math.render(escapeHtml(tidy)
+        return window.UnivDash.math.render(linkPaths(escapeHtml(tidy)
           .replace(/`([^`\n]+)`/g, '<code>$1</code>')
           .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
-          .replace(/^(#{1,6}) (.+)$/gm, '<span class="md-h">$2</span>'), math);
+          .replace(/^(#{1,6}) (.+)$/gm, '<span class="md-h">$2</span>')), math);
       }).join('');
     }
     const TOOL_ICONS = { Bash: 'fa-terminal', exec_command: 'fa-terminal', shell: 'fa-terminal', Read: 'fa-file-lines', Edit: 'fa-pen', Write: 'fa-file-pen', MultiEdit: 'fa-pen', apply_patch: 'fa-pen', Grep: 'fa-magnifying-glass', Glob: 'fa-folder-open', WebFetch: 'fa-globe', WebSearch: 'fa-globe', Agent: 'fa-robot', Task: 'fa-robot', TodoWrite: 'fa-list-check' };
@@ -4219,6 +4237,42 @@
       if (!coarsePointer) { input.focus(); const pos = (before + pad + text).length + 1; input.setSelectionRange(pos, pos); }
       toast(`${displayName(w)} 프롬프트에 경로를 넣었습니다.`, 'ok');
     }
+
+    // 채팅 답변의 경로 링크: 파일이면 파일 탭으로, 폴더면 탐색기에서 펼쳐 보여 준다.
+    // 상대 경로는 그 채팅의 tmux 창 작업 폴더 기준 (분할 창이면 그 창).
+    async function openChatPath(link) {
+      const raw = link.dataset.openPath;
+      const group = link.closest('.side-pane[data-group]')?.dataset.group;
+      const key = group ? groups[group]?.mirror?.key : workspace.currentWindow()?.key;
+      const w = key ? byKey().get(key) : null;
+      const pane = w && (w.panes.find((p) => p.id === state.paneId) || w.panes.find((p) => w.agent && p.command === w.agent) || w.panes[0]);
+      const cwd = pane?.path || w?.path || '~';
+      const path = /^(~|\/)/.test(raw) ? raw : `${cwd.replace(/\/$/, '')}/${raw}`;
+      let info;
+      try { info = await api('GET', `/api/fs/stat?path=${encodeURIComponent(path)}`); } catch (error) { toast(`열 수 없어요: ${raw} (${error.message})`, 'warn'); return; }
+      if (info.type === 'dir') { reveal(info.path); return; }
+      const name = info.path.split('/').pop();
+      const dot = name.lastIndexOf('.');
+      openFile({ path: info.path, name, ext: dot > 0 ? name.slice(dot + 1).toLowerCase() : '', type: 'file' });
+      const line = Number(link.dataset.line || 0);
+      if (line > 1) scrollToLine(line);
+    }
+    function scrollToLine(line, tries = 0) {
+      const code = document.querySelector('#fileView .exv-pre, #fileView .exv-textarea');
+      const box = code?.closest('.exv-body');
+      if (!code || !box) { if (tries < 20) setTimeout(() => scrollToLine(line, tries + 1), 100); return; }
+      const height = parseFloat(getComputedStyle(code).lineHeight) || 18;
+      box.scrollTop = Math.max(0, code.offsetTop + (line - 1) * height - box.clientHeight / 3);
+    }
+    document.addEventListener('click', (event) => {
+      const link = event.target.closest?.('.path-link[data-open-path]');
+      if (!link) return;
+      event.preventDefault();
+      openChatPath(link);
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && event.target.matches?.('.path-link[data-open-path]')) openChatPath(event.target);
+    });
 
     // 창 메뉴 → "작업 폴더 파일 보기"
     function reveal(path) {

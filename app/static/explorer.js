@@ -162,7 +162,8 @@
       <label class="ex-search"><i class="fas fa-magnifying-glass"></i><input type="search" placeholder="파일 · 폴더 이름 검색" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
       <div class="ex-status"></div>
       <div class="ex-body" tabindex="0" aria-label="파일 목록 (Shift 로 여러 개 선택 · Backspace 로 삭제)"><div class="ex-tree" role="tree" aria-multiselectable="true"></div><div class="ex-results hidden"></div><div class="ex-drop-hint hidden"></div></div>
-      <input type="file" class="hidden ex-upload" multiple>`;
+      <input type="file" class="hidden ex-upload" multiple>
+      <input type="file" class="hidden ex-upload-dir" webkitdirectory multiple>`;
     const $ = (sel) => container.querySelector(sel);
     const treeEl = $('.ex-tree');
     const body = $('.ex-body');
@@ -590,32 +591,104 @@
     let uploadDir = null;
     const uploadInput = $('.ex-upload');
     const dropHint = $('.ex-drop-hint');
-    function upload(files, dir) {
-      if (!files.length) return;
-      toast(`${files.length}개 업로드 중… (${shortHome(dir)})`, 'info');
+    // items: [{ file, dir, rel }] — rel 은 dir 아래 하위 폴더 경로 (폴더 업로드), 서버가 만들어 준다
+    function uploadItems(items, refreshDir, emptyDirs = []) {
+      if (!items.length && !emptyDirs.length) return;
+      const total = items.length;
+      if (total > 300 && !confirm(`파일 ${total}개를 업로드할까요?`)) return;
+      const progress = (n) => toast(`${n}/${total}개 업로드 중… (${shortHome(refreshDir)})`, 'info');
+      if (total) progress(0);
       let done = 0;
-      const next = (index) => {
-        if (index >= files.length) {
-          toast(`${done}개 업로드 완료`, 'success');
-          expanded.add(dir); saveExpanded();
-          refresh(dir);
-          return;
+      let failed = 0;
+      const finish = async () => {
+        for (const { dir, rel } of emptyDirs) {
+          try { await api('/api/fs/upload-folder', { method: 'POST', body: { dir, rel, unique: false } }); } catch (e) { /* 빈 폴더는 넘어간다 */ }
         }
-        const file = files[index];
+        toast(`${done}개 업로드 완료${failed ? ` · ${failed}개 실패` : ''}`, failed ? 'warn' : 'success');
+        expanded.add(refreshDir); saveExpanded();
+        refresh(refreshDir);
+      };
+      const next = (index) => {
+        if (index >= total) { finish(); return; }
+        const { file, dir, rel } = items[index];
         const xhr = new XMLHttpRequest();
         xhr.open('POST', `/api/fs/upload?dir=${encodeURIComponent(dir)}`);
         xhr.setRequestHeader('X-Filename', encodeURIComponent(file.name));
+        if (rel) xhr.setRequestHeader('X-Relative-Dir', encodeURIComponent(rel));
         xhr.setRequestHeader('Content-Type', 'application/octet-stream');
         xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) done += 1;
-          else { let msg = '업로드 실패'; try { msg = JSON.parse(xhr.responseText).detail || msg; } catch (e) { /* noop */ } toast(`${file.name}: ${msg}`, 'error'); }
+          else { failed += 1; let msg = '업로드 실패'; try { msg = JSON.parse(xhr.responseText).detail || msg; } catch (e) { /* noop */ } toast(`${rel ? `${rel}/` : ''}${file.name}: ${msg}`, 'error'); }
+          if (total > 20 && (index + 1) % 20 === 0) progress(index + 1);
           next(index + 1);
         };
-        xhr.onerror = () => { toast(`${file.name}: 네트워크 오류`, 'error'); next(index + 1); };
+        xhr.onerror = () => { failed += 1; toast(`${file.name}: 네트워크 오류`, 'error'); next(index + 1); };
         xhr.send(file);
       };
       next(0);
     }
+    function upload(files, dir) { uploadItems(files.map((file) => ({ file, dir, rel: '' })), dir); }
+    // 폴더 업로드: 맨 위 폴더는 새로 만든다 (같은 이름이 있으면 "이름 (2)" — 기존 폴더에 섞이지 않게)
+    async function makeTop(dir, name) {
+      const made = await api('/api/fs/upload-folder', { method: 'POST', body: { dir, rel: name, unique: true } });
+      return made.path;
+    }
+    // 끌어다 놓은 항목 → 파일 · 빈 폴더 목록 (폴더는 안까지 따라 들어간다)
+    const readBatch = (reader) => new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+    const entryFile = (entry) => new Promise((resolve, reject) => entry.file(resolve, reject));
+    async function walk(entry, rel, out) {
+      if (entry.isFile) { out.files.push({ file: await entryFile(entry), rel }); return; }
+      if (!entry.isDirectory) return;
+      const sub = rel ? `${rel}/${entry.name}` : entry.name;
+      const reader = entry.createReader();
+      let any = false;
+      for (let batch = await readBatch(reader); batch.length; batch = await readBatch(reader)) {
+        for (const child of batch) { any = true; await walk(child, sub, out); }
+      }
+      if (!any && rel) out.dirs.push(sub);
+    }
+    async function uploadDropped(dataTransfer, dir) {
+      // 항목 목록은 drop 이벤트가 끝나면 사라지므로 먼저 모두 꺼내 둔다
+      const entries = [...(dataTransfer.items || [])].map((item) => (item.kind === 'file' ? item.webkitGetAsEntry?.() : null));
+      if (!entries.some((e) => e?.isDirectory)) { upload([...dataTransfer.files], dir); return; }
+      const files = [...dataTransfer.files];
+      toast('폴더를 읽는 중…', 'info');
+      const items = [];
+      const emptyDirs = [];
+      for (const [index, entry] of entries.entries()) {
+        if (!entry) continue;
+        if (entry.isFile) { items.push({ file: files[index] || await entryFile(entry), dir, rel: '' }); continue; }
+        try {
+          const out = { files: [], dirs: [] };
+          await walk(entry, '', out);
+          const top = await makeTop(dir, entry.name);
+          const inner = (rel) => rel.split('/').slice(1).join('/');   // 맨 위 폴더 이름을 뺀 나머지
+          out.files.forEach(({ file, rel }) => items.push({ file, dir: top, rel: inner(rel) }));
+          out.dirs.forEach((rel) => emptyDirs.push({ dir: top, rel: inner(rel) }));
+          if (!out.files.length && !out.dirs.length) toast(`${entry.name}: 빈 폴더를 만들었어요.`, 'info');
+        } catch (error) { toast(`${entry.name}: ${error.message || '폴더를 읽지 못했어요.'}`, 'error'); }
+      }
+      uploadItems(items, dir, emptyDirs);
+    }
+    // 폴더 선택 창으로 올리기 (webkitdirectory: 파일마다 "맨위폴더/하위/파일" 경로가 붙어 온다)
+    async function uploadPickedFolder(files, dir) {
+      const byTop = new Map();
+      files.forEach((file) => {
+        const parts = (file.webkitRelativePath || file.name).split('/');
+        const top = parts.length > 1 ? parts[0] : '';
+        if (!byTop.has(top)) byTop.set(top, []);
+        byTop.get(top).push({ file, rel: parts.slice(1, -1).join('/') });
+      });
+      const items = [];
+      for (const [top, list] of byTop) {
+        let target = dir;
+        if (top) { try { target = await makeTop(dir, top); } catch (error) { toast(`${top}: ${error.message}`, 'error'); continue; } }
+        list.forEach(({ file, rel }) => items.push({ file, dir: target, rel }));
+      }
+      uploadItems(items, dir);
+    }
+    const uploadDirInput = $('.ex-upload-dir');
+    uploadDirInput.addEventListener('change', () => { uploadPickedFolder([...uploadDirInput.files], uploadDir || root); uploadDirInput.value = ''; });
     uploadInput.addEventListener('change', () => { upload([...uploadInput.files], uploadDir || root); uploadInput.value = ''; });
     const hasFiles = (event) => [...(event.dataTransfer?.types || [])].includes('Files');
     function dropDir(event) {
@@ -640,6 +713,33 @@
         paintSelection();
       }
     });
+    // 좁아서 잘린 이름(…)은 마우스를 올리면 바로 전체 이름을 이름 위에 겹쳐 보여 준다 (VS Code 처럼).
+    // 브라우저 기본 툴팁(title)은 뜨는 데 0.5~1초 걸려서 직접 그린다. 안 잘린 이름에는 띄우지 않는다.
+    let nameTip = null;
+    const hideNameTip = () => { if (nameTip) nameTip.hidden = true; };
+    container.addEventListener('mouseover', (event) => {
+      const name = event.target.closest?.('.ex-name');
+      const row = name?.closest('.ex-row');
+      if (!row || name.scrollWidth <= name.clientWidth + 1 || document.querySelector('.ex-row.dragging')) { hideNameTip(); return; }
+      if (!nameTip) {
+        nameTip = document.createElement('div');
+        nameTip.className = 'ex-name-tip';
+        nameTip.setAttribute('role', 'tooltip');
+        document.body.appendChild(nameTip);
+      }
+      nameTip.textContent = basename(row.dataset.path) + (row.classList.contains('ignored') ? '  · .gitignore 에 의해 무시됨' : '');
+      const r = name.getBoundingClientRect();
+      const style = getComputedStyle(name);
+      Object.assign(nameTip.style, { font: style.font, left: '0px', top: `${Math.round(r.top + r.height / 2)}px`, maxWidth: `${window.innerWidth - 16}px` });
+      nameTip.hidden = false;
+      // 오른쪽 사이드바처럼 오른쪽 공간이 모자라면 왼쪽으로 밀어서 전체 이름이 다 보이게
+      const width = nameTip.offsetWidth;
+      nameTip.style.left = `${Math.round(Math.max(8, Math.min(r.left - 4, window.innerWidth - width - 8)))}px`;
+    });
+    container.addEventListener('mouseout', (event) => { if (!event.relatedTarget || !event.relatedTarget.closest?.('.ex-name')) hideNameTip(); });
+    body.addEventListener('scroll', hideNameTip, { passive: true });
+    container.addEventListener('dragstart', hideNameTip);
+    container.addEventListener('pointerdown', hideNameTip);
     // 행을 눌러도 초점이 목록에 남도록 (단축키용)
     body.addEventListener('pointerdown', (event) => {
       if (!event.target.closest('button, input') && document.activeElement !== body) body.focus({ preventScroll: true });
@@ -761,7 +861,7 @@
       container.querySelectorAll('.ex-row.drop').forEach((el) => el.classList.remove('drop'));
       body.classList.remove('drop-root');
       dropHint.classList.add('hidden');
-      upload([...event.dataTransfer.files], dropDir(event));
+      uploadDropped(event.dataTransfer, dropDir(event));
     });
 
     // 폴더 다운로드: 서버가 zip 을 만든 뒤(너무 크면 여기서 오류 안내) 브라우저가 바로 내려받는다.
@@ -844,7 +944,8 @@
         items: [
           isDir ? { icon: 'fa-file-circle-plus', label: '새 파일', onClick: () => create(entry.path, 'file') } : { icon: 'fa-eye', label: '열기', onClick: () => options.onOpen?.(entry) },
           isDir && { icon: 'fa-folder-plus', label: '새 폴더 · Git clone', onClick: () => folderSheet(entry.path) },
-          isDir && { icon: 'fa-upload', label: '업로드', onClick: () => { uploadDir = entry.path; uploadInput.click(); } },
+          isDir && { icon: 'fa-upload', label: '파일 업로드', onClick: () => { uploadDir = entry.path; uploadInput.click(); } },
+          isDir && { icon: 'fa-folder-plus', label: '폴더 업로드', onClick: () => { uploadDir = entry.path; uploadDirInput.click(); } },
           isDir && clip && { icon: 'fa-paste', label: '붙여넣기', sub: basename(clip.path), onClick: () => paste(entry.path) },
           'sep',
           { icon: 'fa-copy', label: '경로 복사', onClick: () => copyText(entry.path, '경로 복사') },
@@ -889,7 +990,8 @@
           { icon: p.show_dotfiles ? 'fa-toggle-on' : 'fa-toggle-off', label: '숨김 파일(. 파일) 표시', sub: p.show_dotfiles ? '켜짐' : '꺼짐', onClick: () => { p.show_dotfiles = !p.show_dotfiles; savePrefs(); render(); } },
           { icon: p.show_hidden ? 'fa-toggle-on' : 'fa-toggle-off', label: '가린 항목 표시', sub: `${p.hidden.length}개`, onClick: () => { p.show_hidden = !p.show_hidden; savePrefs(); render(); } },
           'sep',
-          { icon: 'fa-upload', label: '루트에 업로드', onClick: () => { uploadDir = root; uploadInput.click(); } },
+          { icon: 'fa-upload', label: '루트에 파일 업로드', onClick: () => { uploadDir = root; uploadInput.click(); } },
+          { icon: 'fa-folder-plus', label: '루트에 폴더 업로드', onClick: () => { uploadDir = root; uploadDirInput.click(); } },
           shared.clipboard && { icon: 'fa-paste', label: '루트에 붙여넣기', sub: basename(shared.clipboard.path), onClick: () => paste(root) },
           { icon: 'fa-copy', label: '루트 경로 복사', onClick: () => copyText(root, '경로 복사') },
           { icon: 'fa-trash-arrow-up', label: '휴지통 열기', onClick: () => setRoot(`${shared.home}/.univdash/trash`) },

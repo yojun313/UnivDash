@@ -315,6 +315,24 @@ async def git_clone(body: CloneRequest):
     return result
 
 
+class UploadFolderRequest(BaseModel):
+    dir: str = Field(min_length=1, max_length=4096)
+    rel: str = Field(min_length=1, max_length=4096)
+    unique: bool = False
+
+
+@router.post("/api/fs/upload-folder", dependencies=api_auth)
+async def upload_folder(body: UploadFolderRequest):
+    """폴더 업로드: 맨 위 폴더 만들기(이름이 겹치면 "이름 (2)") · 빈 하위 폴더 만들기."""
+    try:
+        path = await asyncio.to_thread(
+            fs_service.upload_folder, body.dir, body.rel, body.unique
+        )
+    except (FsError, OSError) as error:
+        _fail(error)
+    return {"path": path}
+
+
 class FsOperation(BaseModel):
     op: str = Field(pattern=r"^(mkdir|touch|rename|delete|copy|move)$")
     path: str = Field(min_length=1, max_length=4096)
@@ -360,6 +378,9 @@ async def upload(request: Request, dir: str = Query(..., max_length=4096)):
             fs_service.upload_target,
             dir,
             unquote(request.headers.get("x-filename", "")),
+            unquote(request.headers.get("x-relative-dir", ""))[
+                :4096
+            ],  # 폴더 업로드: 하위 폴더 경로
         )
     except ValueError:
         raise HTTPException(status_code=400, detail="잘못된 요청입니다.") from None

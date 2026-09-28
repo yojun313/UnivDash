@@ -704,8 +704,42 @@ async def folder_usage(path: str) -> dict:
     return result
 
 
-def upload_target(dest_dir: str, name: str) -> Path:
+MAX_UPLOAD_DEPTH = 32
+
+
+def _subdir(directory: Path, rel_dir: str, create: bool = True) -> Path:
+    """폴더 업로드: directory 아래 rel_dir ("a/b/c") 를 만든다. 조각마다 이름을 검사하고 범위를 다시 확인한다."""
+    parts = [p for p in (rel_dir or "").split("/") if p]
+    if len(parts) > MAX_UPLOAD_DEPTH:
+        raise FsError("폴더가 너무 깊습니다.")
+    target = directory
+    for part in parts:
+        target = target / valid_name(part)
+        if create and not os.path.lexists(target):
+            target.mkdir()
+        # 이미 있던 이름이 링크로 밖을 가리키면 여기서 막힌다
+        target = resolve(str(target))
+        if not target.is_dir():
+            raise FsError("같은 이름의 파일이 있어 폴더를 만들 수 없습니다.")
+    return target
+
+
+def upload_target(dest_dir: str, name: str, rel_dir: str = "") -> Path:
     directory = resolve(dest_dir)
     if not directory.is_dir():
         raise FsError("대상이 폴더가 아닙니다.")
+    if rel_dir:
+        directory = _subdir(directory, rel_dir)
     return _free_name(directory, valid_name(name))
+
+
+def upload_folder(dest_dir: str, rel: str, unique: bool) -> str:
+    """폴더 업로드 준비: unique 면 맨 위 폴더를 새 이름("이름 (2)")으로 만들고, 아니면 rel 경로를 만든다 (빈 폴더용)."""
+    directory = resolve(dest_dir)
+    if not directory.is_dir():
+        raise FsError("대상이 폴더가 아닙니다.")
+    if unique:
+        target = _free_name(directory, valid_name(rel))
+        target.mkdir()
+        return str(target)
+    return str(_subdir(directory, rel))
