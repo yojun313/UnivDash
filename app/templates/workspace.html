@@ -196,12 +196,14 @@
 
             <!-- 오른쪽: 파일 (Explorer 트리 · 여기서 연 파일은 가운데 탭으로 열린다) -->
             <aside id="filePane" class="ws-side flex-1 lg:flex-none lg:w-[250px] xl:w-[280px] min-w-0 flex flex-col lg:border-l border-white/10" aria-label="파일">
+                <div class="ws-file-resize" data-file-resize role="separator" aria-orientation="vertical" aria-label="파일 탐색기 너비 조절" tabindex="0"></div>
                 <div class="ws-switch lg:hidden flex-shrink-0" role="tablist" aria-label="보기 전환">
                     <button type="button" data-ws-mode="windows" role="tab"><i class="fas fa-terminal"></i> 창</button>
                     <button type="button" data-ws-mode="files" role="tab"><i class="fas fa-folder-tree"></i> 파일</button>
                 </div>
                 <div class="ws-side-head hidden lg:flex">
                     <span class="flex items-center gap-0.5">
+                        <button type="button" class="ws-side-btn" data-file-width-reset title="파일 탐색기 기본 폭으로" aria-label="파일 탐색기 기본 폭으로"><i class="fas fa-arrows-left-right-to-line"></i></button>
                         <button type="button" class="ws-side-btn ws-flip" data-side-toggle="right" title="파일 사이드바 접기" aria-label="파일 사이드바 접기"><i class="fas fa-angles-right"></i></button>
                         <button type="button" class="ws-side-btn" data-ws-swap title="창 · 파일 사이드바 좌우 바꾸기" aria-label="사이드바 좌우 바꾸기"><i class="fas fa-right-left"></i></button>
                     </span>

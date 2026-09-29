@@ -9,7 +9,8 @@
 {% block content %}
         <div id="explorerPage" class="flex-1 min-h-0 flex">
             <!-- 폴더 트리 -->
-            <section class="relative flex-1 lg:flex-none lg:w-[360px] xl:w-[400px] min-w-0 flex flex-col lg:border-r border-white/10">
+            <section id="explorerTreePane" class="relative flex-1 lg:flex-none lg:w-[360px] xl:w-[400px] min-w-0 flex flex-col lg:border-r border-white/10">
+                <div class="ex-page-resize" data-explorer-resize role="separator" aria-orientation="vertical" aria-label="Explorer 폴더 트리 너비 조절" tabindex="0"></div>
                 <div id="explorerTree" class="flex-1 min-h-0 flex flex-col"></div>
                 <button id="openFilesChip" type="button" class="open-files-chip hidden"><i class="fas fa-clone"></i><span>열린 파일</span><i class="fas fa-chevron-right text-[10px] opacity-60"></i></button>
             </section>

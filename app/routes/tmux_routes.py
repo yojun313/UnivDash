@@ -79,6 +79,20 @@ class CreateSessionRequest(BaseModel):
     command: str = Field(default="", max_length=500)
 
 
+class NavigationOrderRequest(BaseModel):
+    order: list[str] = Field(max_length=20)
+
+
+@router.put("/api/navigation-order", dependencies=api_auth)
+async def api_save_navigation_order(body: NavigationOrderRequest):
+    current = await asyncio.to_thread(PreferencesStore.load)
+    payload = current.model_dump()
+    payload["nav_order"] = body.order
+    updated = Preferences.model_validate(payload)
+    saved = await asyncio.to_thread(PreferencesStore.save, updated)
+    return {"order": saved.nav_order}
+
+
 @router.post("/api/sessions", dependencies=api_auth)
 async def api_create_session(body: CreateSessionRequest):
     try:

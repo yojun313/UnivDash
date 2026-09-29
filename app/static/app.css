@@ -23,6 +23,11 @@ header.safe-top-header { padding-top: env(safe-area-inset-top) !important; heigh
 .sb-icon { width: 36px; height: 36px; flex-shrink: 0; border-radius: 11px; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,.5); transition: background 150ms, color 150ms; }
 @media (hover: hover) { .sb-icon:hover { background: rgba(255,255,255,.08); color: #fff; } }
 .sb-new { color: #dbeafe; background: rgba(59,130,246,.16); border: 1px solid rgba(96,165,250,.3); transition: background 150ms; }
+.sidebar-link.nav-dragging { opacity: .4; cursor: grabbing; }
+.nav-drag-handle { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin-left: auto; flex-shrink: 0; border-radius: 7px; color: rgba(255,255,255,.35); cursor: grab; touch-action: none; }
+.nav-drag-handle:hover { color: rgba(255,255,255,.85); background: rgba(255,255,255,.08); }
+.nav-drag-handle:active { cursor: grabbing; }
+html.sidebar-collapsed #sidebar .nav-drag-handle { display: none; }
 @media (hover: hover) { .sb-new:hover { background: rgba(59,130,246,.26); } }
 html[data-ui-theme-mode="light"] .sb-icon { color: #5a6781; }
 @media (hover: hover) { html[data-ui-theme-mode="light"] .sb-icon:hover { background: rgba(15,23,42,.07); color: #101828; } }
@@ -868,6 +873,7 @@ html[data-ui-theme-mode="light"] .ws-side-btn { color: #5a6781; }
 @media (min-width: 1024px) {
     #fileMode .open-files-chip { display: none !important; }   /* 열린 파일은 가운데 탭바에 있다 */
     html.ws-left-collapsed #listPane, html.ws-right-collapsed #filePane { width: 44px !important; min-width: 44px; }
+    html.ws-right-collapsed #filePane { flex-basis: 44px !important; }
     html.ws-left-collapsed #listPane > :not(.ws-rail), html.ws-right-collapsed #filePane > :not(.ws-rail) { display: none !important; }
     html.ws-left-collapsed #listPane > .ws-rail, html.ws-right-collapsed #filePane > .ws-rail {
         display: flex; flex-direction: column; align-items: center; gap: 14px; flex: 1; padding-top: 12px; color: rgba(255,255,255,.5); font-size: 12px;
@@ -877,6 +883,25 @@ html[data-ui-theme-mode="light"] .ws-side-btn { color: #5a6781; }
     .ws-rail-label i { writing-mode: horizontal-tb; margin-bottom: 6px; }
     html[data-ui-theme-mode="light"] .ws-rail { color: #5a6781; }
 }
+/* 파일 탐색기 폭은 경계선을 끌어서 바꾸고, 제목의 초기화 버튼으로 기본 폭에 복귀 */
+@media (min-width: 1024px) {
+    #filePane { position: relative; }
+    .ws-file-resize { position: absolute; z-index: 30; top: 0; bottom: 0; left: -4px; width: 8px; cursor: col-resize; touch-action: none; }
+    .ws-file-resize::after { content: ""; position: absolute; inset: 0 3px; background: transparent; transition: background .12s; }
+    .ws-file-resize:hover::after, .ws-file-resize:focus-visible::after { background: rgba(96,165,250,.8); outline: none; }
+    html.ws-swapped .ws-file-resize { left: auto; right: -4px; }
+    html.ws-right-collapsed .ws-file-resize { display: none; }
+    html.ws-resizing-file-pane, html.ws-resizing-file-pane * { cursor: col-resize !important; user-select: none !important; }
+}
+@media (max-width: 1023.98px) { .ws-file-resize, [data-file-width-reset] { display: none !important; } }
+@media (min-width: 1024px) {
+    #explorerTreePane { position: relative; }
+    .ex-page-resize { position: absolute; z-index: 30; top: 0; bottom: 0; right: -4px; width: 8px; cursor: col-resize; touch-action: none; }
+    .ex-page-resize::after { content: ""; position: absolute; inset: 0 3px; background: transparent; transition: background .12s; }
+    .ex-page-resize:hover::after, .ex-page-resize:focus-visible::after { background: rgba(96,165,250,.8); outline: none; }
+    html.ex-resizing-pane, html.ex-resizing-pane * { cursor: col-resize !important; user-select: none !important; }
+}
+@media (max-width: 1023.98px) { .ex-page-resize { display: none !important; } }
 /* 좁은 오른쪽 파일 사이드바: 도구 버튼을 작게 해서 루트 폴더 이름이 보이게 */
 @media (min-width: 1024px) {
     #filePane .ex-tools button { width: 26px; height: 28px; font-size: 11.5px; }

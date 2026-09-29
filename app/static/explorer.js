@@ -154,6 +154,7 @@
           <button type="button" data-act="new-file" title="새 파일" aria-label="새 파일"><i class="fas fa-file-circle-plus"></i></button>
           <button type="button" data-act="new-folder" title="새 폴더" aria-label="새 폴더"><i class="fas fa-folder-plus"></i></button>
           <button type="button" data-act="upload" title="선택한 폴더에 업로드" aria-label="업로드"><i class="fas fa-upload"></i></button>
+          ${options.showWidthReset ? '<button type="button" data-act="reset-width" title="폴더 트리 기본 폭으로" aria-label="폴더 트리 기본 폭으로"><i class="fas fa-arrows-left-right-to-line"></i></button>' : ''}
           <button type="button" data-act="refresh" title="새로고침" aria-label="새로고침"><i class="fas fa-rotate-right"></i></button>
           <button type="button" data-act="collapse" title="모두 접기" aria-label="모두 접기"><i class="fas fa-down-left-and-up-right-to-center"></i></button>
           <button type="button" data-act="more" title="보기 · 정렬" aria-label="보기 · 정렬"><i class="fas fa-ellipsis-vertical"></i></button>
@@ -643,6 +644,26 @@
       next(0);
     }
     function upload(files, dir) { uploadItems(files.map((file) => ({ file, dir, rel: '' })), dir); }
+    body.addEventListener('paste', (event) => {
+      const items = [...(event.clipboardData?.items || [])];
+      let files = items.filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+        .map((item) => item.getAsFile()).filter(Boolean);
+      if (!files.length) files = [...(event.clipboardData?.files || [])].filter((file) => file.type.startsWith('image/'));
+      if (!files.length) return;
+      event.preventDefault();
+      const dir = selectedDir();
+      const stamp = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
+      files = files.map((file, index) => {
+        const ext = file.type === 'image/svg+xml' ? 'svg'
+          : (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg').replace(/[^a-z0-9]/gi, '') || 'png';
+        const genericName = !file.name || /^(?:image|blob)\.[a-z0-9]+$/i.test(file.name);
+        return genericName
+          ? new File([file], `clipboard-image-${stamp}${files.length > 1 ? `-${index + 1}` : ''}.${ext}`, { type: file.type, lastModified: file.lastModified })
+          : file;
+      });
+      toast(`이미지를 ${shortHome(dir)} 에 업로드합니다.`, 'info');
+      upload(files, dir);
+    });
     // 폴더 업로드: 맨 위 폴더는 새로 만든다 (같은 이름이 있으면 "이름 (2)" — 기존 폴더에 섞이지 않게)
     async function makeTop(dir, name) {
       const made = await api('/api/fs/upload-folder', { method: 'POST', body: { dir, rel: name, unique: true } });
@@ -714,7 +735,10 @@
     // 파일 목록에 초점이 있을 때만 (터미널 · 입력창의 Backspace 와 섞이지 않게)
     body.addEventListener('keydown', (event) => {
       if (event.target !== body) return;
-      if ((event.key === 'Backspace' || event.key === 'Delete') && !event.ctrlKey && !event.altKey) {
+      if (event.key === 'Enter' && selected && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        const entry = entryAt(selected);
+        if (entry) { event.preventDefault(); rename(entry); }
+      } else if ((event.key === 'Backspace' || event.key === 'Delete') && !event.ctrlKey && !event.altKey) {
         const paths = [...picked];
         if (!paths.length) return;
         event.preventDefault();
@@ -1048,6 +1072,7 @@
         else if (act === 'new-file') create(selectedDir(), 'file');
         else if (act === 'new-folder') folderSheet(selectedDir());
         else if (act === 'upload') { uploadDir = selectedDir(); toast(`업로드 위치: ${shortHome(uploadDir)}`, 'info'); uploadInput.click(); }
+        else if (act === 'reset-width') options.onWidthReset?.();
         else if (act === 'refresh') refresh().then(() => toast('새로고침했습니다.', 'success'));
         else if (act === 'collapse') { expanded = new Set(); saveExpanded(); render(); }
         else if (act === 'more') moreMenu(x, y);
@@ -1061,6 +1086,7 @@
       }
       const path = row.dataset.path;
       const entry = entryAt(path) || { path, name: basename(path), type: row.dataset.type, ext: '' };
+      body.focus({ preventScroll: true });
       if (event.target.closest('[data-act="copy"]')) {
         copyText(path, '경로 복사');
         const button = event.target.closest('[data-act="copy"]');
@@ -2228,8 +2254,59 @@
     onClose: () => closePanel(),
     onTabsChange: () => { if (!viewer?.count) showViewerArea(false); syncChip(); },
   });
+  const explorerTreePane = document.getElementById('explorerTreePane');
+  const explorerResize = document.querySelector('[data-explorer-resize]');
+  const explorerDesktop = window.matchMedia('(min-width: 1024px)');
+  const explorerDefaultWidth = () => window.innerWidth >= 1280 ? 400 : 360;
+  const applyExplorerWidth = (width, persist = false) => {
+    const max = Math.max(260, Math.min(640, window.innerWidth - 480));
+    const clamped = Math.round(Math.max(240, Math.min(max, width)));
+    explorerTreePane.style.width = `${clamped}px`;
+    explorerTreePane.style.flexBasis = `${clamped}px`;
+    if (persist) store.set('explorer-tree-width', clamped);
+  };
+  if (explorerDesktop.matches) {
+    const savedWidth = store.get('explorer-tree-width', null);
+    if (Number.isFinite(savedWidth)) applyExplorerWidth(savedWidth);
+  }
+  explorerDesktop.addEventListener('change', ({ matches }) => {
+    if (matches) {
+      const savedWidth = store.get('explorer-tree-width', null);
+      if (Number.isFinite(savedWidth)) applyExplorerWidth(savedWidth);
+    } else {
+      explorerTreePane.style.removeProperty('width');
+      explorerTreePane.style.removeProperty('flex-basis');
+    }
+  });
+  explorerResize?.addEventListener('pointerdown', (event) => {
+    if (!explorerDesktop.matches || event.button !== 0) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = explorerTreePane.getBoundingClientRect().width;
+    explorerResize.setPointerCapture(event.pointerId);
+    document.documentElement.classList.add('ex-resizing-pane');
+    const move = (pointer) => applyExplorerWidth(startWidth + pointer.clientX - startX);
+    const end = (pointer) => {
+      move(pointer);
+      store.set('explorer-tree-width', Math.round(explorerTreePane.getBoundingClientRect().width));
+      document.documentElement.classList.remove('ex-resizing-pane');
+      explorerResize.removeEventListener('pointermove', move);
+      explorerResize.removeEventListener('pointerup', end);
+      explorerResize.removeEventListener('pointercancel', end);
+    };
+    explorerResize.addEventListener('pointermove', move);
+    explorerResize.addEventListener('pointerup', end);
+    explorerResize.addEventListener('pointercancel', end);
+  });
+  explorerResize?.addEventListener('keydown', (event) => {
+    if (!['ArrowLeft', 'ArrowRight'].includes(event.key) || !explorerDesktop.matches) return;
+    event.preventDefault();
+    applyExplorerWidth(explorerTreePane.getBoundingClientRect().width + (event.key === 'ArrowRight' ? 16 : -16), true);
+  });
   mountTree(document.getElementById('explorerTree'), {
     initialReveal: new URLSearchParams(location.search).get('path'),
+    showWidthReset: true,
+    onWidthReset() { applyExplorerWidth(explorerDefaultWidth(), true); },
     onOpen(entry) { openPanel(); viewer.open(entry); },
   });
   window.addEventListener('popstate', () => { if (isOpen()) closePanel(true); });

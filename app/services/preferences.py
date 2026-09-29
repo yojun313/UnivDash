@@ -20,6 +20,7 @@ FOLDER_COLORS = {"blue", "purple", "emerald", "amber", "rose", "cyan", "slate"}
 # Workspace 목록 정렬: 상태(작업 중 에이전트 먼저) / 최근 활동 / 이름 / 직접 지정(창 정리 순서)
 SORT_MODES = {"status", "activity", "name", "manual"}
 MAX_ITEMS = 500
+NAV_ORDER_DEFAULT = ("workspace", "explorer", "git", "ai_usage", "server")
 
 
 def _unique_keys(values: list[str]) -> list[str]:
@@ -73,6 +74,9 @@ class Preferences(BaseModel):
     hidden: list[str] = Field(default_factory=list, max_length=MAX_ITEMS)
     aliases: dict[str, str] = Field(default_factory=dict)
     sort: str = "status"
+    nav_order: list[str] = Field(
+        default_factory=lambda: list(NAV_ORDER_DEFAULT), max_length=20
+    )
 
     @field_validator("sort")
     @classmethod
@@ -93,6 +97,13 @@ class Preferences(BaseModel):
             if WINDOW_KEY.match(key) and alias:
                 cleaned[key] = alias
         return cleaned
+
+    @field_validator("nav_order")
+    @classmethod
+    def validate_nav_order(cls, value: list[str]) -> list[str]:
+        allowed = set(NAV_ORDER_DEFAULT)
+        ordered = list(dict.fromkeys(key for key in value if key in allowed))
+        return ordered + [key for key in NAV_ORDER_DEFAULT if key not in ordered]
 
     def normalized(self) -> "Preferences":
         """한 창이 여러 폴더에 들어가지 않게 하고, 폴더 ID 중복을 없앤다."""

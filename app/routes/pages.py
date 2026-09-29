@@ -6,6 +6,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.assets import install as install_assets
 from app.services.auth_service import AuthService
+from app.services.preferences import NAV_ORDER_DEFAULT, PreferencesStore
 
 templates = Jinja2Templates(directory="app/templates")
 install_assets(templates)
@@ -18,6 +19,13 @@ PAGES = {
     "ai_usage": ("ai_usage.html", "AI Usage"),
     "git": ("git.html", "Git"),
 }
+NAV_ITEMS = (
+    ("workspace", "/", "fa-terminal", "Workspace"),
+    ("explorer", "/explorer", "fa-folder-tree", "Explorer"),
+    ("git", "/git", "fa-code-branch", "Git"),
+    ("ai_usage", "/ai-usage", "fa-robot", "AI Usage"),
+    ("server", "/server", "fa-server", "Servers"),
+)
 
 
 def render_page(request: Request, active_page: str, **context):
@@ -25,6 +33,8 @@ def render_page(request: Request, active_page: str, **context):
     if not user:
         return RedirectResponse(url="/login", status_code=303)
     template, title = PAGES[active_page]
+    saved_order = PreferencesStore.load().nav_order or NAV_ORDER_DEFAULT
+    order = {key: index for index, key in enumerate(saved_order)}
     return templates.TemplateResponse(
         request=request,
         name=template,
@@ -32,6 +42,9 @@ def render_page(request: Request, active_page: str, **context):
             "username": user,
             "active_page": active_page,
             "page_title": title,
+            "nav_items": sorted(
+                NAV_ITEMS, key=lambda item: order.get(item[0], len(order))
+            ),
             **context,
         },
     )

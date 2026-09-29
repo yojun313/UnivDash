@@ -138,6 +138,75 @@
   sidebarOverlay.addEventListener('click', () => setSidebarOpen(false));
   $$('.sidebar-link').forEach((link) => link.addEventListener('click', () => { if (!mdQuery.matches) setSidebarOpen(false); }));
 
+  // 사이드바 메뉴 순서는 브라우저가 아니라 서버 환경설정에 저장해 기기 간 공유한다.
+  const primaryNav = $('#sidebar nav[aria-label="대시보드 메뉴"]');
+  if (primaryNav) {
+    let draggedNavItem = null;
+    let savedNavOrder = [];
+    let navOrderSaved = false;
+    const currentNavOrder = () => [...primaryNav.querySelectorAll('[data-nav-key]')].map((item) => item.dataset.navKey);
+    const persistNavOrder = async (order) => {
+      if (state.prefs) state.prefs.nav_order = order;
+      const tabbar = document.querySelector('.tabbar');
+      if (tabbar) order.forEach((key) => {
+        const item = tabbar.querySelector(`[data-nav-key="${CSS.escape(key)}"]`);
+        if (item) tabbar.appendChild(item);
+      });
+      try {
+        const saved = await api('PUT', '/api/navigation-order', { order });
+        if (state.prefs) state.prefs.nav_order = saved.order;
+        toast('메뉴 순서를 모든 기기에 저장했어요.', 'ok');
+      } catch (error) {
+        savedNavOrder.forEach((key) => {
+          const item = primaryNav.querySelector(`[data-nav-key="${CSS.escape(key)}"]`);
+          if (item) primaryNav.appendChild(item);
+        });
+        if (state.prefs) state.prefs.nav_order = savedNavOrder;
+        if (tabbar) savedNavOrder.forEach((key) => {
+          const item = tabbar.querySelector(`[data-nav-key="${CSS.escape(key)}"]`);
+          if (item) tabbar.appendChild(item);
+        });
+        toast(`메뉴 순서를 저장하지 못했어요: ${error.message}`, 'error');
+      }
+    };
+    primaryNav.addEventListener('click', (event) => {
+      if (event.target.closest('[data-nav-drag-handle]')) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }, true);
+    primaryNav.addEventListener('dragstart', (event) => {
+      const handle = event.target.closest('[data-nav-drag-handle]');
+      const link = handle?.closest('[data-nav-key]');
+      if (!link) { event.preventDefault(); return; }
+      draggedNavItem = link;
+      savedNavOrder = [...primaryNav.querySelectorAll('[data-nav-key]')].map((item) => item.dataset.navKey);
+      navOrderSaved = false;
+      link.classList.add('nav-dragging');
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', link.dataset.navKey);
+    });
+    primaryNav.addEventListener('dragover', (event) => {
+      const target = event.target.closest('[data-nav-key]');
+      if (!draggedNavItem || !target || target === draggedNavItem) return;
+      event.preventDefault();
+      const after = event.clientY > target.getBoundingClientRect().top + target.offsetHeight / 2;
+      primaryNav.insertBefore(draggedNavItem, after ? target.nextSibling : target);
+    });
+    primaryNav.addEventListener('drop', async (event) => {
+      if (!draggedNavItem) return;
+      event.preventDefault();
+      navOrderSaved = true;
+      await persistNavOrder(currentNavOrder());
+    });
+    primaryNav.addEventListener('dragend', async () => {
+      draggedNavItem?.classList.remove('nav-dragging');
+      const order = currentNavOrder();
+      if (!navOrderSaved && order.some((key, index) => key !== savedNavOrder[index])) await persistNavOrder(order);
+      draggedNavItem = null;
+    });
+  }
+
   // ── 시트(하단 시트 / 모달) ────────────────────────────────────────────
   const sheetOverlay = $('#sheetOverlay');
   const sheetBody = $('#sheetBody');
@@ -327,7 +396,7 @@
 
   const state = {
     windows: [],
-    prefs: { folders: [], order: [], hidden: [], aliases: {}, sort: 'status' },
+    prefs: { folders: [], order: [], hidden: [], aliases: {}, sort: 'status', nav_order: ['workspace', 'explorer', 'git', 'ai_usage', 'server'] },
     filter: store.get('filter', 'all'),
     search: '',
     showHidden: false,
@@ -4332,6 +4401,62 @@
       if (side === 'right' && !collapsed) ensureTree();
       requestAnimationFrame(() => terminal?.refit());
     }
+    // 파일 사이드바 폭은 드래그로 조절하고, 저장된 폭은 새로고침 뒤에도 유지한다.
+    const filePane = $('#filePane');
+    const fileResize = $('[data-file-resize]');
+    const fileWidthDefault = () => window.innerWidth >= 1280 ? 280 : 250;
+    const applyFileWidth = (width, persist = false) => {
+      const max = Math.max(220, Math.min(520, window.innerWidth - 640));
+      const clamped = Math.round(Math.max(200, Math.min(max, width)));
+      filePane.style.width = `${clamped}px`;
+      filePane.style.flexBasis = `${clamped}px`;
+      if (persist) store.set('ws-file-width', clamped);
+      requestAnimationFrame(() => terminal?.refit());
+      return clamped;
+    };
+    if (desktopQuery.matches) {
+      const savedWidth = store.get('ws-file-width', null);
+      if (Number.isFinite(savedWidth)) applyFileWidth(savedWidth);
+    }
+    desktopQuery.addEventListener('change', ({ matches }) => {
+      if (matches) {
+        const savedWidth = store.get('ws-file-width', null);
+        if (Number.isFinite(savedWidth)) applyFileWidth(savedWidth);
+      } else {
+        filePane.style.removeProperty('width');
+        filePane.style.removeProperty('flex-basis');
+      }
+    });
+    $('[data-file-width-reset]')?.addEventListener('click', () => {
+      applyFileWidth(fileWidthDefault(), true);
+    });
+    fileResize?.addEventListener('pointerdown', (event) => {
+      if (!desktopQuery.matches || event.button !== 0) return;
+      event.preventDefault();
+      const startX = event.clientX;
+      const startWidth = filePane.getBoundingClientRect().width;
+      const swapped = document.documentElement.classList.contains('ws-swapped');
+      fileResize.setPointerCapture(event.pointerId);
+      document.documentElement.classList.add('ws-resizing-file-pane');
+      const move = (pointer) => applyFileWidth(startWidth + (swapped ? pointer.clientX - startX : startX - pointer.clientX));
+      const end = (pointer) => {
+        move(pointer);
+        store.set('ws-file-width', Math.round(filePane.getBoundingClientRect().width));
+        document.documentElement.classList.remove('ws-resizing-file-pane');
+        fileResize.removeEventListener('pointermove', move);
+        fileResize.removeEventListener('pointerup', end);
+        fileResize.removeEventListener('pointercancel', end);
+      };
+      fileResize.addEventListener('pointermove', move);
+      fileResize.addEventListener('pointerup', end);
+      fileResize.addEventListener('pointercancel', end);
+    });
+    fileResize?.addEventListener('keydown', (event) => {
+      if (!['ArrowLeft', 'ArrowRight'].includes(event.key) || !desktopQuery.matches) return;
+      event.preventDefault();
+      const delta = (event.key === 'ArrowRight' ? 16 : -16) * (document.documentElement.classList.contains('ws-swapped') ? -1 : 1);
+      applyFileWidth(filePane.getBoundingClientRect().width + delta, true);
+    });
     // 창 목록 ↔ 파일 사이드바 좌우 바꾸기 (저장되어 새로고침해도 유지)
     $$('[data-ws-swap]').forEach((button) => button.addEventListener('click', () => {
       const swapped = document.documentElement.classList.toggle('ws-swapped');

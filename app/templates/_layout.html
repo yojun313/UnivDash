@@ -10,13 +10,6 @@
     {% block head_extra %}{% endblock %}
 </head>
 <body class="app-shell text-white flex overflow-hidden" data-page="{{ active_page }}">
-    {% set nav_items = [
-        ('workspace', '/', 'fa-terminal', 'Workspace'),
-        ('explorer', '/explorer', 'fa-folder-tree', 'Explorer'),
-        ('git', '/git', 'fa-code-branch', 'Git'),
-        ('ai_usage', '/ai-usage', 'fa-robot', 'AI Usage'),
-        ('server', '/server', 'fa-server', 'Servers'),
-    ] %}
     {% set page_icons = {'workspace': 'fa-terminal', 'explorer': 'fa-folder-tree', 'server': 'fa-server', 'ai_usage': 'fa-robot', 'git': 'fa-code-branch'} %}
 
     <div id="sidebarOverlay" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 hidden md:hidden"></div>
@@ -51,9 +44,10 @@
 
         <nav class="px-3 py-4 space-y-1" aria-label="대시보드 메뉴">
             {% for key, href, icon, label in nav_items %}
-            <a href="{{ href }}" title="{{ label }}" class="nav-link sidebar-link flex items-center px-3 py-2.5 rounded-xl border border-transparent transition {{ 'active font-semibold' if active_page == key else 'text-white/50 hover:bg-white/5 hover:text-white' }}" {% if active_page == key %}aria-current="page"{% endif %}>
+            <a href="{{ href }}" title="{{ label }}" data-nav-key="{{ key }}" class="nav-link sidebar-link flex items-center px-3 py-2.5 rounded-xl border border-transparent transition {{ 'active font-semibold' if active_page == key else 'text-white/50 hover:bg-white/5 hover:text-white' }}" {% if active_page == key %}aria-current="page"{% endif %}>
                 <i class="fas {{ icon }} w-6 text-center"></i>
                 <span class="sb-label ml-2 font-medium text-sm">{{ label }}</span>
+                <span class="nav-drag-handle" data-nav-drag-handle draggable="true" title="끌어서 메뉴 순서 변경" aria-label="{{ label }} 순서 변경"><i class="fas fa-grip-lines"></i></span>
             </a>
             {% endfor %}
         </nav>
@@ -106,8 +100,8 @@
 
         <!-- 휴대폰: 앱처럼 하단 탭바로 이동 (사이드바는 ☰ 로 열어 통계 · 로그아웃) -->
         <nav class="tabbar md:hidden" aria-label="하단 메뉴">
-            {% for key, href, icon, label in [('workspace', '/', 'fa-terminal', '터미널'), ('explorer', '/explorer', 'fa-folder-tree', '파일'), ('git', '/git', 'fa-code-branch', 'Git'), ('ai_usage', '/ai-usage', 'fa-robot', 'AI'), ('server', '/server', 'fa-server', '서버')] %}
-            <a href="{{ href }}" class="tab-item {{ 'active' if active_page == key else '' }}" {% if active_page == key %}aria-current="page"{% endif %}>
+            {% for key, href, icon, label in nav_items %}
+            <a href="{{ href }}" data-nav-key="{{ key }}" class="tab-item {{ 'active' if active_page == key else '' }}" {% if active_page == key %}aria-current="page"{% endif %}>
                 <span class="tab-icon"><i class="fas {{ icon }}"></i>{% if key == 'workspace' %}<span id="tabBadge" class="tab-badge hidden"></span>{% endif %}</span>
                 <span class="tab-label">{{ label }}</span>
             </a>
