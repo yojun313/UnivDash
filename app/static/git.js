@@ -783,9 +783,10 @@
     stash_drop: '스태시 삭제', undo_commit: '커밋 취소', revert: 'Revert', ruff_format: 'ruff format',
   };
   const noisyActions = new Set(['fetch', 'pull', 'push', 'merge', 'commit', 'revert', 'abort_operation']);
+  let workflowBusy = false;
 
-  async function runGit(action, payload = {}, { showConsole = false } = {}) {
-    if (!state.selectedId || state.busy) return null;
+  async function runGit(action, payload = {}, { showConsole = false, workflow = false } = {}) {
+    if (!state.selectedId || state.busy || (workflowBusy && !workflow)) return null;
     state.busy = true;
     const buttons = document.querySelectorAll('.git-action');
     buttons.forEach((button) => { button.disabled = true; button.classList.add('opacity-50'); });
@@ -804,7 +805,7 @@
       return null;
     } finally {
       state.busy = false;
-      buttons.forEach((button) => { button.disabled = false; button.classList.remove('opacity-50'); });
+      buttons.forEach((button) => { button.disabled = workflowBusy; button.classList.remove('opacity-50'); });
       state.detailJson = '';
       await refreshDetail({ quiet: true });
     }
@@ -1045,6 +1046,73 @@
     if (!result) return;
     box.textContent = result.summary || result.output.split('\n').slice(-2).join(' · ');
     box.className = `mt-1.5 rounded-lg bg-black/25 px-2.5 py-1.5 font-mono text-[11px] ${result.success ? 'text-emerald-300' : 'text-red-300'}`;
+  });
+  $('gitAllInOneButton').addEventListener('click', async () => {
+    if (!state.selectedId || state.busy || workflowBusy) return;
+    let settings;
+    try { settings = await api('/api/git/ai/settings'); }
+    catch (error) { toast(error.message, 'error'); return; }
+    if (!settings.configured) {
+      toast('먼저 AI 커밋 메시지 설정을 해 주세요.', 'warn');
+      aiSettingsSheet();
+      return;
+    }
+    if (!$('gitCommitStageAll').checked) {
+      toast('ruff format 결과까지 포함하려면 "모든 변경 포함"을 켜 주세요.', 'warn');
+      return;
+    }
+    const branch = state.detail?.branch || '현재 브랜치';
+    if (!confirm(`${branch}의 모든 변경을 ruff format 한 뒤 AI 커밋 메시지로 커밋하고 푸시할까요?`)) return;
+
+    workflowBusy = true;
+    const button = $('gitAllInOneButton');
+    const label = button.querySelector('span');
+    const aiButtons = [$('gitAiMessage'), $('gitAiSettings')];
+    button.disabled = true;
+    aiButtons.forEach((item) => { item.disabled = true; });
+    const ruffBox = $('gitRuffResult');
+    const stageAll = true;
+    const setStep = (text) => { label.textContent = text; };
+    try {
+      setStep('ruff format 실행 중…');
+      const formatted = await runGit('ruff_format', {}, { workflow: true });
+      if (!formatted?.success) return;
+      ruffBox.textContent = formatted.summary || formatted.output.split('\n').slice(-2).join(' · ');
+      ruffBox.className = 'mt-1.5 rounded-lg bg-black/25 px-2.5 py-1.5 font-mono text-[11px] text-emerald-300';
+
+      setStep('AI 커밋 메시지 생성 중…');
+      const generated = await api(`/api/git/ai/commit-message/${encodeURIComponent(state.selectedId)}`, {
+        method: 'POST', body: { stage_all: stageAll },
+      });
+      $('gitCommitMessage').value = generated.message;
+      updateSummaryLength();
+      saveDraft();
+
+      setStep('커밋하고 푸시 중…');
+      const committed = await runGit('commit', {
+        message: generated.message,
+        amend: false,
+        stage_all: stageAll,
+        push_after: true,
+        force: false,
+      }, { showConsole: true, workflow: true });
+      if (committed?.success) {
+        $('gitCommitMessage').value = '';
+        saveDraft();
+        $('gitCommitAmend').checked = false;
+        $('gitCommitStageAll').checked = true;
+        updateSummaryLength();
+        toast('Ruff 포맷, AI 커밋, 푸시를 완료했어요.', 'success');
+      }
+    } catch (error) {
+      toast(`자동 커밋 흐름이 중단됐어요: ${error.message}`, 'error');
+    } finally {
+      workflowBusy = false;
+      button.disabled = false;
+      label.textContent = 'ruff format · AI 커밋 · 푸시';
+      aiButtons.forEach((item) => { item.disabled = false; });
+      document.querySelectorAll('.git-action').forEach((item) => { item.disabled = false; item.classList.remove('opacity-50'); });
+    }
   });
   $('gitCommitButton').addEventListener('click', () => commit(false));
   $('gitCommitPushButton').addEventListener('click', () => commit(true));
