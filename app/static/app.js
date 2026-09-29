@@ -1996,9 +1996,11 @@
           autosize();
           delete drafts[key];
           store.set('drafts', drafts);
+          const sent = addSent(text);
           try {
             await socket.send({ t: 'prompt', pane, text, submit, attachments: ready.map((item) => item.id) }, { ack: true });
           } catch (error) {
+            if (sent) removeSent(sent);
             if (text && !input.value) { input.value = text; autosize(); saveDraft(); }
             throw error;
           }
@@ -2576,15 +2578,44 @@
         applyLogData(data);
       } catch (error) { /* 다음 주기에 다시 시도 */ }
     }
-    // ── 에이전트가 확인한 대기열 ──
-    // 일반 사용자 말풍선은 세션 로그에서만 그린다. 첨부 태그·경로 추가, 긴 메시지 잘림 등으로
-    // 전송 원문과 로그가 달라질 수 있어, 임시 말풍선을 텍스트 비교로 지우는 방식은 중복을 남긴다.
+    // ── 에이전트가 확인한 대기열 · 방금 보낸 프롬프트 ──
+    // 보낸 프롬프트는 로그에 기록되기 전에도 바로 말풍선으로 보여 준다.
+    // 지우는 기준은 글자 비교가 아니라 순서다: 보낸 뒤 로그에 새 사용자 메시지(또는 대기열 항목)가
+    // 하나 생길 때마다 가장 오래된 말풍선을 하나 지운다 — 첨부 경로가 붙거나 긴 글이 잘려
+    // 로그의 글이 달라져도 중복이 남지 않는다.
     const chatPending = $('#chatPending');
     const chatStatus = $('#chatStatus');
+    const SENT_KEEP_MS = 10 * 60 * 1000;
     log.queued = [];
+    log.sent = [];
+    function addSent(text) {
+      if (modeFor(currentWindow()) !== 'log' || !text.trim() || /^\/\S/.test(text.trim())) return null;   // 슬래시 명령은 로그에 일반 메시지로 남지 않는다
+      const entry = { pane: state.paneId, text, at: Date.now(), afterId: log.total - 1, queuedBase: log.queued.length };
+      log.sent.push(entry);
+      renderPending();
+      logScroll.scrollTop = logScroll.scrollHeight;
+      return entry;
+    }
+    setInterval(() => { if (log.sent.length) renderPending(); }, 30000);
+    function removeSent(entry) {
+      log.sent = log.sent.filter((item) => item !== entry);
+      renderPending();
+    }
     function renderPending() {
+      const now = Date.now();
+      const mine = log.sent.filter((e) => e.pane === state.paneId);
+      if (mine.length && log.pane === state.paneId) {
+        const first = mine[0];
+        let arrived = [...log.rendered.values()].filter(({ item }) => item.kind === 'user' && item.id > first.afterId).length
+          + Math.max(0, log.queued.length - first.queuedBase);
+        log.sent = log.sent.filter((e) => {
+          if (e.pane === state.paneId && arrived > 0) { arrived -= 1; return false; }
+          return now - e.at < SENT_KEEP_MS;
+        });
+      }
       const queuedBubble = (text) => `<div class="msg msg-user pending"><div class="msg-meta"><i class="fas fa-hourglass-half"></i> 대기 중 · 지금 작업이 끝나면 전달돼요</div><div class="msg-body">${escapeHtml(text)}</div></div>`;
-      chatPending.innerHTML = log.queued.map(queuedBubble).join('');
+      const sentBubble = (e) => `<div class="msg msg-user"><div class="msg-meta">나 · ${escapeHtml(logTime(e.at))}</div><div class="msg-body">${escapeHtml(e.text)}</div></div>`;
+      chatPending.innerHTML = [...log.queued.map(queuedBubble), ...log.sent.filter((e) => e.pane === state.paneId).map(sentBubble)].join('');
     }
 
     // ── 에이전트 상태 카드: 터미널 화면에서 상태 줄 / 선택 질문을 읽어 채팅 하단에 보여준다 ──
@@ -2813,7 +2844,8 @@
           const text = textOf(button);
           closeSheet();
           if (!state.paneId) return;
-          try { await socket.send({ t: 'prompt', pane: state.paneId, text, submit: true }, { ack: true }); remember(text); toast('보냈습니다.', 'ok', null, 1500); } catch (error) { toast(error.message, 'error'); }
+          const entry = addSent(text);
+          try { await socket.send({ t: 'prompt', pane: state.paneId, text, submit: true }, { ack: true }); remember(text); toast('보냈습니다.', 'ok', null, 1500); } catch (error) { if (entry) removeSent(entry); toast(error.message, 'error'); }
         });
         body.querySelectorAll('[data-del]').forEach((button) => button.addEventListener('click', () => {
           snippets.splice(Number(button.dataset.del), 1);
@@ -3851,9 +3883,16 @@
       }
       screenEl.addEventListener('scroll', () => { stick = screenEl.scrollHeight - screenEl.scrollTop - screenEl.clientHeight < 40; }, { passive: true });
       // 채팅 (세션 로그)
+      // 방금 보낸 프롬프트: 로그에 새 사용자 메시지가 생길 때마다 오래된 것부터 하나씩 지운다 (메인과 같은 규칙)
+      const sent = [];
       function renderChat() {
         const items = [...chat.items.values()].sort((a, b) => a.id - b.id).slice(-200);
-        listEl.innerHTML = items.length ? items.map((item) => R.logItem(item, chat.agent)).join('') : '<div class="log-empty">아직 대화가 없습니다.</div>';
+        if (sent.length) {
+          let arrived = items.filter((item) => item.kind === 'user' && item.id > sent[0].afterId).length;
+          while (sent.length && (arrived > 0 || Date.now() - sent[0].at > 10 * 60 * 1000)) { if (arrived > 0) arrived -= 1; sent.shift(); }
+        }
+        const pending = sent.map((e) => `<div class="msg msg-user"><div class="msg-meta">나 · ${escapeHtml(new Date(e.at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }))}</div><div class="msg-body">${escapeHtml(e.text)}</div></div>`).join('');
+        listEl.innerHTML = (items.length || pending) ? items.map((item) => R.logItem(item, chat.agent)).join('') + pending : '<div class="log-empty">아직 대화가 없습니다.</div>';
         if (logStick) logEl.scrollTop = logEl.scrollHeight;
       }
       window.addEventListener('univdash:agent-switched', (event) => {
@@ -4108,6 +4147,7 @@
         if (!text.trim() && !ready.length) send({ t: 'keys', pane, keys: ['Enter'] });
         else {
           send({ t: 'prompt', pane, text, submit, attachments: ready });
+          if (text.trim() && !/^\/\S/.test(text.trim()) && modeOf() === 'log') { sent.push({ text, at: Date.now(), afterId: chat.total - 1 }); logStick = true; renderChat(); }
           if (text.trim()) store.set('recent', [text, ...store.get('recent', []).filter((t) => t !== text)].slice(0, 100));   // ↑ 기록에도 남긴다
         }
         attachments.length = 0;
