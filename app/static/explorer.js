@@ -294,6 +294,21 @@
       else { cache.clear(); await load(root, true); }
       render();
     }
+    // 에이전트/터미널이 브라우저 밖에서 파일을 만들거나 바꾼 경우를 탐지한다.
+    // 루트와 펼쳐 둔 폴더만 가볍게 다시 읽고, 실제 목록이 바뀐 경우에만 트리를 다시 그린다.
+    async function refreshChangedFolders() {
+      if (!root || !prefs() || document.visibilityState !== 'visible'
+        || !container.isConnected || !container.getClientRects().length
+        || treeEl.classList.contains('hidden')) return;
+      const dirs = [...new Set([root, ...expanded].filter((dir) => dir === root || dir.startsWith(`${root}/`)))];
+      const before = new Map(dirs.map((dir) => [dir, JSON.stringify(cache.get(dir))]));
+      await Promise.all(dirs.map((dir) => load(dir, true)));
+      if (dirs.some((dir) => before.get(dir) !== JSON.stringify(cache.get(dir)))) render();
+    }
+    const treeRefreshTimer = setInterval(() => {
+      if (!container.isConnected) { clearInterval(treeRefreshTimer); return; }
+      refreshChangedFolders().catch(() => {});
+    }, 2000);
     async function setRoot(path) {
       root = path;
       store.set('root', root);

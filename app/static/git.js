@@ -907,15 +907,19 @@
   async function aiSettingsSheet({ thenGenerate = false } = {}) {
     let current;
     try { current = await api('/api/git/ai/settings'); } catch (error) { toast(error.message, 'error'); return; }
+    let selectedModel = current.model || '';
+    let modelForUrl = '';
+    let modelRequest = 0;
+    let modelTimer = null;
     UI().formSheet({
       title: 'AI 커밋 메시지 설정',
-      subtitle: 'OpenAI API 와 호환되는 /chat/completions 주소면 됩니다 (OpenAI · OpenRouter · Ollama · vLLM · LM Studio 등). 토큰은 서버에만 저장돼요.',
+      subtitle: 'OpenAI 호환 API 주소를 입력하면 /models 를 조회해 모델을 자동으로 선택해요. 토큰은 서버에만 저장돼요.',
       fields: [
         { name: 'base_url', label: 'API 주소 (Base URL)', value: current.base_url, placeholder: 'https://api.openai.com/v1', maxlength: 500 },
-        { name: 'model', label: '모델', value: current.model, placeholder: '예: gpt-5-mini, openrouter/model, qwen2.5-coder', maxlength: 120 },
         { name: 'token', label: `Bearer 토큰${current.token_set ? ' (저장됨 · 바꿀 때만 입력)' : ''}`, value: '', placeholder: current.token_set ? '••••••••  (비워 두면 그대로)' : 'sk-...', maxlength: 1000 },
       ],
-      extraHtml: `<label>메시지 언어<select name="language">
+      extraHtml: `<div class="text-xs text-white/60" data-model-status>${current.model ? `현재 선택 모델: ${escapeHtml(current.model)}` : '주소를 입력하면 사용 가능한 모델을 자동으로 확인해요.'}</div>
+        <label>메시지 언어<select name="language">
           <option value="auto" ${current.language === 'auto' ? 'selected' : ''}>자동 (최근 커밋과 같은 언어)</option>
           <option value="ko" ${current.language === 'ko' ? 'selected' : ''}>한국어</option>
           <option value="en" ${current.language === 'en' ? 'selected' : ''}>English</option></select></label>
@@ -925,10 +929,46 @@
         const token = body.querySelector('input[name="token"]');
         token.type = 'password';
         token.autocomplete = 'new-password';
+        const baseUrl = body.querySelector('input[name="base_url"]');
+        const modelStatus = body.querySelector('[data-model-status]');
+        const discover = async () => {
+          const url = baseUrl.value.trim().replace(/\/+$/, '');
+          if (!url) { modelStatus.textContent = 'API 주소를 입력해 주세요.'; return false; }
+          const request = ++modelRequest;
+          modelStatus.textContent = '사용 가능한 모델 확인 중…';
+          try {
+            const data = await api('/api/git/ai/models', { method: 'POST', body: { base_url: url, token: token.value || null } });
+            if (request !== modelRequest) return false;
+            selectedModel = data.model;
+            modelForUrl = url;
+            modelStatus.textContent = `자동 선택 모델: ${data.model}${data.models.length > 1 ? ` · 외 ${data.models.length - 1}개` : ''}`;
+            return true;
+          } catch (error) {
+            if (request === modelRequest) modelStatus.textContent = error.message;
+            throw error;
+          }
+        };
+        baseUrl.addEventListener('input', () => {
+          clearTimeout(modelTimer);
+          modelTimer = setTimeout(() => discover().catch(() => {}), 500);
+        });
+        token.addEventListener('input', () => {
+          if (baseUrl.value.trim()) {
+            clearTimeout(modelTimer);
+            modelTimer = setTimeout(() => discover().catch(() => {}), 500);
+          }
+        });
+        if (baseUrl.value.trim()) discover().catch(() => {});
+        body._discoverModel = discover;
       },
-      onSubmit: async (values) => {
+      onSubmit: async (values, body) => {
+        const url = (values.base_url || '').trim().replace(/\/+$/, '');
+        if (modelForUrl !== url || !selectedModel) {
+          const discovered = await body._discoverModel();
+          if (!discovered || modelForUrl !== url) throw new Error('API 주소에서 모델을 확인한 뒤 저장해 주세요.');
+        }
         const token = values.clear_token ? '' : (values.token ? values.token : null);
-        await api('/api/git/ai/settings', { method: 'PUT', body: { base_url: values.base_url || '', model: values.model || '', token, language: values.language || 'auto' } });
+        await api('/api/git/ai/settings', { method: 'PUT', body: { base_url: values.base_url || '', model: selectedModel, token, language: values.language || 'auto' } });
         toast('AI 설정을 저장했어요.', 'success');
         if (thenGenerate) setTimeout(generateCommitMessage, 50);
       },

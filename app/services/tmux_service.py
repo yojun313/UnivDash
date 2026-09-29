@@ -82,6 +82,12 @@ _PANE_FORMAT = SEP.join(fmt for _, fmt in _PANE_FIELDS)
 _BUSY_TEXT = re.compile(
     r"esc to interrupt|esc to cancel|ctrl\+c to interrupt", re.IGNORECASE
 )
+# Claude Code 는 사용량 한도에 도달해도 이전 스피너 문구나 tmux 제목이 잠시 남을 수 있다.
+# 이 안내가 보이면 더 이상 현재 요청을 처리 중인 상태가 아니므로 busy 판정보다 우선한다.
+_LIMIT_REACHED_TEXT = re.compile(
+    r"you(?:'|’)ve hit your (?:session|usage|weekly|monthly) limit|usage limit reached",
+    re.IGNORECASE,
+)
 # 권한/선택 프롬프트: "❯ 1. Yes" (Claude Code), "› 1. Yes, proceed" (Codex), 폴더 신뢰 확인, y/n 질문
 _WAITING_TEXT = re.compile(
     # Codex 선택 창(/model 등)은 커서가 현재 항목에 있어 1. 이 아닐 수 있고 안내문이 "Press ⏎ to confirm or esc …" 이다
@@ -178,6 +184,8 @@ def detect_status(window: Window, tail: str) -> str:
         return "dead"
     if window.agent is None:
         return "shell"
+    if _LIMIT_REACHED_TEXT.search(tail):
+        return "idle"
     if _WAITING_TEXT.search(tail):
         return "waiting"
     raw_title = pane.title.strip()

@@ -85,6 +85,77 @@ def save_settings(base_url: str, model: str, token: str | None, language: str) -
     return public_settings()
 
 
+def _validated_base_url(base_url: str) -> str:
+    base_url = (base_url or "").strip().rstrip("/")
+    if not re.match(r"^https?://[^\s/?#]+(?:/[^\s?#]*)?$", base_url):
+        raise ValueError("API 주소는 http:// 또는 https:// 로 시작해야 해요.")
+    if len(base_url) > 500:
+        raise ValueError("API 주소가 너무 길어요.")
+    return base_url
+
+
+def discover_model(base_url: str, token: str | None = None) -> dict:
+    """OpenAI 호환 /models 에서 현재 사용 가능한 모델을 읽고 자동 선택한다."""
+    base_url = _validated_base_url(base_url)
+    if base_url.endswith("/chat/completions"):
+        models_url = base_url[: -len("/chat/completions")] + "/models"
+    elif base_url.endswith("/models"):
+        models_url = base_url
+    else:
+        models_url = base_url + "/models"
+
+    saved = _read()
+    if token is None and saved.get("base_url", "").rstrip("/") == base_url:
+        token = saved.get("token") or ""
+    token = (token or "").strip()
+    if len(token) > 1000 or any(char in token for char in "\r\n"):
+        raise ValueError("토큰 형식이 올바르지 않아요.")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    try:
+        with httpx.Client(timeout=15.0, follow_redirects=False) as client:
+            response = client.get(models_url, headers=headers)
+    except httpx.TimeoutException as error:
+        raise AICommitError("모델 목록 조회 시간이 초과됐어요.") from error
+    except httpx.HTTPError as error:
+        raise AICommitError(
+            f"모델 목록을 가져오지 못했어요: {type(error).__name__}"
+        ) from error
+    if response.status_code >= 400:
+        raise AICommitError(
+            f"모델 목록 조회 실패 ({response.status_code}). API 주소와 토큰을 확인해 주세요."
+        )
+    try:
+        payload = response.json()
+        rows = (
+            payload.get("data", payload.get("models", []))
+            if isinstance(payload, dict)
+            else []
+        )
+        models = [
+            row.get("id") or row.get("name")
+            for row in rows
+            if isinstance(row, dict)
+            and isinstance(row.get("id") or row.get("name"), str)
+        ]
+    except (ValueError, TypeError, AttributeError) as error:
+        raise AICommitError("모델 목록 응답이 OpenAI 호환 형식이 아니에요.") from error
+    models = list(dict.fromkeys(model.strip() for model in models if model.strip()))
+    if not models:
+        raise AICommitError("API 주소에서 사용 가능한 모델을 찾지 못했어요.")
+    # 서버가 활성 모델을 표시하면 그것을 우선하고, 아니면 /models 첫 항목을 기본으로 쓴다.
+    active = next(
+        (
+            row.get("id") or row.get("name")
+            for row in rows
+            if isinstance(row, dict)
+            and (row.get("loaded") or row.get("active") or row.get("currently_loaded"))
+            and isinstance(row.get("id") or row.get("name"), str)
+        ),
+        models[0],
+    )
+    return {"model": active, "models": models}
+
+
 # ── 변경 모으기 (읽기만) ─────────────────────────────────────────────────────────
 
 

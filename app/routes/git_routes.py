@@ -56,6 +56,11 @@ class AISettingsRequest(BaseModel):
     language: str = Field(default="auto", pattern=r"^(auto|ko|en)$")
 
 
+class AIModelsRequest(BaseModel):
+    base_url: str = Field(default="", max_length=500)
+    token: str | None = Field(default=None, max_length=1000)
+
+
 class AICommitRequest(BaseModel):
     stage_all: bool = True
 
@@ -80,6 +85,21 @@ async def save_ai_settings(body: AISettingsRequest):
             body.token,
             body.language,
         )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.post("/api/git/ai/models", dependencies=api_auth)
+async def get_ai_models(body: AIModelsRequest):
+    """OpenAI 호환 API에서 사용 가능한 모델을 읽어 기본 모델을 고른다."""
+    from app.services import ai_commit_service
+
+    try:
+        return await asyncio.to_thread(
+            ai_commit_service.discover_model, body.base_url, body.token
+        )
+    except ai_commit_service.AICommitError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
