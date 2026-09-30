@@ -497,9 +497,11 @@ def select_pane(pane_id: str) -> None:
     _run(["select-pane", "-t", pane_id])
 
 
-# Codex 화면 아래 상태 줄: "  GPT-6-Luna low · ~" (모델 · 추론 수준 · 폴더)
+# Codex 화면 아래 상태 줄: "  GPT-6-Luna low · ~" 또는 "  GPT-6-Sol medium fast · ~"
 _CODEX_FOOTER = re.compile(
-    r"^\s{1,6}((?:gpt|o\d|codex)[\w.\-]*(?: [\w.\-]+)?)\s+(minimal|low|medium|high|xhigh|extra high|max|ultra)?\s*·\s",
+    r"^\s{1,6}((?:gpt|o\d|codex)[\w.\-]*)"
+    r"(?:\s+(minimal|low|medium|high|xhigh|extra high|max|ultra))?"
+    r"(?:\s+(fast))?\s*·\s",
     re.IGNORECASE,
 )
 
@@ -513,6 +515,5 @@ def codex_footer_model(pane_id: str) -> str | None:
     for line in reversed(lines):
         match = _CODEX_FOOTER.match(line)
         if match:
-            model, effort = match.group(1).strip(), (match.group(2) or "").strip()
-            return f"{model} {effort}".strip()[:60]
+            return " ".join(part for part in match.groups() if part)[:60]
     return None

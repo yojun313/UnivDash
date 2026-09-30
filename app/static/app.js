@@ -1600,7 +1600,7 @@
       const request = ++modelRequest;
       const w = currentWindow();
       if (!w || !agentOf(w) || !state.paneId) { renderModel(); return; }
-      if (!force && modelState.pane === state.paneId && Date.now() - modelState.at < 8000) return;
+      if (!force && modelState.pane === state.paneId && Date.now() - modelState.at < 1500) return;
       const pane = state.paneId;
       try {
         const data = await api('GET', `/api/agent/model?pane=${encodeURIComponent(pane)}`);
@@ -1611,7 +1611,7 @@
       } catch (e) { /* noop */ }
       if (request === modelRequest) renderModel();
     }
-    // 모델을 바꾼 직후: Claude 가 기록에 "Set model to …" 를 남기는 즉시 알아채도록 잠깐 촘촘히 확인한다 (평소엔 10초마다)
+    // 모델을 바꾼 직후: Claude 가 기록에 "Set model to …" 를 남기는 즉시 알아채도록 잠깐 촘촘히 확인한다.
     // /model 을 보낸 뒤 1.5초마다 모델을 확인한다 (바뀌거나 90초가 지나면 멈춤)
     function watchModelChange(check, changed, timeout = 90000) {
       const started = Date.now();
@@ -1781,7 +1781,8 @@
       if (!who) return;
       toast(who.dataset.account ? `${who.dataset.provider} 계정: ${who.dataset.account}` : `${who.dataset.provider} 계정 정보를 찾지 못했어요`, 'info', null, 3500);
     });
-    setInterval(() => { if (document.visibilityState === 'visible' && state.selectedKey) refreshModel(); }, 10000);
+    // 모델 선택은 터미널에서 직접 해도 새로고침 없이 빠르게 반영되도록 활성 창에서 2초마다 확인한다.
+    setInterval(() => { if (document.visibilityState === 'visible' && state.selectedKey) refreshModel(); }, 2000);
 
     function renderHeader() {
       const w = currentWindow();
@@ -4083,7 +4084,8 @@
           renderHead();
         } catch (e) { /* noop */ }
       }
-      const modelTimer = setInterval(() => { if (!disposed && pane && document.visibilityState === 'visible') { refreshModel(); R.refreshLimits().then(renderHead); } }, 15000);
+      const modelTimer = setInterval(() => { if (!disposed && pane && document.visibilityState === 'visible') refreshModel(); }, 2000);
+      const usageTimer = setInterval(() => { if (!disposed && pane && document.visibilityState === 'visible') R.refreshLimits().then(renderHead); }, 15000);
       const accountChanged = () => { renderHead(); R.refreshLimits().then(renderHead); };
       window.addEventListener('univdash:codex-account-changed', accountChanged);
       modelEl.addEventListener('click', async () => {
@@ -4285,7 +4287,7 @@
       },
         stop() { this.key = null; pane = null; w = null; send({ t: 'unsub' }); send({ t: 'logunsub' }); },
         rerender() { renderScreen(); },
-        dispose() { disposed = true; pane = null; clearInterval(modelTimer); window.removeEventListener('univdash:codex-account-changed', accountChanged); try { ws?.close(); } catch (e) { /* noop */ } },
+        dispose() { disposed = true; pane = null; clearInterval(modelTimer); clearInterval(usageTimer); window.removeEventListener('univdash:codex-account-changed', accountChanged); try { ws?.close(); } catch (e) { /* noop */ } },
       };
       return g.mirror;
     }
