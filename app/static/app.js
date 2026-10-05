@@ -2005,12 +2005,11 @@
     input.addEventListener('input', () => { history.index = -1; });
     input.addEventListener('keydown', (event) => {
       if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.isComposing && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
-        const caret = input.selectionStart;
-        const onFirstLine = !input.value.slice(0, caret).includes('\n');
-        const onLastLine = !input.value.slice(input.selectionEnd).includes('\n');
-        // 여러 줄을 쓰는 중이면 커서가 맨 윗줄 / 맨 아랫줄일 때만 기록을 넘긴다
-        if (event.key === 'ArrowUp' && onFirstLine && (history.index !== -1 || !input.value.includes('\n'))) { event.preventDefault(); recallHistory(1); return; }
-        if (event.key === 'ArrowDown' && onLastLine && history.index !== -1) { event.preventDefault(); recallHistory(-1); return; }
+        // 입력창이 비어 있을 때만 기록을 불러온다. 불러온 글을 그대로 둔 채면 ↑↓ 로 계속 넘기고,
+        // 직접 쓴 글(또는 불러온 글을 고친 뒤)이 있으면 ↑↓ 는 커서만 움직인다.
+        const browsing = history.index !== -1;
+        if (event.key === 'ArrowUp' && (browsing || !input.value)) { event.preventDefault(); recallHistory(1); return; }
+        if (event.key === 'ArrowDown' && browsing) { event.preventDefault(); recallHistory(-1); return; }
       }
     });
     for (const [id, delta] of [['#histPrev', 1], ['#histNext', -1]]) {
@@ -4199,10 +4198,10 @@
           return;
         }
         if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.shiftKey && !event.isComposing) {
-          const first = !input.value.slice(0, input.selectionStart).includes('\n');
-          const last = !input.value.slice(input.selectionEnd).includes('\n');
-          if (event.key === 'ArrowUp' && first && (history.index !== -1 || !input.value.includes('\n'))) { event.preventDefault(); recall(1); return; }
-          if (event.key === 'ArrowDown' && last && history.index !== -1) { event.preventDefault(); recall(-1); return; }
+          // 메인과 같은 규칙: 비어 있을 때만 기록, 기록을 넘기는 중이면 계속, 아니면 커서 이동
+          const browsing = history.index !== -1;
+          if (event.key === 'ArrowUp' && (browsing || !input.value)) { event.preventDefault(); recall(1); return; }
+          if (event.key === 'ArrowDown' && browsing) { event.preventDefault(); recall(-1); return; }
         }
         if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229 && (!coarsePointer || event.ctrlKey || event.metaKey)) {
           event.preventDefault();
