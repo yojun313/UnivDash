@@ -1008,7 +1008,7 @@ html[data-ui-theme-mode="light"] .exv-md a { color: #2563eb; }
 html[data-ui-theme-mode="light"] .exv-md blockquote { color: #475569; background: rgba(15,23,42,.03); }
 html[data-ui-theme-mode="light"] .exv-md code { background: rgba(15,23,42,.06); color: #be185d; }
 html[data-ui-theme-mode="light"] .exv-md pre { background: #f1f5f9; border-color: rgba(15,23,42,.08); }
-html[data-ui-theme-mode="light"] .exv-md pre code { color: #1e293b; }
+html[data-ui-theme-mode="light"] .exv-md pre code { color: #1e293b; background: transparent; padding: 0; }   /* 인라인 코드 배경이 코드 블록에 줄무늬로 남지 않게 */
 html[data-ui-theme-mode="light"] .exv-md th, html[data-ui-theme-mode="light"] .exv-md td { border-color: rgba(15,23,42,.14); }
 html[data-ui-theme-mode="light"] .exv-md th { background: rgba(15,23,42,.04); }
 html[data-ui-theme-mode="light"] .exv-hex { color: #334155; }
@@ -1307,3 +1307,23 @@ html[data-ui-theme-mode="light"] .path-link { color: #1d4ed8; text-decoration-co
     pointer-events: none; color: #f1f5f9; background: #1e293b; border: 1px solid rgba(148,163,184,.35); box-shadow: 0 6px 18px rgba(0,0,0,.4); }
 .ex-name-tip[hidden] { display: none; }
 html[data-ui-theme-mode="light"] .ex-name-tip { color: #0f172a; background: #fff; border-color: rgba(15,23,42,.18); box-shadow: 0 6px 18px rgba(15,23,42,.15); }
+
+/* 마크다운 → PDF 미리보기 창 */
+@media (min-width: 640px) { .tdx-sheet.wide { max-width: min(920px, 94vw); } }
+.mdpdf { display: flex; flex-direction: column; gap: 10px; padding: 0 20px 4px; }
+.mdpdf-bar { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; }
+.mdpdf-bar button { width: 34px; height: 30px; border-radius: 9px; background: rgba(148,163,184,.14); border: 1px solid rgba(148,163,184,.25); }
+.mdpdf-zoom { min-width: 46px; text-align: center; font-variant-numeric: tabular-nums; }
+.mdpdf-info { margin-left: auto; font-weight: 600; opacity: .6; }
+.mdpdf-pages { display: flex; flex-direction: column; align-items: center; gap: 12px; height: clamp(220px, calc(100dvh - 330px), 780px); overflow: auto; padding: 12px; border-radius: 12px; background: rgba(15,23,42,.55); }
+.mdpdf-pages.busy { opacity: .45; }
+.mdpdf-pages:empty::after { content: 'PDF 만드는 중…'; margin: auto; opacity: .6; font-size: 13px; }
+.mdpdf-page { width: 100%; height: auto; background: #fff; box-shadow: 0 4px 18px rgba(0,0,0,.35); border-radius: 2px; }
+.mdpdf-error { margin: auto; color: #f87171; font-size: 13px; }
+.mdpdf-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.mdpdf-actions button { flex: 1; min-height: 42px; border-radius: 12px; font-size: 13px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.mdpdf-actions button:disabled { opacity: .5; }
+.mdpdf-actions small { font-weight: 600; opacity: .75; }
+.mdpdf-secondary { background: rgba(148,163,184,.14); border: 1px solid rgba(148,163,184,.25); }
+html[data-ui-theme-mode="light"] .mdpdf-pages { background: #e2e8f0; }
+.sheet-info:has(.mdpdf) { max-height: none; overflow: visible; padding: 0; }
