@@ -238,7 +238,16 @@
   // 수식 (탐색기 마크다운 · 채팅 공용): marked 가 \qquad · _ · \\ 같은 TeX 기호를 망가뜨리므로, 변환 전에 수식을 자리표시(KTXM0Z)로 빼 두고
   // marked → DOMPurify 정리가 끝난 뒤 KaTeX 로 그려 넣는다 (KaTeX 결과는 trust:false 라 링크 · HTML 명령이 막혀 있다).
   // 코드 블록(``` ~~~)과 인라인 코드(`…`) 안의 $ 는 건드리지 않는다.
+  // 백슬래시가 이스케이프로 먹힌 TeX 복구 (파이썬 일반 문자열로 쓴 파일: "\boxed" → 백스페이스+"oxed", "\frac" → 폼피드+"rac" …)
+  // \a \b \f \v 제어 문자는 글에 올 일이 없어 항상, 탭 · CR 은 TeX 명령 꼬리가 바로 이어질 때만 되돌린다.
+  function repairTexEscapes(src) {
+    return src
+      .replace(/[\x07\x08\x0b\x0c](?=[A-Za-z])/g, (c) => `\\${{ '\x07': 'a', '\x08': 'b', '\x0b': 'v', '\x0c': 'f' }[c]}`)
+      .replace(/\t(?=(?:heta|imes|ext|extbf|extit|ilde|au|op|riangle|herefore|frac|o\b))/g, '\\t')
+      .replace(/\r(?=(?:ho|ight|angle|ceil|floor|vert|Vert|m\b|m\{))/g, '\\r');
+  }
   function extractMath(src) {
+    src = repairTexEscapes(src);
     const math = [];
     if (!window.katex || !/\$|\\\(|\\\[/.test(src)) return { text: src, math };
     const put = (tex, display) => { math.push({ tex: tex.trim(), display }); return `KTXM${math.length - 1}Z`; };
