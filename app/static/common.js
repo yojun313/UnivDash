@@ -48,7 +48,7 @@
   }
 
   // 레이아웃의 #toastHost 에 app.css 의 .toast 모양으로 띄운다 (Workspace 알림과 같은 모양).
-  function toast(message, type = 'info') {
+  function toast(message, type = 'info', timeout = 0) {
     const host = document.getElementById('toastHost');
     if (!host) return;
     const kind = { success: 'ok', error: 'error', info: 'info', warn: 'warn' }[type] || 'info';
@@ -59,8 +59,76 @@
     item.querySelector('span').textContent = message;
     host.appendChild(item);
     while (host.children.length > 3) host.firstElementChild.remove();
-    setTimeout(() => item.remove(), kind === 'error' ? 6000 : 3500);
+    setTimeout(() => item.remove(), timeout || (kind === 'error' ? 6000 : 3500));
   }
+
+  // ── Git 자동 흐름(ruff · AI 커밋 · 푸시) 완료 알림 ─────────────────────────
+  // 흐름은 서버에서 별도 프로세스로 돌아서 페이지를 떠나도 계속된다. UnivDash 의 어느 페이지에 있든
+  // 도는 작업이 있을 때만 상태를 확인하고(2초), 끝나면 한 번 알린다. 알린 작업 id 는 저장해 두어
+  // 다른 페이지 · 탭에서 같은 알림이 또 뜨지 않게 하고, 떠나 있던 사이 끝난 작업(10분 이내)은 돌아왔을 때 알린다.
+  const gitWorkflows = (() => {
+    const SEEN = 'univdash-git-wf-seen';
+    const ACTIVE = 'univdash-git-wf-active';
+    const listeners = new Set();
+    const later = [];
+    let jobs = [];
+    let timer = 0;
+    let polling = false;
+    const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch (e) { return fallback; } };
+    const write = (key, value) => { try { if (value == null) localStorage.removeItem(key); else localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* 저장 못 해도 동작 */ } };
+    function show(job) {
+      const where = job.branch ? `${job.repository} (${job.branch})` : job.repository;
+      if (job.status === 'done') {
+        const subject = (job.message || '').split('\n')[0];
+        toast(`${where} 푸시 완료${subject ? `\n${subject}` : ''}`, 'success', 7000);
+      } else {
+        toast(`${where} 자동 커밋이 멈췄어요: ${job.error || '알 수 없는 오류'}`, 'error', 9000);
+      }
+    }
+    function notify(job) {
+      if (document.hidden) later.push(job); else show(job);
+    }
+    async function poll() {
+      if (polling) return;
+      polling = true;
+      clearTimeout(timer);
+      try {
+        jobs = (await request('/api/git/workflows')).jobs || [];
+      } catch (e) {
+        polling = false;
+        timer = setTimeout(poll, 8000);
+        return;
+      }
+      polling = false;
+      const seen = read(SEEN, []);
+      const now = Date.now() / 1000;
+      for (const job of jobs) {
+        if (job.status === 'running' || seen.includes(job.id)) continue;
+        if (now - (job.finished || 0) < 600) notify(job);
+        seen.push(job.id);
+      }
+      write(SEEN, seen.slice(-80));
+      const running = jobs.some((job) => job.status === 'running');
+      write(ACTIVE, running ? 1 : null);
+      listeners.forEach((fn) => { try { fn(jobs); } catch (e) { /* 다른 구독자는 계속 */ } });
+      if (running) timer = setTimeout(poll, document.hidden ? 6000 : 2000);
+    }
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) return;
+      later.splice(0).forEach(show);
+      if (read(ACTIVE, null)) poll();
+    });
+    // 다른 탭에서 흐름을 시작하면 이 탭도 지켜본다
+    window.addEventListener('storage', (event) => { if (event.key === ACTIVE && event.newValue) poll(); });
+    const begin = () => { if (document.getElementById('toastHost') && (read(ACTIVE, null) || listeners.size)) poll(); };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', begin); else begin();
+    return {
+      poll,
+      jobs: () => jobs,
+      started(job) { if (job) jobs = [job, ...jobs.filter((j) => j.id !== job.id)]; write(ACTIVE, 1); poll(); },
+      subscribe(fn) { listeners.add(fn); fn(jobs); return () => listeners.delete(fn); },
+    };
+  })();
 
   function formatNumber(value) {
     const amount = Number(value || 0);
@@ -273,5 +341,5 @@
     });
   }
 
-  window.UnivDash = { escapeHtml, api, toast, formatNumber, relativeTime, duration, formatDate, chartColors, typingOrBusy, plainKey, haptic, busy, math: { extract: extractMath, render: renderMath } };
+  window.UnivDash = { escapeHtml, api, toast, gitWorkflows, formatNumber, relativeTime, duration, formatDate, chartColors, typingOrBusy, plainKey, haptic, busy, math: { extract: extractMath, render: renderMath } };
 })();

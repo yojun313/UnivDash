@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from app.routes.pages import render_page
+from app.services import git_workflow
 from app.services.auth_service import AuthService
 from app.services.git_preferences import GitPreferences, GitPreferencesStore
 from app.services.git_service import GitService
@@ -119,6 +120,22 @@ async def ai_commit_message(repository_id: str, body: AICommitRequest):
         _raise_for(error)
 
 
+@router.get("/api/git/workflows", dependencies=api_auth)
+async def list_workflows():
+    """ruff format · AI 커밋 · 푸시 자동 흐름 (최근 24시간). 화면은 이것으로 진행 상황과 완료 알림을 보여 준다."""
+    jobs = await asyncio.to_thread(git_workflow.jobs)
+    return {"jobs": [{k: v for k, v in job.items() if k != "pid"} for job in jobs]}
+
+
+@router.post("/api/git/workflows/{repository_id}", dependencies=api_auth)
+async def start_workflow(repository_id: str):
+    try:
+        job = await asyncio.to_thread(git_workflow.start, repository_id)
+    except (KeyError, ValueError, RuntimeError) as error:
+        _raise_for(error)
+    return {k: v for k, v in job.items() if k != "pid"}
+
+
 @router.get("/api/git/repositories", dependencies=api_auth)
 async def get_repositories(status: bool = True):
     repositories = await asyncio.to_thread(GitService.list_repositories, status)
@@ -170,6 +187,12 @@ async def run_git_action(
     action: str,
     payload: GitActionRequest,
 ):
+    # 자동 흐름은 별도 프로세스라 저장소 잠금을 함께 쓰지 못한다 → 도는 동안 같은 저장소의 다른 작업은 막는다
+    if await asyncio.to_thread(git_workflow.running_for, repository_id):
+        raise HTTPException(
+            status_code=409,
+            detail="이 저장소에서 자동 커밋 흐름(ruff · AI 커밋 · 푸시)이 실행 중이에요. 끝난 뒤 다시 해 주세요.",
+        )
     if action == "ruff_format":
         try:
             return await asyncio.to_thread(GitService.ruff_format, repository_id)

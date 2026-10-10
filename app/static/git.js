@@ -657,6 +657,7 @@
       $('gitRepositoryDetail').classList.add('hidden');
       $('gitEmptyMessage').textContent = '저장소 정보를 불러오는 중입니다.';
     }
+    syncWorkflowButton();
     await refreshDetail();
   }
 
@@ -1047,6 +1048,49 @@
     box.textContent = result.summary || result.output.split('\n').slice(-2).join(' · ');
     box.className = `mt-1.5 rounded-lg bg-black/25 px-2.5 py-1.5 font-mono text-[11px] ${result.success ? 'text-emerald-300' : 'text-red-300'}`;
   });
+  // ruff format · AI 커밋 · 푸시: 서버가 별도 프로세스로 끝까지 돌린다.
+  // 기다리지 않고 다른 저장소를 보거나 페이지를 떠나도 되고, 끝나면 UnivDash 어느 페이지에서든 알림이 뜬다 (common.js gitWorkflows).
+  const ALL_IN_ONE_LABEL = 'ruff format · AI 커밋 · 푸시';
+  const workflows = window.UnivDash.gitWorkflows;
+  const workflowStatus = new Map();   // 작업 id → 마지막으로 본 상태 (끝나는 순간을 잡으려고)
+  const runningWorkflow = (id) => workflows.jobs().find((job) => job.repository_id === id && job.status === 'running');
+  function syncWorkflowButton() {
+    const button = $('gitAllInOneButton');
+    const label = button.querySelector('span');
+    const job = state.selectedId ? runningWorkflow(state.selectedId) : null;
+    workflowBusy = !!job;
+    button.disabled = !!job;
+    button.classList.toggle('is-running', !!job);
+    label.textContent = job ? `${job.step_label}… (다른 곳에 가도 계속돼요)` : ALL_IN_ONE_LABEL;
+    [$('gitAiMessage'), $('gitAiSettings')].forEach((item) => { item.disabled = !!job; });
+    if (!state.busy) document.querySelectorAll('.git-action').forEach((item) => { item.disabled = !!job; });
+  }
+  workflows.subscribe((jobs) => {
+    for (const job of jobs) {
+      const before = workflowStatus.get(job.id);
+      workflowStatus.set(job.id, job.status);
+      if (before !== 'running' || job.status === 'running' || job.repository_id !== state.selectedId) continue;
+      // 지금 보고 있는 저장소의 흐름이 방금 끝났다 → 결과 반영
+      if (job.ruff) {
+        const ruffBox = $('gitRuffResult');
+        ruffBox.textContent = job.ruff;
+        ruffBox.className = `mt-1.5 rounded-lg bg-black/25 px-2.5 py-1.5 font-mono text-[11px] ${job.status === 'done' || job.step !== 'ruff' ? 'text-emerald-300' : 'text-red-300'}`;
+      }
+      if (job.status === 'done') {
+        $('gitCommitMessage').value = '';
+        $('gitCommitAmend').checked = false;
+        $('gitCommitStageAll').checked = true;
+        saveDraft();
+        updateSummaryLength();
+      } else if (job.message && !$('gitCommitMessage').value.trim()) {
+        $('gitCommitMessage').value = job.message;   // 푸시만 실패했으면 만든 메시지는 남겨 둔다
+        saveDraft();
+        updateSummaryLength();
+      }
+      refreshDetail({ quiet: true });
+    }
+    syncWorkflowButton();
+  });
   $('gitAllInOneButton').addEventListener('click', async () => {
     if (!state.selectedId || state.busy || workflowBusy) return;
     let settings;
@@ -1062,56 +1106,18 @@
       return;
     }
     const branch = state.detail?.branch || '현재 브랜치';
-    if (!confirm(`${branch}의 모든 변경을 ruff format 한 뒤 AI 커밋 메시지로 커밋하고 푸시할까요?`)) return;
-
-    workflowBusy = true;
+    if (!confirm(`${branch}의 모든 변경을 ruff format 한 뒤 AI 커밋 메시지로 커밋하고 푸시할까요?\n\n기다리지 않아도 돼요. 끝나면 알려 드려요.`)) return;
     const button = $('gitAllInOneButton');
-    const label = button.querySelector('span');
-    const aiButtons = [$('gitAiMessage'), $('gitAiSettings')];
     button.disabled = true;
-    aiButtons.forEach((item) => { item.disabled = true; });
-    const ruffBox = $('gitRuffResult');
-    const stageAll = true;
-    const setStep = (text) => { label.textContent = text; };
     try {
-      setStep('ruff format 실행 중…');
-      const formatted = await runGit('ruff_format', {}, { workflow: true });
-      if (!formatted?.success) return;
-      ruffBox.textContent = formatted.summary || formatted.output.split('\n').slice(-2).join(' · ');
-      ruffBox.className = 'mt-1.5 rounded-lg bg-black/25 px-2.5 py-1.5 font-mono text-[11px] text-emerald-300';
-
-      setStep('AI 커밋 메시지 생성 중…');
-      const generated = await api(`/api/git/ai/commit-message/${encodeURIComponent(state.selectedId)}`, {
-        method: 'POST', body: { stage_all: stageAll },
-      });
-      $('gitCommitMessage').value = generated.message;
-      updateSummaryLength();
-      saveDraft();
-
-      setStep('커밋하고 푸시 중…');
-      const committed = await runGit('commit', {
-        message: generated.message,
-        amend: false,
-        stage_all: stageAll,
-        push_after: true,
-        force: false,
-      }, { showConsole: true, workflow: true });
-      if (committed?.success) {
-        $('gitCommitMessage').value = '';
-        saveDraft();
-        $('gitCommitAmend').checked = false;
-        $('gitCommitStageAll').checked = true;
-        updateSummaryLength();
-        toast('Ruff 포맷, AI 커밋, 푸시를 완료했어요.', 'success');
-      }
+      const job = await api(`/api/git/workflows/${encodeURIComponent(state.selectedId)}`, { method: 'POST' });
+      workflowStatus.set(job.id, 'running');
+      workflows.started(job);
+      toast('백그라운드에서 진행해요. 다른 저장소를 보거나 페이지를 떠나도 끝까지 하고, 푸시가 끝나면 알려 드려요.', 'info', 5000);
     } catch (error) {
-      toast(`자동 커밋 흐름이 중단됐어요: ${error.message}`, 'error');
+      toast(error.message, 'error');
     } finally {
-      workflowBusy = false;
-      button.disabled = false;
-      label.textContent = 'ruff format · AI 커밋 · 푸시';
-      aiButtons.forEach((item) => { item.disabled = false; });
-      document.querySelectorAll('.git-action').forEach((item) => { item.disabled = false; item.classList.remove('opacity-50'); });
+      syncWorkflowButton();
     }
   });
   $('gitCommitButton').addEventListener('click', () => commit(false));
