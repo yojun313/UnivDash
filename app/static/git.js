@@ -1061,7 +1061,7 @@
     workflowBusy = !!job;
     button.disabled = !!job;
     button.classList.toggle('is-running', !!job);
-    label.textContent = job ? `${job.step_label}… (다른 곳에 가도 계속돼요)` : ALL_IN_ONE_LABEL;
+    label.textContent = job ? `${job.step_label}…` : ALL_IN_ONE_LABEL;
     [$('gitAiMessage'), $('gitAiSettings')].forEach((item) => { item.disabled = !!job; });
     if (!state.busy) document.querySelectorAll('.git-action').forEach((item) => { item.disabled = !!job; });
   }
@@ -1106,14 +1106,13 @@
       return;
     }
     const branch = state.detail?.branch || '현재 브랜치';
-    if (!confirm(`${branch}의 모든 변경을 ruff format 한 뒤 AI 커밋 메시지로 커밋하고 푸시할까요?\n\n기다리지 않아도 돼요. 끝나면 알려 드려요.`)) return;
+    if (!confirm(`${branch}의 모든 변경을 ruff format 한 뒤 AI 커밋 메시지로 커밋하고 푸시할까요?`)) return;
     const button = $('gitAllInOneButton');
     button.disabled = true;
     try {
       const job = await api(`/api/git/workflows/${encodeURIComponent(state.selectedId)}`, { method: 'POST' });
       workflowStatus.set(job.id, 'running');
       workflows.started(job);
-      toast('백그라운드에서 진행해요. 다른 저장소를 보거나 페이지를 떠나도 끝까지 하고, 푸시가 끝나면 알려 드려요.', 'info', 5000);
     } catch (error) {
       toast(error.message, 'error');
     } finally {
