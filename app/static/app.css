@@ -263,6 +263,14 @@ html[data-ui-theme-mode="light"] .direct-banner { color: #b45309; }
     display: flex; align-items: flex-end; justify-content: center;
 }
 .sheet-overlay[hidden] { display: none; }
+/* 키보드 대응: 화면을 덮는 시트 · 모달은 레이아웃 전체(inset 0)가 아니라 실제로 보이는 영역(키보드 위)에 맞춘다.
+   iOS 는 키보드가 떠도 레이아웃 높이를 줄이지 않아서, inset 0 이면 아래쪽 시트가 키보드 뒤에 숨는다.
+   --vv-top · --app-h 는 app.js syncViewport 가 visualViewport 로 계속 맞춘다 (평소에는 0 · 100%). */
+.sheet-overlay, .pmd-theme-overlay, #sidebarOverlay, #logModal, #gitCommitModal {
+    top: var(--vv-top) !important; bottom: auto !important; height: var(--app-h) !important;
+}
+#logModal > [role="dialog"], #gitCommitModal > [role="dialog"], .pmd-theme-modal { max-height: 100%; }
+.pmd-theme-modal { overflow-y: auto; overscroll-behavior: contain; }
 .tdx-sheet {
     width: 100%; max-height: calc(var(--app-h) - 40px); overflow-y: auto; overscroll-behavior: contain;
     border-radius: 22px 22px 0 0;
@@ -304,6 +312,11 @@ html[data-ui-theme-mode="light"] .sheet-action.danger { color: #dc2626; }
 }
 .sheet-form input:focus, .sheet-form textarea:focus { outline: none; border-color: rgba(96,165,250,0.7); box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
 .sheet-buttons { display: flex; gap: 8px; padding: 8px 20px 4px; }
+/* 내용이 길어 시트가 스크롤될 때도(키보드가 떠서 시트가 낮아졌을 때 등) 저장 · 취소 버튼은 늘 보이게 */
+.tdx-sheet .sheet-buttons { position: sticky; bottom: calc(-1 * max(12px, env(safe-area-inset-bottom))); z-index: 2; padding-bottom: max(12px, env(safe-area-inset-bottom)); margin-bottom: calc(-1 * max(12px, env(safe-area-inset-bottom))); background: rgb(20, 25, 40); }
+html[data-ui-theme-mode="light"] .tdx-sheet .sheet-buttons { background: #fff; }
+.tdx-sheet :is(input, textarea, select) { scroll-margin: 16px 0 96px; }   /* 포커스로 스크롤될 때 고정된 버튼 뒤에 숨지 않게 */
+@media (min-width: 640px) { .tdx-sheet .sheet-buttons { bottom: -12px; padding-bottom: 12px; margin-bottom: -12px; } }
 .sheet-buttons button { flex: 1; min-height: 44px; border-radius: 12px; font-size: 14px; font-weight: 800; }
 .sheet-cancel { background: rgba(148,163,184,0.14); }
 .sheet-danger { color: #fff; background: linear-gradient(135deg, #ef4444, #dc2626); }
