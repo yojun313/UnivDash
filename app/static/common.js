@@ -49,7 +49,12 @@
 
   // ── 이 기기 설정 (설정 창) ─────────────────────────────────────────────
   // 기기마다 다르게 둘 값은 localStorage 에 둔다. 바뀌면 'univdash:settings' 이벤트로 열린 화면에 알린다.
-  const SETTING_DEFAULTS = { 'notify-agents': true, 'notify-git': true, haptics: true, 'editor-font': 13 };
+  const SETTING_DEFAULTS = {
+    'notify-agents': true, 'notify-git': true, haptics: true, 'editor-font': 13,
+    // 사이드바: OVERVIEW 숫자 카드, 서버 상태 (sysmon.js)
+    'show-overview': true,
+    'sysmon-cpu': true, 'sysmon-gpu': true, 'sysmon-mem': true, 'sysmon-disk': true, 'sysmon-net': false, 'sysmon-interval': 2, 'sysmon-detail': false,
+  };
   const settings = {
     defaults: SETTING_DEFAULTS,
     get(key) {
@@ -64,6 +69,7 @@
   function applySettings() {
     const font = Number(settings.get('editor-font'));
     document.documentElement.style.setProperty('--editor-font', `${Number.isFinite(font) ? Math.min(20, Math.max(10, font)) : 13}px`);
+    document.documentElement.classList.toggle('hide-overview', !settings.get('show-overview'));
   }
   applySettings();
   // 다른 탭에서 바꾼 설정도 바로 따른다

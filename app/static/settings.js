@@ -1,7 +1,7 @@
 // UnivDash 설정 창: [data-app-settings] 버튼을 누르면 가운데에 뜬다.
 // - 이 기기 설정(화면 · 편집기 · 알림)은 localStorage 에 두고 바로 적용한다 (common.js 의 UnivDash.settings).
 // - 서버 설정(업로드 최대 크기 등)은 /api/settings 에 저장한다 — 모든 기기에 똑같이 적용된다.
-// - 왼쪽 사이드바에서 항목(화면 · 파일 · 편집기 · 알림 · 업로드)을 고르면 오른쪽에 그 설정이 보인다. 휴대폰은 위쪽 가로 탭.
+// - 왼쪽 사이드바에서 항목(화면 · 파일 · 편집기 · 알림 · 서버 상태 · 업로드)을 고르면 오른쪽에 그 설정이 보인다. 휴대폰은 위쪽 가로 탭.
 (function () {
   'use strict';
   const U = () => window.UnivDash;
@@ -26,13 +26,24 @@
       ['notify-git', 'Git 푸시 완료 알림', '자동 커밋 · 푸시가 끝나면 알려 줘요. 실패는 항상 알려요.', () => U().settings.get('notify-git'), (v) => U().settings.set('notify-git', v)],
       ['haptics', '진동', '버튼을 누르거나 알림이 올 때 짧게 진동해요 (지원하는 기기만).', () => U().settings.get('haptics'), (v) => U().settings.set('haptics', v)],
     ],
+    monitor: [
+      ['show-overview', 'OVERVIEW', '창 · 에이전트 · 작업 중 · 응답 필요 숫자 카드', () => U().settings.get('show-overview'), (v) => U().settings.set('show-overview', v)],
+      ['sysmon-detail', '자세히 보기', '끄면 한 줄씩 간단히 (막대 · %), 켜면 코어 · 온도 · 용량 · 그래프까지. 사이드바의 자세히/간단히 버튼과 같아요.', () => U().settings.get('sysmon-detail'), (v) => U().settings.set('sysmon-detail', v)],
+      ['sysmon-cpu', 'CPU', '사용률 · 코어 수 · 온도 · 부하, 최근 변화 그래프', () => U().settings.get('sysmon-cpu'), (v) => U().settings.set('sysmon-cpu', v)],
+      ['sysmon-gpu', 'GPU', 'GPU 사용률 · VRAM 점유율 · 온도 · 전력 (NVIDIA)', () => U().settings.get('sysmon-gpu'), (v) => U().settings.set('sysmon-gpu', v)],
+      ['sysmon-mem', '메모리', 'RAM 사용량 · 스왑', () => U().settings.get('sysmon-mem'), (v) => U().settings.set('sysmon-mem', v)],
+      ['sysmon-disk', '디스크', '디스크마다 사용량 (막대에 마우스를 올리면 자세히)', () => U().settings.get('sysmon-disk'), (v) => U().settings.set('sysmon-disk', v)],
+      ['sysmon-net', '네트워크', '초당 받기 · 보내기 속도', () => U().settings.get('sysmon-net'), (v) => U().settings.set('sysmon-net', v)],
+    ],
   };
+  const MONITOR_INTERVALS = [1, 2, 3, 5, 10, 30];
   const FONT_SIZES = [11, 12, 13, 14, 15, 16, 18];
   const UPLOAD_PRESETS = [100, 500, 1024, 5 * 1024, 10 * 1024, 50 * 1024];
   const TABS = [
     { id: 'display', icon: 'fa-display', label: '화면', desc: '테마 · 배치 · 글자 크기' },
     { id: 'editor', icon: 'fa-pen-to-square', label: '파일 · 편집기', desc: '저장 · 미리보기 · 줄바꿈' },
     { id: 'notify', icon: 'fa-bell', label: '알림', desc: '에이전트 · Git · 진동' },
+    { id: 'monitor', icon: 'fa-gauge-high', label: '사이드바', desc: 'Overview · 서버 상태 (CPU · GPU …)' },
     { id: 'upload', icon: 'fa-cloud-arrow-up', label: '업로드 · 파일', desc: '최대 크기 · 보관 · 뷰어', server: true },
   ];
   const TAB_KEY = 'univdash-settings-tab';
@@ -80,6 +91,18 @@
             <button type="button" data-font="1" aria-label="크게"><i class="fas fa-plus"></i></button>
           </div>
         </div>`;
+    }
+    if (id === 'monitor') {
+      const every = Number(U().settings.get('sysmon-interval')) || 2;
+      return `
+        <p class="ud-set-note">왼쪽 사이드바에 보일 항목이에요. 서버 상태(CPU · GPU · 메모리 · 디스크 · 네트워크)는 실시간으로 바뀌고, 모두 끄면 숨겨요.</p>
+        <div class="ud-set-row">
+          <div class="ud-set-text"><p class="ud-set-title">업데이트 주기</p><p class="ud-set-desc">짧을수록 자주 새로 고쳐요. 탭이 안 보이거나 사이드바를 접으면 멈춰요.</p></div>
+          <div class="ud-set-seg" role="group" aria-label="업데이트 주기">
+            ${MONITOR_INTERVALS.map((n) => `<button type="button" data-interval="${n}" class="${n === every ? 'on' : ''}">${n}초</button>`).join('')}
+          </div>
+        </div>
+        ${SWITCHES.monitor.map(([key, title, desc, read]) => switchHtml(key, title, desc, read())).join('')}`;
     }
     if (id === 'editor' || id === 'notify') return SWITCHES[id].map(([key, title, desc, read]) => switchHtml(key, title, desc, read())).join('');
     if (!server) return '<p class="ud-set-note"><i class="fas fa-circle-notch fa-spin"></i> 서버 설정을 불러오는 중…</p>';
@@ -155,7 +178,7 @@
     if (tabBtn) { selectTab(tabBtn.dataset.tab); return; }
     const sw = event.target.closest('[data-switch]');
     if (sw) {
-      const all = [...SWITCHES.editor, ...SWITCHES.notify];
+      const all = Object.values(SWITCHES).flat();
       const item = all.find(([id]) => id === sw.dataset.switch);
       if (!item) return;
       const next = !item[3]();
@@ -175,6 +198,8 @@
       render();
       return;
     }
+    const every = event.target.closest('[data-interval]');
+    if (every) { U().settings.set('sysmon-interval', Number(every.dataset.interval)); render(); return; }
     const font = event.target.closest('[data-font]');
     if (font) {
       const now = Number(U().settings.get('editor-font')) || 13;

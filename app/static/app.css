@@ -1452,3 +1452,64 @@ html[data-ui-theme-mode="light"] .ud-set-row + .ud-set-row { border-color: rgba(
 html[data-ui-theme-mode="light"] .ud-set-badge { color: #b45309; background: rgba(245,158,11,.1); border-color: rgba(245,158,11,.3); }
 html[data-ui-theme-mode="light"] .ud-set-badge.local { color: #1d4ed8; background: rgba(37,99,235,.08); border-color: rgba(37,99,235,.25); }
 html[data-ui-theme-mode="light"] :is(.ud-set-btn, .ud-set-seg, .ud-set-stepper button, .ud-set-select, .ud-set-chips button:not(.on), .ud-set-number input, .ud-set-number select) { background-color: rgba(15,23,42,.04); border-color: rgba(15,23,42,.12); }
+
+/* ── 사이드바 서버 상태 (sysmon.js) ── */
+.sysmon { flex-shrink: 0; }
+.sysmon .sm-caption { display: flex; align-items: center; justify-content: space-between; padding: 0 4px; font-size: 10px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: rgba(255,255,255,.35); }
+.sysmon .sm-live { display: inline-flex; align-items: center; gap: 5px; letter-spacing: .02em; text-transform: none; font-weight: 600; color: rgba(255,255,255,.32); }
+.sysmon .sm-dot { width: 6px; height: 6px; border-radius: 999px; background: #34d399; box-shadow: 0 0 0 0 rgba(52,211,153,.5); animation: sm-pulse 2s ease-out infinite; }
+.sysmon.stale .sm-dot { background: #f59e0b; animation: none; }
+@keyframes sm-pulse { 0% { box-shadow: 0 0 0 0 rgba(52,211,153,.45); } 70%, 100% { box-shadow: 0 0 0 5px rgba(52,211,153,0); } }
+@media (prefers-reduced-motion: reduce) { .sysmon .sm-dot { animation: none; } }
+.sysmon .sm-list { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.sysmon .sm-item { position: relative; overflow: hidden; padding: 8px 10px 8px; border-radius: 12px; background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.06); }
+.sysmon .sm-spark { position: absolute; inset: auto 0 0 0; width: 100%; height: 30px; pointer-events: none; }
+.sysmon .sm-spark polygon { fill: rgba(96,165,250,.10); }
+.sysmon .sm-spark polyline { fill: none; stroke: rgba(96,165,250,.35); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.sysmon .sm-item[data-item^="gpu"] .sm-spark polygon { fill: rgba(167,139,250,.10); }
+.sysmon .sm-item[data-item^="gpu"] .sm-spark polyline { stroke: rgba(167,139,250,.4); }
+.sysmon .sm-head { position: relative; display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: rgba(255,255,255,.78); min-width: 0; }
+.sysmon .sm-head > i { width: 13px; text-align: center; font-size: 10px; color: rgba(255,255,255,.4); }
+.sysmon .sm-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sysmon .sm-extra { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 600; color: rgba(255,255,255,.45); }
+.sysmon .sm-line { position: relative; display: grid; grid-template-columns: 38px 1fr 34px; align-items: center; gap: 7px; margin-top: 5px; }
+.sysmon .sm-name { font-size: 10px; color: rgba(255,255,255,.45); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sysmon .sm-bar { height: 5px; border-radius: 999px; background: rgba(255,255,255,.08); overflow: hidden; }
+.sysmon .sm-bar i { display: block; height: 100%; width: 0; border-radius: inherit; background: #60a5fa; transition: width .5s ease, background-color .3s; }
+.sysmon .sm-item[data-item^="gpu"] .sm-bar i { background: #a78bfa; }
+.sysmon .sm-item[data-item="mem"] .sm-bar i { background: #34d399; }
+.sysmon .sm-item[data-item="disk"] .sm-bar i { background: #94a3b8; }
+.sysmon .sm-line[data-level="warn"] .sm-bar i { background: #f59e0b; }
+.sysmon .sm-line[data-level="hot"] .sm-bar i { background: #f87171; }
+.sysmon .sm-val { text-align: right; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; color: rgba(255,255,255,.88); font-variant-numeric: tabular-nums; }
+.sysmon .sm-line[data-level="hot"] .sm-val { color: #fca5a5; }
+.sysmon .sm-sub { position: relative; margin-top: 5px; font-size: 10px; line-height: 1.35; color: rgba(255,255,255,.4); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sysmon .sm-net { white-space: pre; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: rgba(255,255,255,.6); }
+@media (prefers-reduced-motion: reduce) { .sysmon .sm-bar i { transition: none; } }
+html[data-ui-theme-mode="light"] .sysmon .sm-caption, html[data-ui-theme-mode="light"] .sysmon .sm-live { color: #77809a; }
+html[data-ui-theme-mode="light"] .sysmon .sm-item { background: rgba(255,255,255,.65); border-color: rgba(15,23,42,.08); }
+html[data-ui-theme-mode="light"] .sysmon .sm-head { color: #1f2937; }
+html[data-ui-theme-mode="light"] .sysmon .sm-head > i, html[data-ui-theme-mode="light"] .sysmon .sm-extra, html[data-ui-theme-mode="light"] .sysmon .sm-name, html[data-ui-theme-mode="light"] .sysmon .sm-sub { color: #6b7489; }
+html[data-ui-theme-mode="light"] .sysmon .sm-net { color: #475569; }
+html[data-ui-theme-mode="light"] .sysmon .sm-bar { background: rgba(15,23,42,.08); }
+html[data-ui-theme-mode="light"] .sysmon .sm-val { color: #111827; }
+html[data-ui-theme-mode="light"] .sysmon .sm-line[data-level="hot"] .sm-val { color: #dc2626; }
+html[data-ui-theme-mode="light"] .sysmon .sm-spark polygon { fill: rgba(37,99,235,.07); }
+html[data-ui-theme-mode="light"] .sysmon .sm-spark polyline { stroke: rgba(37,99,235,.3); }
+html[data-ui-theme-mode="light"] .sysmon .sm-item[data-item^="gpu"] .sm-spark polygon { fill: rgba(124,58,237,.07); }
+html[data-ui-theme-mode="light"] .sysmon .sm-item[data-item^="gpu"] .sm-spark polyline { stroke: rgba(124,58,237,.3); }
+.sysmon .sm-tools { display: inline-flex; align-items: center; gap: 8px; }
+.sysmon .sm-toggle { font: inherit; font-size: 10px; font-weight: 700; letter-spacing: .02em; text-transform: none; color: rgba(255,255,255,.4); background: none; border: 0; padding: 2px 4px; border-radius: 6px; cursor: pointer; }
+.sysmon .sm-toggle:hover, .sysmon .sm-toggle:focus-visible { color: rgba(255,255,255,.85); background: rgba(255,255,255,.06); }
+.sysmon .sm-compact { margin-top: 8px; padding: 4px 10px 8px; }
+.sysmon .sm-compact .sm-line { margin-top: 4px; }
+.sysmon .sm-compact .sm-name { font-weight: 700; font-size: 10px; letter-spacing: .02em; }
+.sysmon .sm-netline { grid-template-columns: 38px 1fr; }
+.sysmon .sm-netline .sm-net { margin-top: 0; text-align: right; }
+html[data-ui-theme-mode="light"] .sysmon .sm-toggle { color: #77809a; }
+html[data-ui-theme-mode="light"] .sysmon .sm-toggle:hover { color: #1f2937; background: rgba(15,23,42,.06); }
+/* OVERVIEW 숫자 카드 끄기 (설정 → 사이드바). 서버 상태는 사이드바 맨 아래(로그아웃 위)에 붙여 아래에서부터 쌓는다 */
+html.hide-overview #sbOverviewStats { display: none; }
+#sidebar #sysMon { max-height: 62vh; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+#sidebar #sysMon::-webkit-scrollbar { display: none; }
+html.sidebar-collapsed #sidebar #sysMon { display: none !important; }

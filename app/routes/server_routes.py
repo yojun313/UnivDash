@@ -17,7 +17,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 from app.routes.pages import render_page
-from app.services import ecosystem_service
+from app.services import ecosystem_service, sysmon_service
 from app.services.ai_usage_service import AIUsageService
 from app.services.auth_service import AuthService
 from app.services.ecosystem_service import EcosystemError
@@ -146,6 +146,12 @@ async def get_server_stats():
         "net_bytes_recv": net.bytes_recv,
         "cpu_temp": _cpu_temperature(),
     }
+
+
+@router.get("/api/sysmon", dependencies=api_auth)
+async def sysmon():
+    """사이드바 서버 상태 (CPU · 메모리 · GPU · 디스크). 짧은 캐시가 있어 여러 화면이 자주 물어도 괜찮다."""
+    return await sysmon_service.snapshot(_cpu_temperature)
 
 
 @router.get("/api/ai-usage", dependencies=api_auth)
