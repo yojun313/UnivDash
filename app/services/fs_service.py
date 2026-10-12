@@ -17,7 +17,8 @@ import time
 import zipfile
 from pathlib import Path
 
-MAX_READ = 2 * 1024 * 1024  # 뷰어에서 보여줄 최대 크기
+from app.services import settings_service
+
 MAX_ENTRIES = 5000  # 폴더 하나에서 보여줄 최대 항목 수
 SEARCH_LIMIT = 200
 SEARCH_SECONDS = 3.0
@@ -223,13 +224,14 @@ def read_file(path: str) -> dict:
     )
     if info["image"] or info["pdf"] or info["media"]:
         return info
+    limit = settings_service.viewer_max_bytes()  # 뷰어에서 보여줄 최대 크기 (설정)
     try:
         with file.open("rb") as handle:
-            raw = handle.read(MAX_READ + 1)
+            raw = handle.read(limit + 1)
     except PermissionError as error:
         raise FsError("이 파일을 읽을 권한이 없습니다.") from error
-    info["truncated"] = len(raw) > MAX_READ
-    raw = raw[:MAX_READ]
+    info["truncated"] = len(raw) > limit
+    raw = raw[:limit]
     if b"\0" in raw[:8192]:
         info["binary"] = True
         return info
@@ -356,7 +358,7 @@ def transfer(path: str, dest_dir: str, move: bool) -> str:
     return str(target)
 
 
-MAX_WRITE = 5 * 1024 * 1024
+MAX_WRITE = 50 * 1024 * 1024  # 요청 검사용 상한. 실제 한도는 설정 (edit_max_mb)
 
 
 def write_file(path: str, content: str, expected_mtime_ns: int | None) -> dict:
@@ -366,8 +368,11 @@ def write_file(path: str, content: str, expected_mtime_ns: int | None) -> dict:
     if not file.is_file():
         raise FsError("파일이 아닙니다.")
     data = content.encode("utf-8")
-    if len(data) > MAX_WRITE:
-        raise FsError("5MB 넘는 파일은 여기서 저장할 수 없습니다.")
+    limit = settings_service.edit_max_bytes()
+    if len(data) > limit:
+        raise FsError(
+            f"{limit // (1024 * 1024)}MB 넘는 파일은 여기서 저장할 수 없습니다 (설정에서 늘릴 수 있어요)."
+        )
     st = file.stat()
     if expected_mtime_ns is not None and st.st_mtime_ns != expected_mtime_ns:
         raise FileExistsError("다른 곳에서 파일이 바뀌었습니다.")

@@ -18,6 +18,7 @@ from app.routes import (
     git_routes,
     pty_routes,
     server_routes,
+    settings_routes,
     tmux_routes,
     upload_routes,
 )
@@ -77,3 +78,4 @@ app.include_router(server_routes.router)
 app.include_router(git_routes.router)
 app.include_router(fs_routes.router)
 app.include_router(pty_routes.router)
+app.include_router(settings_routes.router)

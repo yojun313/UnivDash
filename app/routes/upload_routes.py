@@ -3,20 +3,33 @@ import logging
 import os
 from urllib.parse import unquote
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 from starlette.requests import ClientDisconnect
 
-from app.services import upload_service
+from app.services import chunk_upload, fs_service, upload_service
 from app.services.auth_service import AuthService
+from app.services.chunk_upload import ChunkError
+from app.services.fs_service import FsError
 
 router = APIRouter()
+
+
+def _mb(limit: int) -> str:
+    megabytes = limit // (1024 * 1024)
+    return f"{megabytes / 1024:g}GB" if megabytes >= 1024 else f"{megabytes}MB"
+
+
 logger = logging.getLogger(__name__)
 
 
-def _require_user(request: Request) -> None:
+def _require_user(request: Request) -> str:
     # 본문을 읽기 전에 인증부터 확인한다 (비로그인 대용량 업로드로 디스크를 채우지 못하게).
-    if not AuthService.current_user(request):
+    user = AuthService.current_user(request)
+    if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
+    return user
 
 
 @router.post("/api/uploads")
@@ -31,7 +44,7 @@ async def api_upload(request: Request):
     if declared > limit:
         raise HTTPException(
             status_code=413,
-            detail=f"파일이 너무 큽니다 (최대 {limit // (1024 * 1024)}MB).",
+            detail=f"파일이 너무 큽니다 (최대 {_mb(limit)}).",
         )
 
     original = unquote(request.headers.get("x-filename", ""))[:255] or "file"
@@ -45,7 +58,7 @@ async def api_upload(request: Request):
                 if written > limit:
                     raise HTTPException(
                         status_code=413,
-                        detail=f"파일이 너무 큽니다 (최대 {limit // (1024 * 1024)}MB).",
+                        detail=f"파일이 너무 큽니다 (최대 {_mb(limit)}).",
                     )
                 handle.write(chunk)
         if written == 0:
@@ -77,4 +90,120 @@ async def api_delete_upload(upload_id: str, request: Request):
         raise HTTPException(
             status_code=404, detail="첨부 파일을 찾을 수 없습니다."
         ) from None
+    return {"ok": True}
+
+
+# ── 큰 파일 나눠 올리기 (프록시 요청 크기 제한을 넘는 파일) ──────────────────────
+
+
+class ChunkStart(BaseModel):
+    size: int = Field(ge=1)
+    name: str = Field(min_length=1, max_length=255)
+    kind: str = Field(
+        pattern="^(attach|fs)$"
+    )  # attach: 프롬프트 첨부, fs: 파일 탐색기 업로드
+    dir: str = Field(default="", max_length=4096)
+    rel: str = Field(default="", max_length=4096)
+
+
+def _chunk_error(error: ChunkError) -> JSONResponse:
+    return JSONResponse({"detail": str(error), **error.extra}, status_code=error.status)
+
+
+@router.post("/api/uploads/chunked")
+async def chunked_start(body: ChunkStart, request: Request):
+    user = _require_user(request)
+    limit = upload_service.max_bytes()
+    if body.size > limit:
+        raise HTTPException(
+            status_code=413, detail=f"파일이 너무 큽니다 (최대 {_mb(limit)})."
+        )
+    extra = {}
+    if body.kind == "fs":
+        try:  # 받기 전에 대상 폴더가 맞는지 먼저 확인한다 (실제 이름은 다 받은 뒤 정한다)
+            await asyncio.to_thread(
+                fs_service.upload_target, body.dir, body.name, body.rel
+            )
+        except (FsError, OSError) as error:
+            raise HTTPException(
+                status_code=400,
+                detail=str(error)
+                if isinstance(error, FsError)
+                else "업로드할 수 없는 폴더입니다.",
+            ) from error
+        extra = {"dir": body.dir, "rel": body.rel}
+    try:
+        return await asyncio.to_thread(
+            chunk_upload.start, user, body.size, body.name, body.kind, extra
+        )
+    except ChunkError as error:
+        return _chunk_error(error)
+
+
+@router.put("/api/uploads/chunked/{token}")
+async def chunked_append(token: str, request: Request, offset: int = Query(..., ge=0)):
+    user = _require_user(request)
+    try:
+        declared = int(request.headers.get("content-length", "0"))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="잘못된 요청입니다.") from None
+    if declared > chunk_upload.CHUNK_BYTES:
+        raise HTTPException(status_code=413, detail="조각이 너무 커요.")
+    try:
+        received = await chunk_upload.append(user, token, offset, request.stream())
+    except ChunkError as error:
+        return _chunk_error(error)
+    except ClientDisconnect:
+        raise HTTPException(
+            status_code=400, detail="업로드가 중단되었습니다."
+        ) from None
+    return {"received": received}
+
+
+@router.post("/api/uploads/chunked/{token}/finish")
+async def chunked_finish(token: str, request: Request):
+    user = _require_user(request)
+    try:
+        meta, part = await asyncio.to_thread(chunk_upload.finish, user, token)
+    except ChunkError as error:
+        return _chunk_error(error)
+    try:
+        if meta["kind"] == "attach":
+            target = await asyncio.to_thread(upload_service.new_path, meta["name"])
+            await asyncio.to_thread(chunk_upload.place, part, target, 0o600)
+            result = {
+                "id": target.name,
+                "path": str(target),
+                "name": meta["name"],
+                "size": meta["size"],
+            }
+        else:
+            target = await asyncio.to_thread(
+                fs_service.upload_target, meta["dir"], meta["name"], meta["rel"]
+            )
+            await asyncio.to_thread(chunk_upload.place, part, target, 0o644)
+            result = {"path": str(target), "size": meta["size"]}
+    except (FsError, OSError) as error:
+        logger.warning("나눠 올린 파일을 두지 못함: %s", error)
+        raise HTTPException(
+            status_code=400 if isinstance(error, FsError) else 500,
+            detail=str(error)
+            if isinstance(error, FsError)
+            else "파일을 저장하지 못했습니다.",
+        ) from error
+    finally:
+        await asyncio.to_thread(chunk_upload.discard_quiet, token)
+    logger.info("나눠 올리기 완료 · %s · %d bytes", target, meta["size"])
+    if meta["kind"] == "attach":
+        await asyncio.to_thread(upload_service.cleanup)
+    return result
+
+
+@router.delete("/api/uploads/chunked/{token}")
+async def chunked_abort(token: str, request: Request):
+    user = _require_user(request)
+    try:
+        await asyncio.to_thread(chunk_upload.discard, user, token)
+    except ChunkError as error:
+        return _chunk_error(error)
     return {"ok": True}

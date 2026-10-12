@@ -33,19 +33,17 @@ def upload_dir() -> Path:
 
 
 def max_bytes() -> int:
-    try:
-        megabytes = float(os.getenv("UNIVDASH_UPLOAD_MAX_MB", "50"))
-    except ValueError:
-        megabytes = 50
-    return int(max(1, megabytes) * 1024 * 1024)
+    from app.services import (
+        settings_service,
+    )  # 설정 창에서 바꾼 값 (없으면 환경 변수 · 기본 50MB)
+
+    return settings_service.upload_max_bytes()
 
 
 def ttl_seconds() -> float:
-    try:
-        days = float(os.getenv("UNIVDASH_UPLOAD_TTL_DAYS", "1"))
-    except ValueError:
-        days = 1
-    return max(0.0, days) * 86400
+    from app.services import settings_service
+
+    return settings_service.upload_ttl_seconds()
 
 
 def safe_name(name: str) -> str:
@@ -107,6 +105,11 @@ async def cleanup_loop() -> None:
             removed = await asyncio.to_thread(cleanup)
             if removed:
                 logger.info("보관 기간이 지난 첨부 원본 %d개 삭제", removed)
+            from app.services import (
+                chunk_upload,
+            )  # 끝나지 않고 하루 넘은 나눠 올리기 조각
+
+            await asyncio.to_thread(chunk_upload.cleanup)
         except OSError:
             logger.exception("첨부 파일 자동 정리 실패")
         await asyncio.sleep(CLEANUP_INTERVAL)

@@ -627,19 +627,20 @@
       const next = (index) => {
         if (index >= total) { finish(); return; }
         const { file, dir, rel } = items[index];
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', `/api/fs/upload?dir=${encodeURIComponent(dir)}`);
-        xhr.setRequestHeader('X-Filename', encodeURIComponent(file.name));
-        if (rel) xhr.setRequestHeader('X-Relative-Dir', encodeURIComponent(rel));
-        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) done += 1;
-          else { failed += 1; let msg = '업로드 실패'; try { msg = JSON.parse(xhr.responseText).detail || msg; } catch (e) { /* noop */ } toast(`${rel ? `${rel}/` : ''}${file.name}: ${msg}`, 'error'); }
-          if (total > 20 && (index + 1) % 20 === 0) progress(index + 1);
-          next(index + 1);
-        };
-        xhr.onerror = () => { failed += 1; toast(`${file.name}: 네트워크 오류`, 'error'); next(index + 1); };
-        xhr.send(file);
+        // 큰 파일은 나눠 올리며 진행률을 보여 준다
+        const big = file.size > 64 * 1024 * 1024;
+        let shown = -1;
+        const onProgress = big ? (ratio) => {
+          const pct = Math.floor(ratio * 100);
+          if (pct >= shown + 10) { shown = pct; toast(`${file.name} 업로드 중… ${pct}%`, 'info', 2500); }
+        } : null;
+        window.UnivDash.uploadFile(file, { kind: 'fs', dir, rel, onProgress }).promise
+          .then(() => { done += 1; })
+          .catch((error) => { failed += 1; toast(`${rel ? `${rel}/` : ''}${file.name}: ${error.message}`, 'error'); })
+          .finally(() => {
+            if (total > 20 && (index + 1) % 20 === 0) progress(index + 1);
+            next(index + 1);
+          });
       };
       next(0);
     }
@@ -2328,18 +2329,9 @@
       else if (act === 'zoom-in') setZoom(1);
       else if (act === 'zoom-out') setZoom(-1);
       else if (act === 'md' && editing) {
-        if (!editorEl) return;
-        const text = editorEl.value;
-        const { selectionStart, selectionEnd } = editorEl;
-        const focused = document.activeElement === editorEl;
-        if (draftTimer) writeDraft();
         mdSplit = !mdSplit;
         store.set('md-split', mdSplit);
-        renderEditor(text);
-        editorEl.setSelectionRange(selectionStart, selectionEnd);
-        if (focused) editorEl.focus();
-        setEditButtons();
-        showConflict();
+        rerenderEditor();
       } else if (act === 'md') {
         mdRendered = !mdRendered;
         store.set('md-rendered', mdRendered);
@@ -2347,10 +2339,35 @@
       } else if (act === 'wrap') {
         wrap = !wrap;
         store.set('wrap', wrap);
-        container.querySelector('.exv-code')?.classList.toggle('wrap', wrap);
-        container.querySelector('.exv-editor')?.classList.toggle('wrap', wrap);
-        editorEl?.setAttribute('wrap', wrap ? 'soft' : 'off');
+        applyWrap();
       }
+    });
+    function applyWrap() {
+      container.querySelector('.exv-code')?.classList.toggle('wrap', wrap);
+      container.querySelector('.exv-editor')?.classList.toggle('wrap', wrap);
+      editorEl?.setAttribute('wrap', wrap ? 'soft' : 'off');
+    }
+    // 편집기를 쓰던 내용 · 커서 그대로 다시 그린다 (실시간 미리보기 켜기 / 끄기)
+    function rerenderEditor() {
+      if (!editing || !editorEl) return;
+      const text = editorEl.value;
+      const { selectionStart, selectionEnd } = editorEl;
+      const focused = document.activeElement === editorEl;
+      if (draftTimer) writeDraft();
+      renderEditor(text);
+      editorEl.setSelectionRange(selectionStart, selectionEnd);
+      if (focused) editorEl.focus();
+      setEditButtons();
+      showConflict();
+    }
+    // 설정 창(또는 다른 탭)에서 편집기 설정을 바꾸면 열린 뷰어에도 바로 적용
+    window.addEventListener('univdash:settings', () => {
+      const next = { auto: store.get('auto-save', true), wrap: store.get('wrap', coarse), split: store.get('md-split', true), rendered: store.get('md-rendered', true) };
+      if (next.auto !== autoSave) { autoSave = next.auto; if (autoSave && current && hasDraft(current.path)) scheduleAutoSave(200); }
+      if (next.wrap !== wrap) { wrap = next.wrap; applyWrap(); }
+      if (next.split !== mdSplit) { mdSplit = next.split; if (editing && current && isMarkdown(current)) rerenderEditor(); }
+      if (next.rendered !== mdRendered) { mdRendered = next.rendered; if (!editing && lastFile && current) renderText(lastFile, current); }
+      if (current) setEditButtons();
     });
     // 창 크기가 바뀌면 PDF 페이지 폭을 다시 맞춘다
     let resizeTimer = null;

@@ -266,10 +266,10 @@ html[data-ui-theme-mode="light"] .direct-banner { color: #b45309; }
 /* 키보드 대응: 화면을 덮는 시트 · 모달은 레이아웃 전체(inset 0)가 아니라 실제로 보이는 영역(키보드 위)에 맞춘다.
    iOS 는 키보드가 떠도 레이아웃 높이를 줄이지 않아서, inset 0 이면 아래쪽 시트가 키보드 뒤에 숨는다.
    --vv-top · --app-h 는 app.js syncViewport 가 visualViewport 로 계속 맞춘다 (평소에는 0 · 100%). */
-.sheet-overlay, .pmd-theme-overlay, #sidebarOverlay, #logModal, #gitCommitModal {
+.sheet-overlay, .pmd-theme-overlay, .ud-settings-overlay, #sidebarOverlay, #logModal, #gitCommitModal {
     top: var(--vv-top) !important; bottom: auto !important; height: var(--app-h) !important;
 }
-#logModal > [role="dialog"], #gitCommitModal > [role="dialog"], .pmd-theme-modal { max-height: 100%; }
+#logModal > [role="dialog"], #gitCommitModal > [role="dialog"], .pmd-theme-modal, .ud-settings-modal { max-height: 100%; }
 .pmd-theme-modal { overflow-y: auto; overscroll-behavior: contain; }
 .tdx-sheet {
     width: 100%; max-height: calc(var(--app-h) - 40px); overflow-y: auto; overscroll-behavior: contain;
@@ -739,8 +739,8 @@ html[data-ui-theme-mode="light"] .exv-zoom button, html[data-ui-theme-mode="ligh
 
 /* ── 파일 편집기 ── */
 .exv-body:has(.exv-editor) { display: flex; flex-direction: column; overflow: hidden; }
-.exv-editor { flex: 1; min-height: 0; display: flex; overflow: hidden; background: #0b0f19; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; line-height: 1.55; }
-@media (pointer: coarse) { .exv-editor { font-size: 14px; } }
+.exv-editor { flex: 1; min-height: 0; display: flex; overflow: hidden; background: #0b0f19; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: var(--editor-font, 13px); line-height: 1.55; }
+@media (pointer: coarse) { .exv-editor { font-size: max(14px, var(--editor-font, 13px)); } }
 .exv-editor .exv-gutter { position: relative; flex-shrink: 0; min-width: 44px; margin: 0; padding: 10px 10px 40vh 12px; overflow: visible; will-change: transform; font: inherit; line-height: inherit; }
 .exv-editor.wrap .exv-gutter { display: none; }
 .exv-textarea { flex: 1; min-width: 0; height: 100%; margin: 0; padding: 10px 14px 40vh; border: 0; outline: none; resize: none; background: transparent; color: #e2e8f0; caret-color: #60a5fa; font: inherit; line-height: inherit; tab-size: 4; white-space: pre; overflow: auto; -webkit-overflow-scrolling: touch; }
@@ -1363,3 +1363,92 @@ html[data-ui-theme-mode="light"] .ex-name-tip { color: #0f172a; background: #fff
 .mdpdf-secondary { background: rgba(148,163,184,.14); border: 1px solid rgba(148,163,184,.25); }
 html[data-ui-theme-mode="light"] .mdpdf-pages { background: #e2e8f0; }
 .sheet-info:has(.mdpdf) { max-height: none; overflow: visible; padding: 0; }
+
+/* ── 설정 창: 왼쪽 항목 사이드바 · 오른쪽 내용 (휴대폰은 위쪽 가로 탭) ──────────── */
+.ud-settings-overlay { position: fixed; inset: 0; z-index: 480; display: flex; align-items: center; justify-content: center; padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); background: rgba(5,7,15,.55); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+.ud-settings-overlay[hidden] { display: none; }
+.ud-settings-modal { position: relative; width: 100%; max-width: 900px; height: min(640px, 100%); display: flex; overflow: hidden; border-radius: 20px; background: rgba(20,25,40,.95); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255,255,255,.12); box-shadow: 0 24px 70px rgba(0,0,0,.5); color: #e8e9ee; animation: ud-set-in 160ms ease-out; }
+@keyframes ud-set-in { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+@media (prefers-reduced-motion: reduce) { .ud-settings-modal { animation: none; } }
+.ud-set-nav { width: 240px; flex-shrink: 0; display: flex; flex-direction: column; padding: 18px 12px; background: rgba(255,255,255,.03); border-right: 1px solid rgba(255,255,255,.08); overflow-y: auto; }
+.ud-set-nav h3 { margin: 2px 10px 14px; font-size: 17px; font-weight: 800; display: flex; align-items: center; gap: 9px; }
+.ud-set-nav h3 i { color: #60a5fa; font-size: 15px; }
+.ud-set-tabs { display: flex; flex-direction: column; gap: 3px; }
+.ud-set-tabs button { display: flex; align-items: center; gap: 11px; width: 100%; padding: 10px 11px; border-radius: 12px; text-align: left; font: inherit; color: inherit; background: none; border: 1px solid transparent; cursor: pointer; opacity: .72; transition: background 120ms, opacity 120ms; }
+.ud-set-tabs button > i { width: 30px; height: 30px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 9px; font-size: 13px; background: rgba(255,255,255,.07); }
+.ud-set-tabs button span { min-width: 0; display: flex; flex-direction: column; }
+.ud-set-tabs button b { font-size: 13px; font-weight: 700; }
+.ud-set-tabs button small { margin-top: 1px; font-size: 11px; opacity: .6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ud-set-tabs button.on { opacity: 1; background: rgba(59,130,246,.14); border-color: rgba(96,165,250,.3); }
+.ud-set-tabs button.on > i { color: #fff; background: #3b82f6; }
+.ud-set-tabs button:focus-visible { outline: 2px solid #60a5fa; outline-offset: 1px; }
+@media (hover: hover) { .ud-set-tabs button:not(.on):hover { opacity: 1; background: rgba(255,255,255,.05); } }
+.ud-set-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ud-set-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 22px 14px; border-bottom: 1px solid rgba(255,255,255,.08); flex-shrink: 0; }
+.ud-set-pane-title { margin: 0; display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 800; }
+.ud-set-pane-title i { color: #60a5fa; font-size: 14px; }
+.ud-set-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 4px 22px 22px; }
+.ud-set-badge { margin-left: 4px; padding: 2px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 700; color: #fcd34d; background: rgba(245,158,11,.12); border: 1px solid rgba(245,158,11,.25); }
+.ud-set-badge.local { color: #93c5fd; background: rgba(59,130,246,.12); border-color: rgba(59,130,246,.25); }
+.ud-set-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; }
+.ud-set-row + .ud-set-row { border-top: 1px dashed rgba(255,255,255,.07); }
+.ud-set-col { flex-direction: column; align-items: stretch; gap: 12px; }
+.ud-set-text { min-width: 0; flex: 1; }
+.ud-set-title { margin: 0; font-size: 13.5px; font-weight: 700; }
+.ud-set-desc { margin: 3px 0 0; font-size: 11.5px; line-height: 1.55; opacity: .6; }
+.ud-set-desc b { opacity: 1; font-weight: 800; }
+.ud-set-note { margin: 16px 0; font-size: 12px; opacity: .6; }
+.ud-settings-modal .pmd-mode-switch { flex-shrink: 0; }
+.ud-set-btn, .ud-set-seg button, .ud-set-chips button, .ud-set-stepper button { font: inherit; color: inherit; cursor: pointer; }
+.ud-set-btn { flex-shrink: 0; display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px; border-radius: 10px; font-size: 12px; font-weight: 700; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); }
+.ud-set-seg { flex-shrink: 0; display: inline-flex; padding: 3px; border-radius: 11px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); }
+.ud-set-seg button { height: 28px; padding: 0 11px; border-radius: 8px; font-size: 12px; font-weight: 700; opacity: .65; background: none; border: 0; white-space: nowrap; }
+.ud-set-seg button.on { opacity: 1; background: #3b82f6; color: #fff; }
+.ud-set-stepper { flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px; }
+.ud-set-stepper button { width: 32px; height: 32px; border-radius: 10px; font-size: 11px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); }
+.ud-set-stepper span { min-width: 46px; text-align: center; font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.ud-set-select, .ud-set-number select { flex-shrink: 0; height: 34px; padding: 0 30px 0 12px; border-radius: 10px; font: inherit; font-size: 13px; font-weight: 700; color: inherit; background: rgba(255,255,255,.06) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394a3b8' stroke-width='1.5' fill='none'/%3E%3C/svg%3E") no-repeat right 11px center; border: 1px solid rgba(255,255,255,.12); appearance: none; -webkit-appearance: none; cursor: pointer; }
+.ud-set-select option, .ud-set-number option { color: #0f172a; }
+.ud-set-upload { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.ud-set-chips { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
+.ud-set-chips button { height: 32px; padding: 0 13px; border-radius: 999px; font-size: 12px; font-weight: 800; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); }
+.ud-set-chips button.on { color: #fff; background: #3b82f6; border-color: #3b82f6; }
+.ud-set-number { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.ud-set-number input { width: 96px; height: 34px; padding: 0 10px; text-align: right; font: inherit; font-size: 14px; font-weight: 700; color: inherit; border-radius: 10px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); outline: none; }
+.ud-set-number input:focus { border-color: #60a5fa; }
+.ud-set-number select { padding-right: 28px; }
+@media (hover: hover) {
+  .ud-set-btn:hover, .ud-set-stepper button:hover, .ud-set-chips button:not(.on):hover { border-color: rgba(96,165,250,.5); }
+  .ud-set-seg button:not(.on):hover { opacity: 1; }
+}
+/* 휴대폰 · 좁은 화면: 항목 사이드바를 위쪽 가로 탭으로 */
+@media (max-width: 680px) {
+  .ud-settings-modal { flex-direction: column; height: 100%; border-radius: 18px; }
+  .ud-set-nav { width: auto; padding: 14px 12px 10px; border-right: 0; border-bottom: 1px solid rgba(255,255,255,.08); overflow: visible; }
+  .ud-set-nav h3 { margin: 0 4px 10px; font-size: 16px; padding-right: 36px; }
+  .ud-set-tabs { flex-direction: row; overflow-x: auto; scrollbar-width: none; gap: 6px; margin: 0 -12px; padding: 0 12px; }
+  .ud-set-tabs::-webkit-scrollbar { display: none; }
+  .ud-set-tabs button { width: auto; flex-shrink: 0; padding: 7px 12px 7px 8px; gap: 7px; border-radius: 999px; border-color: rgba(255,255,255,.1); }
+  .ud-set-tabs button > i { width: 24px; height: 24px; font-size: 11px; border-radius: 999px; }
+  .ud-set-tabs button small { display: none; }
+  .ud-set-tabs button b { font-size: 12.5px; white-space: nowrap; }
+  .ud-set-pane { min-height: 0; }
+  .ud-set-head { padding: 12px 16px 10px; }
+  .ud-set-head .pmd-theme-close { position: absolute; top: 14px; right: 16px; }
+  .ud-set-body { padding: 0 16px 18px; }
+  .ud-set-row { gap: 12px; }
+  .ud-set-chips { flex-basis: 100%; }
+  .ud-set-row:has(.ud-set-seg) { flex-wrap: wrap; }
+  .ud-set-row:has(.ud-set-seg) .ud-set-text { flex-basis: 100%; }
+}
+html[data-ui-theme-mode="light"] .ud-settings-modal { background: rgba(255,255,255,.97); color: #1e2233; border-color: rgba(15,23,42,.1); box-shadow: 0 24px 70px rgba(30,41,59,.25); }
+html[data-ui-theme-mode="light"] .ud-set-nav { background: #f4f6fa; border-color: rgba(15,23,42,.08); }
+html[data-ui-theme-mode="light"] .ud-set-tabs button > i { background: rgba(15,23,42,.06); }
+html[data-ui-theme-mode="light"] .ud-set-tabs button.on { background: rgba(37,99,235,.1); border-color: rgba(37,99,235,.25); }
+html[data-ui-theme-mode="light"] .ud-set-tabs button.on > i { background: #2563eb; color: #fff; }
+@media (max-width: 680px) { html[data-ui-theme-mode="light"] .ud-set-tabs button:not(.on) { border-color: rgba(15,23,42,.1); } }
+html[data-ui-theme-mode="light"] .ud-set-head { border-color: rgba(15,23,42,.08); }
+html[data-ui-theme-mode="light"] .ud-set-row + .ud-set-row { border-color: rgba(15,23,42,.08); }
+html[data-ui-theme-mode="light"] .ud-set-badge { color: #b45309; background: rgba(245,158,11,.1); border-color: rgba(245,158,11,.3); }
+html[data-ui-theme-mode="light"] .ud-set-badge.local { color: #1d4ed8; background: rgba(37,99,235,.08); border-color: rgba(37,99,235,.25); }
+html[data-ui-theme-mode="light"] :is(.ud-set-btn, .ud-set-seg, .ud-set-stepper button, .ud-set-select, .ud-set-chips button:not(.on), .ud-set-number input, .ud-set-number select) { background-color: rgba(15,23,42,.04); border-color: rgba(15,23,42,.12); }

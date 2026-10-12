@@ -943,7 +943,7 @@
         }
         if (!before || before === w.status || isHidden(w.key)) return;
         const watching = w.key === state.selectedKey && isTermVisible() && document.visibilityState === 'visible';
-        if (watching) return;
+        if (watching || !window.UnivDash.settings.get('notify-agents')) return;
         const open = page === 'workspace' ? { label: '열기', onClick: () => workspace.select(w.key) } : null;
         if (w.status === 'waiting') { toast(`${displayName(w)} · 응답이 필요합니다`, 'warn', open, 6000); vibrate([20, 60, 20]); }
         else if (before === 'busy' && w.status === 'idle') { toast(`${displayName(w)} · 작업 완료`, 'ok', open, 5000); vibrate(15); }
@@ -2139,31 +2139,21 @@
     }
 
     function upload(item) {
-      return new Promise((resolve) => {
-        const xhr = new XMLHttpRequest();
-        item.xhr = xhr;
-        xhr.open('POST', '/api/uploads');
-        xhr.setRequestHeader('X-Filename', encodeURIComponent(item.name));
-        xhr.setRequestHeader('Content-Type', item.type || 'application/octet-stream');
-        xhr.upload.onprogress = (event) => {
-          if (event.lengthComputable) { item.progress = event.loaded / event.total; updateChip(item); }
-        };
-        xhr.onload = () => {
-          let data = {};
-          try { data = JSON.parse(xhr.responseText); } catch (e) { /* noop */ }
-          if (xhr.status === 401) { location.href = '/login'; return; }
-          if (xhr.status >= 200 && xhr.status < 300) {
-            Object.assign(item, { status: 'done', id: data.id, path: data.path, progress: 1 });
-          } else {
-            Object.assign(item, { status: 'error', error: data.detail || `업로드 실패 (${xhr.status})` });
-            toast(`${item.name}: ${item.error}`, 'error');
-          }
-          updateChip(item);
-          resolve(item);
-        };
-        xhr.onerror = () => { Object.assign(item, { status: 'error', error: '네트워크 오류' }); updateChip(item); resolve(item); };
-        xhr.onabort = () => { item.status = 'aborted'; resolve(item); };
-        xhr.send(item.file);
+      const job = window.UnivDash.uploadFile(item.file, {
+        kind: 'attach', name: item.name, type: item.type,
+        onProgress: (ratio) => { item.progress = ratio; updateChip(item); },
+      });
+      item.xhr = job;   // 빼기 누르면 job.abort()
+      return job.promise.then((data) => {
+        Object.assign(item, { status: 'done', id: data.id, path: data.path, progress: 1 });
+        updateChip(item);
+        return item;
+      }, (error) => {
+        if (error.aborted) { item.status = 'aborted'; return item; }
+        Object.assign(item, { status: 'error', error: error.message });
+        if (error.status) toast(`${item.name}: ${item.error}`, 'error');
+        updateChip(item);
+        return item;
       });
     }
 
@@ -4144,21 +4134,9 @@
         for (const file of files) {
           const item = { name: file.name, status: 'uploading', id: null };
           attachments.push(item);
-          item.promise = new Promise((resolve) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', '/api/uploads');
-            xhr.setRequestHeader('X-Filename', encodeURIComponent(file.name));
-            xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
-            xhr.onload = () => {
-              let data = {};
-              try { data = JSON.parse(xhr.responseText); } catch (e) { /* noop */ }
-              if (xhr.status >= 200 && xhr.status < 300) Object.assign(item, { status: 'done', id: data.id });
-              else { item.status = 'error'; toast(`${file.name}: ${data.detail || '업로드 실패'}`, 'error'); }
-              renderTray(); resolve();
-            };
-            xhr.onerror = () => { item.status = 'error'; renderTray(); resolve(); };
-            xhr.send(file);
-          });
+          item.promise = window.UnivDash.uploadFile(file, { kind: 'attach' }).promise
+            .then((data) => { Object.assign(item, { status: 'done', id: data.id }); }, (error) => { item.status = 'error'; if (error.status) toast(`${file.name}: ${error.message}`, 'error'); })
+            .finally(renderTray);
         }
         renderTray();
       }

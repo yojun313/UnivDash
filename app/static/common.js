@@ -47,6 +47,100 @@
     return data;
   }
 
+  // ── 이 기기 설정 (설정 창) ─────────────────────────────────────────────
+  // 기기마다 다르게 둘 값은 localStorage 에 둔다. 바뀌면 'univdash:settings' 이벤트로 열린 화면에 알린다.
+  const SETTING_DEFAULTS = { 'notify-agents': true, 'notify-git': true, haptics: true, 'editor-font': 13 };
+  const settings = {
+    defaults: SETTING_DEFAULTS,
+    get(key) {
+      try { const raw = localStorage.getItem(`univdash-set-${key}`); return raw === null ? SETTING_DEFAULTS[key] : JSON.parse(raw); } catch (e) { return SETTING_DEFAULTS[key]; }
+    },
+    set(key, value) {
+      try { localStorage.setItem(`univdash-set-${key}`, JSON.stringify(value)); } catch (e) { /* 저장 불가 환경 */ }
+      applySettings();
+      window.dispatchEvent(new CustomEvent('univdash:settings', { detail: { key, value } }));
+    },
+  };
+  function applySettings() {
+    const font = Number(settings.get('editor-font'));
+    document.documentElement.style.setProperty('--editor-font', `${Number.isFinite(font) ? Math.min(20, Math.max(10, font)) : 13}px`);
+  }
+  applySettings();
+  // 다른 탭에서 바꾼 설정도 바로 따른다
+  window.addEventListener('storage', (event) => {
+    if (!event.key || !event.key.startsWith('univdash-')) return;
+    applySettings();
+    window.dispatchEvent(new CustomEvent('univdash:settings', { detail: { key: event.key.replace(/^univdash-(set-)?/, '') } }));
+  });
+
+  // ── 파일 올리기 ────────────────────────────────────────────────────────
+  // 32MB 이하는 한 번에, 더 크면 32MB 조각으로 나눠 차례로 보낸다 (프록시의 요청 크기 제한과 상관없이 설정한 최대 크기까지).
+  // kind: 'attach'(프롬프트 첨부 · /api/uploads) | 'fs'(파일 탐색기 · dir, rel). onProgress(0~1).
+  // 돌려주는 값: { promise, abort } — promise 는 서버 응답(JSON)으로 끝나고, 실패하면 Error(.status, .aborted).
+  const UPLOAD_CHUNK = 32 * 1024 * 1024;
+  function uploadFile(file, { kind = 'attach', dir = '', rel = '', name = file.name, type = file.type, onProgress } = {}) {
+    let current = null;
+    let aborted = false;
+    let token = null;
+    const fail = (message, status = 0) => Object.assign(new Error(message), { status, aborted });
+    const send = (method, url, body, headers = {}, progress) => new Promise((resolve, reject) => {
+      if (aborted) { reject(fail('업로드를 취소했어요.')); return; }
+      const xhr = new XMLHttpRequest();
+      current = xhr;
+      xhr.open(method, url);
+      Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+      if (progress) xhr.upload.onprogress = (event) => { if (event.lengthComputable) progress(event.loaded); };
+      xhr.onload = () => {
+        let data = {};
+        try { data = JSON.parse(xhr.responseText); } catch (e) { /* noop */ }
+        if (xhr.status === 401) { location.href = '/login'; reject(fail('로그인이 필요합니다.', 401)); return; }
+        if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+        else reject(Object.assign(fail(typeof data.detail === 'string' ? data.detail : `업로드 실패 (${xhr.status})`, xhr.status), { data }));
+      };
+      xhr.onerror = () => reject(fail('네트워크 오류'));
+      xhr.onabort = () => reject(fail('업로드를 취소했어요.'));
+      xhr.send(body);
+    });
+    const report = (n) => onProgress?.(file.size ? Math.min(1, n / file.size) : 1);
+    async function single() {
+      const url = kind === 'fs' ? `/api/fs/upload?dir=${encodeURIComponent(dir)}` : '/api/uploads';
+      const headers = { 'X-Filename': encodeURIComponent(name), 'Content-Type': (kind === 'attach' && type) || 'application/octet-stream' };
+      if (kind === 'fs' && rel) headers['X-Relative-Dir'] = encodeURIComponent(rel);
+      return send('POST', url, file, headers, report);
+    }
+    async function chunked() {
+      const json = { 'Content-Type': 'application/json' };
+      const started = await send('POST', '/api/uploads/chunked', JSON.stringify({ size: file.size, name, kind, dir, rel }), json);
+      token = started.token;
+      const size = started.chunk_bytes || UPLOAD_CHUNK;
+      let offset = 0;
+      let retries = 0;
+      while (offset < file.size) {
+        const end = Math.min(file.size, offset + size);
+        try {
+          const done = await send('PUT', `/api/uploads/chunked/${token}?offset=${offset}`, file.slice(offset, end), { 'Content-Type': 'application/octet-stream' }, (n) => report(offset + n));
+          offset = done.received;
+          retries = 0;
+        } catch (error) {
+          if (aborted) throw error;
+          // 순서가 어긋났으면(409) 서버가 받은 곳부터, 네트워크가 잠깐 끊겼으면 같은 조각을 몇 번 다시 보낸다
+          if (error.status === 409 && Number.isFinite(error.data?.received)) { offset = error.data.received; continue; }
+          if ((error.status === 0 || error.status >= 500) && retries < 4) { retries += 1; await new Promise((r) => setTimeout(r, 1000 * retries)); continue; }
+          throw error;
+        }
+        report(offset);
+      }
+      const result = await send('POST', `/api/uploads/chunked/${token}/finish`, null);
+      token = null;
+      return result;
+    }
+    const promise = (file.size > UPLOAD_CHUNK ? chunked() : single()).catch((error) => {
+      if (token) fetch(`/api/uploads/chunked/${token}`, { method: 'DELETE' }).catch(() => {});   // 남은 조각 정리
+      throw error;
+    });
+    return { promise, abort() { aborted = true; current?.abort(); } };
+  }
+
   // 레이아웃의 #toastHost 에 app.css 의 .toast 모양으로 띄운다 (Workspace 알림과 같은 모양).
   function toast(message, type = 'info', timeout = 0) {
     const host = document.getElementById('toastHost');
@@ -79,6 +173,7 @@
     function show(job) {
       const where = job.branch ? `${job.repository} (${job.branch})` : job.repository;
       if (job.status === 'done') {
+        if (!settings.get('notify-git')) return;
         const subject = (job.message || '').split('\n')[0];
         toast(`${where} 푸시 완료${subject ? `\n${subject}` : ''}`, 'success', 7000);
       } else {
@@ -199,6 +294,7 @@
   // iOS 는 사용자 제스처(click/touchend) 안에서 불러야 울린다 — await 뒤나 타이머 안에서는 조용히 무시된다.
   let hapticLabel = null;
   function haptic(pattern = 8) {
+    if (!settings.get('haptics')) return;
     try {
       if (typeof navigator.vibrate === 'function') { navigator.vibrate(pattern); return; }
       if (!document.body) return;
@@ -341,5 +437,5 @@
     });
   }
 
-  window.UnivDash = { escapeHtml, api, toast, gitWorkflows, formatNumber, relativeTime, duration, formatDate, chartColors, typingOrBusy, plainKey, haptic, busy, math: { extract: extractMath, render: renderMath } };
+  window.UnivDash = { escapeHtml, api, toast, gitWorkflows, settings, uploadFile, formatNumber, relativeTime, duration, formatDate, chartColors, typingOrBusy, plainKey, haptic, busy, math: { extract: extractMath, render: renderMath } };
 })();

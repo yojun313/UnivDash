@@ -7,6 +7,7 @@
     <title>{{ page_title }} - UnivDash</title>
     {% include '_theme.html' %}
     <script src="{{ asset('common.js') }}"></script>
+    <script src="{{ asset('settings.js') }}" defer></script>
     {% block head_extra %}{% endblock %}
 </head>
 <body class="app-shell text-white flex overflow-hidden" data-page="{{ active_page }}">
@@ -75,6 +76,7 @@
                 </button>
                 <button type="submit" formaction="/logout-all" class="logout-all sb-label px-2 py-2 text-[10px] font-bold text-white/40 hover:text-red-300 hover:bg-red-500/10 rounded-xl transition" title="모든 기기에서 로그아웃">전체</button>
                 <button type="button" data-theme-settings class="sb-icon" title="테마 설정" aria-label="테마 설정"><i class="fas fa-palette text-sm"></i></button>
+                <button type="button" data-app-settings class="sb-icon" title="설정" aria-label="설정"><i class="fas fa-gear text-sm"></i></button>
                 <button id="sidebarCollapseBtn" type="button" class="sb-icon hidden md:flex" title="사이드바 접기 / 펼치기" aria-label="사이드바 접기"><i class="fas fa-angles-left text-sm"></i></button>
             </form>
         </div>
