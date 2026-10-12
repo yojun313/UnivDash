@@ -746,6 +746,25 @@ html[data-ui-theme-mode="light"] .exv-zoom button, html[data-ui-theme-mode="ligh
 .exv-textarea { flex: 1; min-width: 0; height: 100%; margin: 0; padding: 10px 14px 40vh; border: 0; outline: none; resize: none; background: transparent; color: #e2e8f0; caret-color: #60a5fa; font: inherit; line-height: inherit; tab-size: 4; white-space: pre; overflow: auto; -webkit-overflow-scrolling: touch; }
 .exv-editor.wrap .exv-textarea { white-space: pre-wrap; overflow-wrap: anywhere; }
 .exv-textarea::selection { background: rgba(59,130,246,.35); }
+/* 마크다운 편집: 편집기 | 실시간 미리보기 (좁은 화면은 위 · 아래) */
+.exv-body:has(.exv-split) { display: flex; flex-direction: column; overflow: hidden; }
+.exv-split { --split: 50%; flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.exv-split > .exv-editor { flex: 0 0 var(--split); min-width: 0; }
+.exv-split-bar { flex: 0 0 6px; margin: 0 -2px; z-index: 1; cursor: col-resize; touch-action: none; background: linear-gradient(to right, transparent 2px, rgba(255,255,255,.08) 2px, rgba(255,255,255,.08) 4px, transparent 4px); }
+.exv-split-bar:hover, .exv-split.dragging .exv-split-bar { background: linear-gradient(to right, transparent 1px, rgba(96,165,250,.6) 1px, rgba(96,165,250,.6) 5px, transparent 5px); }
+.exv-split.dragging { user-select: none; -webkit-user-select: none; }
+.exv-live { flex: 1; min-width: 0; overflow: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.exv-live .exv-md { padding-bottom: 40vh; }
+.exv-live-plain { margin: 0; padding: 18px 20px; white-space: pre-wrap; }
+@media (max-width: 767px) {
+  .exv-split { flex-direction: column; }
+  .exv-split > .exv-editor { flex-basis: var(--split); min-height: 0; }
+  .exv-split-bar { flex-basis: 10px; margin: -3px 0; cursor: row-resize; background: linear-gradient(to bottom, transparent 4px, rgba(255,255,255,.1) 4px, rgba(255,255,255,.1) 6px, transparent 6px); }
+  .exv-split-bar:hover, .exv-split.dragging .exv-split-bar { background: linear-gradient(to bottom, transparent 3px, rgba(96,165,250,.6) 3px, rgba(96,165,250,.6) 7px, transparent 7px); }
+  .exv-split .exv-textarea, .exv-split .exv-gutter { padding-bottom: 24px; }
+  .exv-live .exv-md { padding-bottom: 32px; }
+}
+.exv-md-toggle.off { color: #94a3b8; background: rgba(148,163,184,.1); border-color: rgba(148,163,184,.25); }
 .exv-edit-btn, .exv-save-btn, .exv-done-btn { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 11px; border-radius: 10px; flex-shrink: 0; font-size: 12px; font-weight: 800; }
 .exv-edit-btn { color: #e2e8f0; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.12); }
 @media (hover: hover) { .exv-edit-btn:hover { background: rgba(255,255,255,.12); } }
@@ -1008,6 +1027,10 @@ html[data-ui-theme-mode="light"] .exv-body, html[data-ui-theme-mode="light"] .ex
 html[data-ui-theme-mode="light"] .exv-gutter { color: #94a3b8; border-right-color: rgba(15,23,42,.08); }
 html[data-ui-theme-mode="light"] .exv-meta { color: #64748b; border-bottom-color: rgba(15,23,42,.06); }
 html[data-ui-theme-mode="light"] .exv-textarea { color: #0f172a; caret-color: #2563eb; }
+@media (min-width: 768px) { html[data-ui-theme-mode="light"] .exv-split-bar { background: linear-gradient(to right, transparent 2px, rgba(15,23,42,.1) 2px, rgba(15,23,42,.1) 4px, transparent 4px); } }
+html[data-ui-theme-mode="light"] .exv-md-toggle { color: #1d4ed8; background: rgba(37,99,235,.1); border-color: rgba(37,99,235,.3); }
+@media (max-width: 767px) { html[data-ui-theme-mode="light"] .exv-split-bar { background: linear-gradient(to bottom, transparent 4px, rgba(15,23,42,.12) 4px, rgba(15,23,42,.12) 6px, transparent 6px); } }
+html[data-ui-theme-mode="light"] .exv-md-toggle.off { color: #64748b; background: rgba(100,116,139,.08); border-color: rgba(100,116,139,.25); }
 html[data-ui-theme-mode="light"] .exv-image { background: repeating-conic-gradient(#e2e8f0 0 25%, #f8fafc 0 50%) 0 0 / 20px 20px; }
 html[data-ui-theme-mode="light"] .exv-empty { color: #64748b; }
 html[data-ui-theme-mode="light"] .exv-tab.active { color: #0f172a; background: #f8fafc; border-color: rgba(15,23,42,.1); }

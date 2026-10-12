@@ -1962,9 +1962,14 @@
       $('.exv-save-btn span').textContent = autoSave && !dirty ? '저장됨' : '저장';
       $('[data-act="revert"]').classList.toggle('hidden', !editing || !dirty);
       const md = current && renderable(current);
-      $('.exv-md-toggle').classList.toggle('hidden', !md || editing);
+      const toggle = $('.exv-md-toggle');
+      toggle.classList.toggle('hidden', !md || (editing && !isMarkdown(current)));
       if (editing) $('[data-act="mdpdf"]').classList.add('hidden');
-      $('.exv-md-toggle').innerHTML = mdRendered ? '<i class="fas fa-code"></i><span>코드</span>' : '<i class="fas fa-book-open"></i><span>미리보기</span>';
+      toggle.classList.toggle('off', editing && !mdSplit);
+      toggle.innerHTML = editing
+        ? '<i class="fas fa-table-columns"></i><span>미리보기</span>'
+        : mdRendered ? '<i class="fas fa-code"></i><span>코드</span>' : '<i class="fas fa-book-open"></i><span>미리보기</span>';
+      toggle.title = editing ? '실시간 미리보기 켜기 / 끄기' : '미리보기 / 코드 전환';
       if (editing) {
         $('.exv-edit-btn').classList.add('hidden');
         $('.exv-done-btn')?.remove();
@@ -1975,11 +1980,75 @@
         $('.exv-done-btn')?.remove();
       }
     }
+    // 마크다운 편집: VS Code 처럼 왼쪽은 편집기, 오른쪽은 실시간 미리보기 (기본 켜짐, 미리보기 버튼으로 끄고 켬)
+    let mdSplit = store.get('md-split', true);
+    let splitRatio = store.get('md-split-ratio', 0.5);
+    const livePreview = () => editing && mdSplit && current && isMarkdown(current);
+    let previewTimer = null;
+    let previewHtml = '';
+    function updatePreview() {
+      clearTimeout(previewTimer);
+      previewTimer = null;
+      const pane = bodyEl.querySelector('.exv-live');
+      if (!pane || !editorEl || !current) return;
+      let html = null;
+      try { html = renderMarkdown({ content: editorEl.value }, current); } catch (e) { html = null; }
+      html = html ?? `<pre class="exv-live-plain">${escapeHtml(editorEl.value)}</pre>`;
+      if (html === previewHtml) return;
+      previewHtml = html;
+      const top = pane.scrollTop;
+      pane.innerHTML = html;
+      pane.scrollTop = top;
+    }
+    // 편집기를 스크롤하면 미리보기도 같은 비율 위치로 따라간다
+    function syncPreviewScroll() {
+      const pane = bodyEl.querySelector('.exv-live');
+      if (!pane || !editorEl) return;
+      const max = editorEl.scrollHeight - editorEl.clientHeight;
+      pane.scrollTop = max > 0 ? (editorEl.scrollTop / max) * (pane.scrollHeight - pane.clientHeight) : 0;
+    }
+    function bindSplitter() {
+      const split = bodyEl.querySelector('.exv-split');
+      const bar = split?.querySelector('.exv-split-bar');
+      if (!bar) return;
+      const apply = () => split.style.setProperty('--split', `${(splitRatio * 100).toFixed(2)}%`);
+      apply();
+      bar.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        bar.setPointerCapture(event.pointerId);
+        const stacked = getComputedStyle(split).flexDirection === 'column';
+        const move = (ev) => {
+          const rect = split.getBoundingClientRect();
+          const ratio = stacked ? (ev.clientY - rect.top) / rect.height : (ev.clientX - rect.left) / rect.width;
+          splitRatio = Math.min(0.8, Math.max(0.2, ratio));
+          apply();
+        };
+        const up = () => {
+          bar.removeEventListener('pointermove', move);
+          bar.removeEventListener('pointerup', up);
+          bar.removeEventListener('pointercancel', up);
+          split.classList.remove('dragging');
+          store.set('md-split-ratio', splitRatio);
+        };
+        split.classList.add('dragging');
+        bar.addEventListener('pointermove', move);
+        bar.addEventListener('pointerup', up);
+        bar.addEventListener('pointercancel', up);
+      });
+      bar.addEventListener('dblclick', () => { splitRatio = 0.5; apply(); store.set('md-split-ratio', splitRatio); });
+    }
     function renderEditor(text) {
       const lines = text.split('\n').length;
-      bodyEl.innerHTML = `${metaHtml(lastFile, ' · 편집 중')}<div class="exv-editor ${wrap ? 'wrap' : ''}"><pre class="exv-gutter" aria-hidden="true"></pre><textarea class="exv-textarea" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="${wrap ? 'soft' : 'off'}" aria-label="${escapeHtml(current.name)} 편집"></textarea></div>`;
+      const editorHtml = `<div class="exv-editor ${wrap ? 'wrap' : ''}"><pre class="exv-gutter" aria-hidden="true"></pre><textarea class="exv-textarea" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="${wrap ? 'soft' : 'off'}" aria-label="${escapeHtml(current.name)} 편집"></textarea></div>`;
+      const live = livePreview();
+      $('.exv-zoom').classList.add('hidden');
+      bodyEl.innerHTML = metaHtml(lastFile, ' · 편집 중') + (live
+        ? `<div class="exv-split">${editorHtml}<div class="exv-split-bar" role="separator" aria-orientation="vertical" title="끌어서 크기 조절 · 두 번 눌러 반반"></div><div class="exv-live" aria-label="미리보기"></div></div>`
+        : editorHtml);
       editorEl = bodyEl.querySelector('.exv-textarea');
       editorEl.value = text;
+      previewHtml = '';
+      if (live) { bindSplitter(); updatePreview(); }
       const gutter = bodyEl.querySelector('.exv-gutter');
       let lineCount = 0;
       const syncGutter = () => {
@@ -1994,9 +2063,11 @@
         clearTimeout(draftTimer);
         draftTimer = setTimeout(writeDraft, 250);
         scheduleAutoSave();
+        if (live) { clearTimeout(previewTimer); previewTimer = setTimeout(updatePreview, 120); }
       });
       editorEl.addEventListener('scroll', () => {
         gutter.style.transform = `translateY(${-editorEl.scrollTop}px)`;
+        if (live) syncPreviewScroll();
         viewOf(current.path).editTop = Math.round(editorEl.scrollTop);
         clearTimeout(scrollTimer);
         scrollTimer = setTimeout(saveTabs, 200);
@@ -2023,6 +2094,7 @@
       });
       editorEl.scrollTop = viewOf(current.path).editTop || 0;
       syncGutter();
+      if (live) requestAnimationFrame(syncPreviewScroll);
     }
     function enterEdit({ focus = true } = {}) {
       if (!lastFile || !editable(lastFile)) return;
@@ -2255,7 +2327,20 @@
       else if (act === 'mdpdf' && current) mdPdfDialog(current);
       else if (act === 'zoom-in') setZoom(1);
       else if (act === 'zoom-out') setZoom(-1);
-      else if (act === 'md') {
+      else if (act === 'md' && editing) {
+        if (!editorEl) return;
+        const text = editorEl.value;
+        const { selectionStart, selectionEnd } = editorEl;
+        const focused = document.activeElement === editorEl;
+        if (draftTimer) writeDraft();
+        mdSplit = !mdSplit;
+        store.set('md-split', mdSplit);
+        renderEditor(text);
+        editorEl.setSelectionRange(selectionStart, selectionEnd);
+        if (focused) editorEl.focus();
+        setEditButtons();
+        showConflict();
+      } else if (act === 'md') {
         mdRendered = !mdRendered;
         store.set('md-rendered', mdRendered);
         if (lastFile) { renderText(lastFile, current); bodyEl.scrollTop = 0; }
