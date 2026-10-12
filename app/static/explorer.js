@@ -7,6 +7,7 @@
   const { escapeHtml, api, toast } = window.UnivDash;
   const ui = () => window.UnivDashUI;
   const coarse = window.matchMedia('(pointer: coarse)').matches;
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
   const store = {
     get(key, fallback) { try { const v = localStorage.getItem(`univdash-ex-${key}`); return v === null ? fallback : JSON.parse(v); } catch (e) { return fallback; } },
     set(key, value) { try { localStorage.setItem(`univdash-ex-${key}`, JSON.stringify(value)); } catch (e) { /* noop */ } },
@@ -216,7 +217,7 @@
       const open = entry.type === 'dir' && expanded.has(entry.path);
       const mode = prefs().sort;
       const meta = mode === 'size' && entry.type === 'file' ? formatSize(entry.size) : mode === 'modified' ? formatTime(entry.mtime) : '';
-      const cut = shared.clipboard?.mode === 'cut' && shared.clipboard.path === entry.path;
+      const cut = shared.clipboard?.mode === 'cut' && shared.clipboard.paths.includes(entry.path);
       const dim = entry.name.startsWith('.') || isGated(entry.path);
       const drag = !coarse ? 'draggable="true"' : '';   // 마우스: 끌어서 폴더로 옮기기 · 분할로 띄우기 · (직접 지정이면) 순서 바꾸기
       return `<div class="ex-row ${picked.has(entry.path) ? 'selected' : ''} ${dim ? 'dim' : ''} ${entry.ignored ? 'ignored' : ''} ${cut ? 'cut' : ''}" ${drag} ${entry.ignored ? 'title=".gitignore 에 의해 무시됨"' : ''} data-path="${escapeHtml(entry.path)}" data-type="${entry.type}" style="padding-left:${6 + depth * 14}px" role="treeitem" ${entry.type === 'dir' ? `aria-expanded="${open}"` : ''}>
@@ -248,7 +249,7 @@
       treeEl.dataset.dir = root;
       treeEl.innerHTML = dirHtml(root, 0);
       const p = prefs();
-      const flags = [SORTS[p.sort]?.label, p.show_dotfiles ? '숨김 파일 표시' : '', p.show_hidden ? '가린 항목 표시' : '', shared.clipboard ? `${shared.clipboard.mode === 'cut' ? '잘라낸' : '복사한'} 항목: ${basename(shared.clipboard.path)}` : ''].filter(Boolean);
+      const flags = [SORTS[p.sort]?.label, p.show_dotfiles ? '숨김 파일 표시' : '', p.show_hidden ? '가린 항목 표시' : '', shared.clipboard ? `${shared.clipboard.mode === 'cut' ? '잘라낸' : '복사한'} 항목: ${clipLabel()}` : ''].filter(Boolean);
       statusEl.innerHTML = `<i class="fas fa-location-dot"></i> ${escapeHtml(shortHome(root))}<span class="opacity-60"> · ${escapeHtml(flags.join(' · '))}</span>`;
       body.scrollTop = top;
       if (pendingScroll && !pending.size) { body.scrollTop = pendingScroll; pendingScroll = 0; }
@@ -515,20 +516,51 @@
       select(result.path);
     }
     async function remove(entry) { await removeMany([entry.path]); }
+    // 복사 · 잘라내기 (Ctrl/⌘ + C · X → 다른 폴더에서 Ctrl/⌘ + V). 서버 안에서 복사 · 이동한다.
+    // 하위 항목이 같이 골라졌으면 상위만. 탐색기 창끼리 같은 클립보드를 쓴다.
+    function clipLabel() {
+      const paths = shared.clipboard?.paths || [];
+      return paths.length > 1 ? `${basename(paths[0])} 외 ${paths.length - 1}개` : basename(paths[0] || '');
+    }
+    function setClip(mode, paths) {
+      const list = [...new Set(paths.filter(Boolean))];
+      const top = list.filter((p) => !list.some((other) => other !== p && p.startsWith(`${other}/`)));
+      if (!top.length) return;
+      shared.clipboard = { mode, paths: top };
+      render();
+      toast(`${clipLabel()} ${mode === 'cut' ? '잘라냈어요' : '복사했어요'} · 붙여 넣을 폴더에서 ${isMac ? '⌘' : 'Ctrl'}+V`, 'info');
+    }
+    const clipTargets = (entry) => (entry && picked.has(entry.path) && picked.size > 1 ? [...picked] : [entry?.path]);
+    let pasting = false;
     async function paste(dir) {
       const clip = shared.clipboard;
-      if (!clip) return;
-      const result = await op({ op: clip.mode === 'cut' ? 'move' : 'copy', path: clip.path, dest: dir }, clip.mode === 'cut' ? '옮겼습니다.' : '복사했습니다.');
-      if (!result) return;
-      if (clip.mode === 'cut') {
-        shared.clipboard = null;
-        cache.delete(dirname(clip.path));
-        window.dispatchEvent(new CustomEvent('univdash:fs-moved', { detail: { from: clip.path, to: result.path } }));
-      }
+      if (!clip || pasting) return;
+      const move = clip.mode === 'cut';
+      pasting = true;
+      const slow = setTimeout(() => toast(`${clipLabel()} ${move ? '옮기는' : '복사하는'} 중…`, 'info'), 1200);   // 큰 폴더처럼 오래 걸릴 때만
+      const placed = [];
+      try {
+        for (const path of clip.paths) {
+          // 폴더를 복사해서 바로 그 폴더(안)에 붙이면 옆에 사본을 만든다 (자기 안으로 복사는 안 되니까)
+          const dest = !move && (dir === path || dir.startsWith(`${path}/`)) ? dirname(path) : dir;
+          try {
+            const result = await api('/api/fs/op', { method: 'POST', body: { op: move ? 'move' : 'copy', path, dest } });
+            placed.push(result.path);
+            if (move && result.path !== path) {
+              cache.delete(dirname(path));
+              window.dispatchEvent(new CustomEvent('univdash:fs-moved', { detail: { from: path, to: result.path } }));
+            }
+          } catch (error) { toast(`${basename(path)}: ${error.message}`, 'error'); }
+        }
+      } finally { pasting = false; clearTimeout(slow); }
+      if (move) shared.clipboard = null;   // 잘라내기는 한 번만, 복사는 여러 번 붙일 수 있게
+      if (placed.length) toast(placed.length > 1 ? `${placed.length}개 항목을 ${move ? '옮겼어요' : '복사했어요'}.` : `${basename(placed[0])} ${move ? '옮겼어요' : '복사했어요'}.`, 'success');
       expanded.add(dir);
       saveExpanded();
-      await refresh(dir);
-      select(result.path);
+      for (const d of new Set(placed.map(dirname))) await refresh(d);
+      if (!placed.length) { render(); return; }
+      select(placed[placed.length - 1]);
+      if (placed.length > 1) { picked = new Set(placed); paintSelection(); }
     }
     // ── 옮기기 (끌어서 놓기 · 메뉴) ──
     function canMove(source, dest) {
@@ -561,7 +593,7 @@
         saveExpanded();
         savePrefs();
         cache.delete(dirname(source));
-        if (shared.clipboard?.path === source) shared.clipboard = null;
+        if (shared.clipboard?.paths.includes(source)) shared.clipboard = null;
         window.dispatchEvent(new CustomEvent('univdash:fs-moved', { detail: { from: source, to: result.path } }));
       }
       expanded.add(dest);
@@ -650,7 +682,11 @@
       let files = items.filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
         .map((item) => item.getAsFile()).filter(Boolean);
       if (!files.length) files = [...(event.clipboardData?.files || [])].filter((file) => file.type.startsWith('image/'));
-      if (!files.length) return;
+      clearTimeout(pasteTimer);
+      if (!files.length) {
+        if (shared.clipboard) { event.preventDefault(); paste(selectedDir()); }
+        return;
+      }
       event.preventDefault();
       const dir = selectedDir();
       const stamp = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
@@ -751,7 +787,27 @@
         event.preventDefault();
         picked = new Set(visiblePaths());
         paintSelection();
+      } else if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && ['c', 'x'].includes(event.key.toLowerCase())) {
+        if (!picked.size || window.getSelection()?.toString()) return;   // 글자를 드래그해 골랐으면 그 글자 복사
+        setClip(event.key.toLowerCase() === 'x' ? 'cut' : 'copy', [...picked]);
+        // 기본 동작(copy 이벤트)은 막지 않는다 → 아래 copy 처리에서 경로를 텍스트로도 넣는다
+      } else if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'v' && shared.clipboard) {
+        // 이미지가 든 시스템 클립보드는 paste 이벤트에서 업로드로. paste 이벤트가 안 오는 브라우저(Safari 등)도 붙여넣기 되게
+        clearTimeout(pasteTimer);
+        const dir = selectedDir();
+        pasteTimer = setTimeout(() => paste(dir), 80);
       }
+    });
+    let pasteTimer = null;
+    body.addEventListener('copy', (event) => {
+      if (event.target !== body || !shared.clipboard || window.getSelection()?.toString()) return;
+      event.clipboardData?.setData('text/plain', shared.clipboard.paths.join('\n'));   // 터미널 등에 붙이면 경로
+      event.preventDefault();
+    });
+    body.addEventListener('cut', (event) => {
+      if (event.target !== body || !shared.clipboard || window.getSelection()?.toString()) return;
+      event.clipboardData?.setData('text/plain', shared.clipboard.paths.join('\n'));
+      event.preventDefault();
     });
     // 좁아서 잘린 이름(…)은 마우스를 올리면 바로 전체 이름을 이름 위에 겹쳐 보여 준다 (VS Code 처럼).
     // 브라우저 기본 툴팁(title)은 뜨는 데 0.5~1초 걸려서 직접 그린다. 안 잘린 이름에는 띄우지 않는다.
@@ -986,7 +1042,7 @@
           isDir && { icon: 'fa-folder-plus', label: '새 폴더 · Git clone', onClick: () => folderSheet(entry.path) },
           isDir && { icon: 'fa-upload', label: '파일 업로드', onClick: () => { uploadDir = entry.path; uploadInput.click(); } },
           isDir && { icon: 'fa-folder-plus', label: '폴더 업로드', onClick: () => { uploadDir = entry.path; uploadDirInput.click(); } },
-          isDir && clip && { icon: 'fa-paste', label: '붙여넣기', sub: basename(clip.path), onClick: () => paste(entry.path) },
+          isDir && clip && { icon: 'fa-paste', label: '붙여넣기', sub: clipLabel(), onClick: () => paste(entry.path) },
           'sep',
           { icon: 'fa-copy', label: '경로 복사', onClick: () => copyText(entry.path, '경로 복사') },
           { icon: 'fa-code-branch', label: '상대 경로 복사', onClick: () => copyText(relative(entry.path), '상대 경로 복사') },
@@ -1001,8 +1057,8 @@
           isDir && { icon: 'fa-thumbtack', label: prefs().pinned.includes(entry.path) ? '루트 목록에서 고정 해제' : '루트 목록에 고정', onClick: () => togglePin(entry.path) },
           'sep',
           { icon: 'fa-arrow-right-to-bracket', label: '다른 폴더로 이동…', onClick: () => moveDialog(entry) },
-          { icon: 'fa-scissors', label: '잘라내기', onClick: () => { shared.clipboard = { mode: 'cut', path: entry.path }; render(); } },
-          { icon: 'fa-clone', label: '복사', onClick: () => { shared.clipboard = { mode: 'copy', path: entry.path }; render(); } },
+          { icon: 'fa-scissors', label: '잘라내기', sub: `${isMac ? '⌘' : 'Ctrl+'}X`, onClick: () => setClip('cut', clipTargets(entry)) },
+          { icon: 'fa-clone', label: '복사', sub: `${isMac ? '⌘' : 'Ctrl+'}C`, onClick: () => setClip('copy', clipTargets(entry)) },
           { icon: 'fa-pen', label: '이름 바꾸기', onClick: () => rename(entry) },
           { icon: isGated(entry.path) ? 'fa-eye' : 'fa-eye-slash', label: isGated(entry.path) ? '다시 보이기' : '가리기', onClick: () => toggleGate(entry) },
           manual && { icon: 'fa-arrow-up', label: '위로 이동', onClick: () => moveInOrder(entry, -1) },
@@ -1032,7 +1088,7 @@
           'sep',
           { icon: 'fa-upload', label: '루트에 파일 업로드', onClick: () => { uploadDir = root; uploadInput.click(); } },
           { icon: 'fa-folder-plus', label: '루트에 폴더 업로드', onClick: () => { uploadDir = root; uploadDirInput.click(); } },
-          shared.clipboard && { icon: 'fa-paste', label: '루트에 붙여넣기', sub: basename(shared.clipboard.path), onClick: () => paste(root) },
+          shared.clipboard && { icon: 'fa-paste', label: '루트에 붙여넣기', sub: clipLabel(), onClick: () => paste(root) },
           { icon: 'fa-copy', label: '루트 경로 복사', onClick: () => copyText(root, '경로 복사') },
           { icon: 'fa-trash-arrow-up', label: '휴지통 열기', onClick: () => setRoot(`${shared.home}/.univdash/trash`) },
         ],
