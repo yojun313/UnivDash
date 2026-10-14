@@ -41,7 +41,7 @@ html[data-ui-theme-mode="light"] .sb-new { color: #1d4ed8; background: rgba(37,9
     html.sidebar-collapsed #sidebar .sb-overview { display: none !important; }
     html.sidebar-collapsed #sidebar .sb-spacer { display: block; }
     html.sidebar-collapsed #sidebar .sb-top { padding: 14px 10px; }
-    html.sidebar-collapsed #sidebar .sb-brand { justify-content: center; margin-bottom: 12px; }
+    html.sidebar-collapsed #sidebar .sb-brand { display: none; }   /* 접으면 이름이 숨어 빈 줄만 남으므로 */
     html.sidebar-collapsed #sidebar .sb-new { padding: 8px 0; }
     html.sidebar-collapsed #sidebar nav { padding-left: 10px; padding-right: 10px; }
     html.sidebar-collapsed #sidebar nav a { justify-content: center; padding-left: 0; padding-right: 0; }
