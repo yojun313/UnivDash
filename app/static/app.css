@@ -746,6 +746,43 @@ html[data-ui-theme-mode="light"] .exv-zoom button, html[data-ui-theme-mode="ligh
 .exv-textarea { flex: 1; min-width: 0; height: 100%; margin: 0; padding: 10px 14px 40vh; border: 0; outline: none; resize: none; background: transparent; color: #e2e8f0; caret-color: #60a5fa; font: inherit; line-height: inherit; tab-size: 4; white-space: pre; overflow: auto; -webkit-overflow-scrolling: touch; }
 .exv-editor.wrap .exv-textarea { white-space: pre-wrap; overflow-wrap: anywhere; }
 .exv-textarea::selection { background: rgba(59,130,246,.35); }
+.exv-find { display: flex; align-items: flex-start; gap: 4px; flex: none; padding: 6px 10px 6px 4px; background: #111827; border-bottom: 1px solid #334155; color: #e2e8f0; }
+.exv-find[hidden] { display: none; }
+.exv-find-rows { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.exv-find-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.exv-find-row[hidden] { display: none; }
+.exv-find-field { flex: 1; min-width: 60px; max-width: 420px; display: flex; align-items: center; gap: 1px; padding: 0 3px 0 0; border: 1px solid #475569; border-radius: 6px; background: #0b0f19; }
+.exv-find-field:focus-within { border-color: #60a5fa; }
+.exv-find-query, .exv-replace-query { flex: 1; min-width: 0; padding: 6px 9px; border: 0; outline: none; background: transparent; color: inherit; font-size: 13px; }
+.exv-find button { flex: none; min-width: 28px; height: 28px; border-radius: 5px; font-size: 14px; }
+.exv-find .exv-find-opt { min-width: 24px; height: 22px; padding: 0 4px; font-size: 12px; font-family: 'JetBrains Mono', ui-monospace, monospace; color: #94a3b8; border: 1px solid transparent; }
+.exv-find .exv-find-opt[aria-pressed="true"] { color: #e2e8f0; background: rgba(59,130,246,.3); border-color: #60a5fa; }
+.exv-find .exv-find-expand { min-width: 20px; width: 20px; font-size: 10px; color: #94a3b8; }
+.exv-find .exv-find-expand[hidden] { display: none; }
+.exv-find-expand i { transition: transform .15s; }
+.exv-find-expand.open i { transform: rotate(90deg); }
+.exv-find .exv-find-act { font-size: 12px; }
+.exv-find button:hover:not(:disabled), .exv-find button[aria-pressed="true"]:not(.exv-find-opt) { background: #334155; }
+.exv-find button:disabled { opacity: .35; }
+.exv-find-count { min-width: 45px; max-width: 40%; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exv-find-count.none { color: #f87171; }
+/* 편집기 검색 표시: textarea 뒤에 깐 같은 모양의 층 */
+.exv-editor { position: relative; }
+.exv-editor .exv-textarea { position: relative; z-index: 1; }
+.exv-find-layer { position: absolute; z-index: 0; overflow: hidden; pointer-events: none; }
+.exv-find-layer > div { box-sizing: border-box; color: transparent; will-change: transform; }
+.exv-find-layer mark { color: transparent; background: rgba(250,204,21,.35); border-radius: 2px; }
+.exv-find-layer mark.active { background: rgba(251,146,60,.75); box-shadow: 0 0 0 1px #f97316; }
+html[data-ui-theme-mode="light"] .exv-find-field { background: #fff; border-color: #cbd5e1; }
+html[data-ui-theme-mode="light"] .exv-find button:hover:not(:disabled) { background: #e2e8f0; }
+html[data-ui-theme-mode="light"] .exv-find .exv-find-opt[aria-pressed="true"] { color: #1e3a8a; background: rgba(59,130,246,.18); }
+html[data-ui-theme-mode="light"] .exv-find-layer mark { background: rgba(234,179,8,.35); }
+html[data-ui-theme-mode="light"] .exv-find-layer mark.active { background: rgba(249,115,22,.5); }
+.exv-find-hit { position: absolute; z-index: 1; background: #facc1566; pointer-events: none; }
+.exv-find-hit.active { background: #fb923c99; outline: 1px solid #f97316; }
+html[data-ui-theme-mode="light"] .exv-find { background: #f1f5f9; border-color: #cbd5e1; color: #0f172a; }
+html[data-ui-theme-mode="light"] .exv-find-query { background: white; border-color: #94a3b8; }
+html[data-ui-theme-mode="light"] .exv-find button:hover, html[data-ui-theme-mode="light"] .exv-find button[aria-pressed="true"] { background: #cbd5e1; }
 /* 마크다운 편집: 편집기 | 실시간 미리보기 (좁은 화면은 위 · 아래) */
 .exv-body:has(.exv-split) { display: flex; flex-direction: column; overflow: hidden; }
 .exv-split { --split: 50%; flex: 1; min-height: 0; display: flex; overflow: hidden; }
@@ -755,6 +792,7 @@ html[data-ui-theme-mode="light"] .exv-zoom button, html[data-ui-theme-mode="ligh
 .exv-split.dragging { user-select: none; -webkit-user-select: none; }
 .exv-live { flex: 1; min-width: 0; overflow: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 .exv-live .exv-md { padding-bottom: 40vh; }
+.exv-live .exv-htmldoc:not(.hv-paper) { min-height: 100%; background: #fff; }
 .exv-live-plain { margin: 0; padding: 18px 20px; white-space: pre-wrap; }
 /* 편집기 커서가 있는 줄을 그린 블록: 왼쪽 파란 막대 + 옅은 바탕 (자리는 안 밀리게 그림자 · 가상 요소로) */
 .exv-live { --md-cur-bg: rgba(96,165,250,.09); --md-cur-bar: #60a5fa; }

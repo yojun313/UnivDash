@@ -1314,19 +1314,104 @@
     return sheet;
   }
   const HTML_BASE_CSS = ':host{all:initial;display:block;color-scheme:light}.hv-html{background:#fff;color:#000;min-height:100%;overflow-wrap:break-word}.hv-body{display:block;margin:8px}.hv-html.hv-paper{background:transparent;min-width:max-content;padding:20px 24px 40px}.hv-paper>.hv-body{box-shadow:0 2px 14px rgba(0,0,0,.35)}:where(a[data-ex-open],a[data-anchor]){color:LinkText;text-decoration:underline;cursor:pointer}img,video,svg{max-width:100%}';
+  const HTML_CURSOR_CSS = '.md-cursor{outline:2px solid rgba(37,99,235,.75)!important;outline-offset:2px;border-radius:2px}';
+  // 편집 중 미리보기용: 원본의 여는 태그마다 줄 범위(data-md-line · data-md-end, 0부터)를 끼워 넣는다.
+  // 주석 · CDATA · <script>/<style> 같은 원문 요소 안은 건너뛰고, 닫는 태그로 끝 줄을 정한다 (닫지 않은 요소는 부모가 닫힐 때까지).
+  const HTML_VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
+  const HTML_RAW = new Set(['script', 'style', 'textarea', 'title', 'xmp', 'noscript']);
+  const HTML_SKIP = new Set(['html', 'head', 'body', 'br', 'wbr', 'meta', 'link', 'base', 'script', 'style', 'title']);
+  const HTML_IMPLIED = { li: ['li'], dt: ['dt', 'dd'], dd: ['dt', 'dd'], p: ['p'], tr: ['tr'], td: ['td', 'th'], th: ['td', 'th'], option: ['option'], tbody: ['thead', 'tbody'], tfoot: ['thead', 'tbody'] };
+  const HTML_SCOPE = ['ul', 'ol', 'menu', 'dl', 'table', 'select', 'div', 'section', 'article', 'blockquote'];
+  function tagHtmlLines(src) {
+    const marks = [];
+    const stack = [];
+    let line = 0;
+    let at = 0;
+    const advance = (to) => { for (let i = at; i < to; i++) if (src.charCodeAt(i) === 10) line++; at = to; };
+    const len = src.length;
+    let i = src.indexOf('<');
+    while (i >= 0 && i < len) {
+      advance(i);
+      if (src.startsWith('<!--', i)) { const e = src.indexOf('-->', i + 4); i = e < 0 ? len : e + 3; }
+      else if (src.startsWith('<![CDATA[', i)) { const e = src.indexOf(']]>', i); i = e < 0 ? len : e + 3; }
+      else if (src[i + 1] === '!' || src[i + 1] === '?') { const e = src.indexOf('>', i); i = e < 0 ? len : e + 1; }
+      else if (src[i + 1] === '/') {
+        const m = /^<\/([a-zA-Z][\w:-]*)[^>]*>?/.exec(src.slice(i, i + 200));
+        if (m) {
+          const name = m[1].toLowerCase();
+          const k = stack.map((item) => item.name).lastIndexOf(name);
+          if (k >= 0) while (stack.length > k) stack.pop().end = line;
+        }
+        i += m ? m[0].length : 2;
+      } else {
+        const m = /^<([a-zA-Z][\w:-]*)/.exec(src.slice(i, i + 200));
+        if (!m) { i += 1; i = src.indexOf('<', i); continue; }
+        const name = m[1].toLowerCase();
+        // 따옴표 안의 > 는 무시하고 태그 끝을 찾는다
+        let j = i + m[0].length;
+        let quote = '';
+        for (; j < len; j++) {
+          const c = src[j];
+          if (quote) { if (c === quote) quote = ''; }
+          else if (c === '"' || c === "'") quote = c;
+          else if (c === '>') break;
+        }
+        const selfClose = src[j - 1] === '/';
+        // 닫지 않아도 되는 요소(<li>, <p>, <tr> …)는 다음 형제가 열리면 그 앞 줄에서 끝난다
+        const implied = HTML_IMPLIED[name];
+        if (implied) {
+          const names = stack.map((item) => item.name);
+          const k = Math.max(...implied.map((n) => names.lastIndexOf(n)));
+          const stop = Math.max(...HTML_SCOPE.map((n) => names.lastIndexOf(n)));   // 안쪽 목록 · 표 밖의 것은 닫지 않는다
+          if (k >= 0 && k > stop) {
+            const own = /^\s*$/.test(src.slice(src.lastIndexOf('\n', i - 1) + 1, i));   // 새 태그가 줄 맨 앞이면 앞 줄까지
+            while (stack.length > k) { const item = stack.pop(); item.end = Math.max(item.start, own ? line - 1 : line); }
+          }
+        }
+        const mark = { pos: i + m[0].length, start: line, end: -1, name };
+        if (!HTML_SKIP.has(name)) marks.push(mark);
+        i = j + 1;
+        if (HTML_RAW.has(name)) {
+          const e = src.toLowerCase().indexOf(`</${name}`, i);
+          i = e < 0 ? len : e;
+          if (!HTML_SKIP.has(name)) stack.push(mark);
+        } else if (!HTML_VOID.has(name) && !selfClose) stack.push(mark);
+        else { advance(Math.min(i, len)); mark.end = line; }
+      }
+      i = i < len ? src.indexOf('<', i) : -1;
+    }
+    advance(len);
+    stack.forEach((item) => { item.end = line; });
+    let out = '';
+    let last = 0;
+    for (const mark of marks) {
+      out += `${src.slice(last, mark.pos)} data-md-line="${mark.start}" data-md-end="${Math.max(mark.start, mark.end)}"`;
+      last = mark.pos;
+    }
+    return out + src.slice(last);
+  }
   // host 안에 문서를 그린다. onOpen(path): 문서 안 로컬 파일 링크를 눌렀을 때
-  async function mountHtmlDoc(host, content, docPath, onOpen) {
+  // options.lines: 줄 범위를 달아 커서 표시를 쓸 수 있게, options.cssCache: 연결된 CSS 를 다시 읽지 않게 (Map),
+  // options.alive(): 늦게 끝난 이전 그리기가 새 결과를 덮지 않게
+  async function mountHtmlDoc(host, content, docPath, onOpen, options = {}) {
+    if (options.lines) { try { content = tagHtmlLines(content); } catch (e) { /* 줄 표시 없이 그린다 */ } }
     const doc = new DOMParser().parseFromString(content, 'text/html');   // 스크립트가 돌지 않는 문서
     const sheets = [];
     for (const el of doc.querySelectorAll('style, link[rel~="stylesheet" i][href]')) {
       if (el.tagName === 'STYLE') { sheets.push({ css: el.textContent, base: docPath }); continue; }
       const path = htmlLocalPath(el.getAttribute('href'), docPath);
       if (!path) continue;
+      const cache = options.cssCache;
+      if (cache?.has(path)) { if (cache.get(path) != null) sheets.push({ css: cache.get(path), base: path }); continue; }
+      let css = null;
       try {
         const file = await window.UnivDash.api(`/api/fs/read?path=${encodeURIComponent(path)}`);
-        if (typeof file?.content === 'string') sheets.push({ css: file.content, base: path });
+        if (typeof file?.content === 'string') css = file.content;
       } catch (e) { /* 못 읽는 CSS 는 건너뛴다 */ }
+      cache?.set(path, css);
+      if (css != null) sheets.push({ css, base: path });
     }
+    if (options.alive && !options.alive()) return;
     doc.querySelectorAll('style, link, script, noscript, base, meta').forEach((el) => el.remove());
     for (const [tag, attr] of HTML_RES_ATTRS) {
       doc.body.querySelectorAll(tag === '*' ? `[${CSS.escape(attr)}]` : tag).forEach((el) => {
@@ -1358,7 +1443,7 @@
     });
     const root = host.shadowRoot || host.attachShadow({ mode: 'open' });
     const base = new CSSStyleSheet();
-    base.replaceSync(HTML_BASE_CSS);
+    base.replaceSync(HTML_BASE_CSS + (options.lines ? HTML_CURSOR_CSS : ''));
     root.adoptedStyleSheets = [base, ...sheets.map((item) => htmlSheet(item.css, item.base)).filter(Boolean)];
     const htmlEl = document.createElement('div');
     htmlEl.className = `hv-html ${doc.documentElement.className || ''}`.trim();
@@ -1534,6 +1619,7 @@
     const bodyEl = $('.exv-body');
     const tabsEl = $('.exv-tabs');
     const pageNo = $('.exv-pageno');
+    const find = window.UnivDashFileSearch.mount(container, bodyEl, () => ({ entry: current, editor: editing ? editorEl : null, pdf: pdfInfo }));
 
     const saveTabs = () => store.set(tabKey, { tabs: tabState.tabs, active: tabState.active, view: tabState.view });
     const viewOf = (path) => { tabState.view[path] = tabState.view[path] || {}; return tabState.view[path]; };
@@ -1810,13 +1896,15 @@
     const metaHtml = (file, extra = '') => `<div class="exv-meta">${formatSize(file.size)} · ${formatTime(file.mtime)} 수정${extra}</div>`;
     // 렌더링해서 보여줄 수 있는 텍스트 (기본은 렌더링, 코드로 전환 가능): Markdown · Jupyter · CSV
     const isHtml = (entry) => ['html', 'htm', 'xhtml'].includes((entry?.ext || '').toLowerCase());
+    const htmlRenderable = (entry) => isHtml(entry) && !!(window.DOMPurify && window.CSSStyleSheet && document.adoptedStyleSheets);
+    const splitable = (entry) => isMarkdown(entry) || htmlRenderable(entry);   // 편집할 때 오른쪽 실시간 미리보기를 쓰는 파일
     const renderable = (entry) => isMarkdown(entry) || isHtml(entry) || ['ipynb', 'csv', 'tsv'].includes((entry?.ext || '').toLowerCase());
     function renderRich(file, entry) {
       const ext = (entry.ext || '').toLowerCase();
       if (isMarkdown(entry)) return renderMarkdown(file, entry);
       if (ext === 'ipynb') return renderNotebook(file, entry);
       if (ext === 'csv' || ext === 'tsv') return renderCsv(file, ext === 'tsv' ? '\t' : ',');
-      if (isHtml(entry) && window.DOMPurify && window.CSSStyleSheet && document.adoptedStyleSheets) return '<div class="exv-htmldoc"></div>';   // 그린 뒤 mountHtmlDoc 이 채운다
+      if (htmlRenderable(entry)) return '<div class="exv-htmldoc"></div>';   // 그린 뒤 mountHtmlDoc 이 채운다
       return null;
     }
     const openLocal = (path) => {
@@ -1835,7 +1923,7 @@
       bodyEl.innerHTML = metaHtml(file) + (rendered ? `<div class="exv-rich">${rendered}</div>` : renderCode({ ...file, name: entry.name, ext: file.ext || entry.ext }));
       if (rendered) { sizeRich(); showZoom(); } else $('.exv-zoom').classList.add('hidden');
       const htmlHost = rendered && bodyEl.querySelector('.exv-htmldoc');
-      if (htmlHost) mountHtmlDoc(htmlHost, file.content, entry.path, openLocal).catch(() => { htmlHost.textContent = 'HTML 을 그리지 못했어요. 코드 보기로 확인하세요.'; });
+      if (htmlHost) mountHtmlDoc(htmlHost, file.content, entry.path, openLocal).then(() => find.refresh()).catch(() => { htmlHost.textContent = 'HTML 을 그리지 못했어요. 코드 보기로 확인하세요.'; });
       $('[data-act="mdpdf"]').classList.toggle('hidden', !(rendered && isMarkdown(entry)));
     }
 
@@ -1978,6 +2066,7 @@
     const pdfSrc = (path, info, page, pixels) => `/api/fs/pdf/page?path=${encodeURIComponent(path)}&page=${page}&w=${pixels}&v=${info.version}`;
     function renderPdf(entry, info) {
       pdfInfo = info;
+      find.refresh();
       const zoom = viewOf(entry.path).zoom || 1;
       setZoomLabel(zoom);
       const { cssWidth, pixels } = pdfSize(zoom);
@@ -2202,7 +2291,7 @@
       $('[data-act="revert"]').classList.toggle('hidden', !editing || !dirty);
       const md = current && renderable(current);
       const toggle = $('.exv-md-toggle');
-      toggle.classList.toggle('hidden', !md || (editing && !isMarkdown(current)));
+      toggle.classList.toggle('hidden', !md || (editing && !splitable(current)));
       if (editing) $('[data-act="mdpdf"]').classList.add('hidden');
       toggle.classList.toggle('off', editing && !mdSplit);
       toggle.innerHTML = editing
@@ -2222,14 +2311,29 @@
     // 마크다운 편집: VS Code 처럼 왼쪽은 편집기, 오른쪽은 실시간 미리보기 (기본 켜짐, 미리보기 버튼으로 끄고 켬)
     let mdSplit = store.get('md-split', true);
     let splitRatio = store.get('md-split-ratio', 0.5);
-    const livePreview = () => editing && mdSplit && current && isMarkdown(current);
+    const livePreview = () => editing && mdSplit && current && splitable(current);
     let previewTimer = null;
     let previewHtml = '';
+    let previewSeq = 0;
+    let previewCss = new Map();   // HTML 미리보기: 연결된 CSS 파일 (편집기를 새로 열 때 비운다)
     function updatePreview() {
       clearTimeout(previewTimer);
       previewTimer = null;
       const pane = bodyEl.querySelector('.exv-live');
       if (!pane || !editorEl || !current) return;
+      if (htmlRenderable(current)) {
+        const text = editorEl.value;
+        if (text === previewHtml) return;
+        previewHtml = text;
+        let host = pane.querySelector('.exv-htmldoc');
+        if (!host) { pane.innerHTML = '<div class="exv-htmldoc"></div>'; host = pane.firstChild; }
+        const seq = ++previewSeq;
+        const top = pane.scrollTop;
+        mountHtmlDoc(host, text, current.path, openLocal, { lines: true, cssCache: previewCss, alive: () => seq === previewSeq && host.isConnected })
+          .then(() => { if (seq !== previewSeq) return; anchorCache = null; pane.scrollTop = top; markPreviewCursor(true); find.refresh(); })
+          .catch(() => { if (seq === previewSeq) { previewHtml = ''; pane.innerHTML = `<pre class="exv-live-plain">${escapeHtml(text)}</pre>`; } });
+        return;
+      }
       let html = null;
       try { html = renderMarkdown({ content: editorEl.value }, current, { lines: true }); } catch (e) { html = null; }
       html = html ?? `<pre class="exv-live-plain">${escapeHtml(editorEl.value)}</pre>`;
@@ -2237,6 +2341,7 @@
       previewHtml = html;
       const top = pane.scrollTop;
       pane.innerHTML = html;
+      anchorCache = null;
       pane.scrollTop = top;
       markPreviewCursor(true);
     }
@@ -2256,14 +2361,16 @@
         let bestSize = Infinity;
         let prev = null;
         let prevEnd = -1;
-        pane.querySelectorAll('[data-md-line]').forEach((el) => {
+        const scope = pane.querySelector('.exv-htmldoc')?.shadowRoot || pane;   // HTML 문서는 Shadow DOM 안에 있다
+        const outer = scope !== pane;   // HTML: 같은 줄이면 바깥 요소 (<p> 안의 <b> 대신 <p>)
+        scope.querySelectorAll('[data-md-line]').forEach((el) => {
           const a = Number(el.dataset.mdLine);
           const b = Number(el.dataset.mdEnd);
-          if (a <= line && line <= b) { if (b - a <= bestSize) { best = el; bestSize = b - a; } }   // 가장 좁은 것 (같으면 안쪽)
+          if (a <= line && line <= b) { if (outer ? b - a < bestSize : b - a <= bestSize) { best = el; bestSize = b - a; } }   // 가장 좁은 것 (md 는 같으면 안쪽)
           else if (b < line && b > prevEnd) { prev = el; prevEnd = b; }                              // 빈 줄이면 바로 위 블록
         });
         const target = best || prev;
-        pane.querySelectorAll('.md-cursor').forEach((el) => { if (el !== target) el.classList.remove('md-cursor'); });
+        scope.querySelectorAll('.md-cursor').forEach((el) => { if (el !== target) el.classList.remove('md-cursor'); });
         if (!target) return;
         target.classList.add('md-cursor');
         const box = pane.getBoundingClientRect();
@@ -2275,12 +2382,146 @@
       });
     }
     document.addEventListener('selectionchange', () => { if (editorEl && document.activeElement === editorEl && livePreview()) markPreviewCursor(); });
-    // 편집기를 스크롤하면 미리보기도 같은 비율 위치로 따라간다
-    function syncPreviewScroll() {
+    // 편집기를 스크롤하면 미리보기도 같은 줄로 따라간다.
+    // 원본 줄 → 미리보기 위치는 블록마다 단 줄 범위(data-md-line)를 기준점으로 잇고, 스크롤한 만큼만 움직여서
+    // 커서 표시로 맞춰 둔 미리보기가 휙 넘어가지 않게 한다 (차이는 스크롤하는 동안 조금씩 줄여 간다).
+    let anchorCache = null;
+    let lineTopCache = null;
+    let syncedTop = null;   // 마지막으로 맞춘 편집기 scrollTop
+    function previewAnchors(pane) {
+      const key = `${pane.clientWidth}:${pane.scrollHeight}`;
+      if (anchorCache?.key === key) return anchorCache.list;
+      const scope = pane.querySelector('.exv-htmldoc')?.shadowRoot || pane;
+      const box = pane.getBoundingClientRect();
+      const raw = [];
+      let bottom = 0;
+      scope.querySelectorAll('[data-md-line]').forEach((el) => {
+        const rect = el.getBoundingClientRect();
+        if (!rect.height && !rect.width) return;   // 숨은 요소
+        const y = rect.top - box.top + pane.scrollTop;
+        raw.push([Number(el.dataset.mdLine), y]);
+        bottom = Math.max(bottom, rect.bottom - box.top + pane.scrollTop);
+      });
+      raw.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+      const list = [[0, 0]];
+      for (const [line, y] of raw) {
+        const last = list[list.length - 1];
+        if (line === last[0]) continue;              // 같은 줄은 가장 위의 것
+        if (y >= last[1]) list.push([line, y]);      // 위치가 거꾸로 가는 기준점(겹친 블록)은 버린다
+      }
+      list.push([editorEl.value.split('\n').length, Math.max(bottom, list[list.length - 1][1])]);
+      anchorCache = { key, list };
+      return list;
+    }
+    // 편집기 줄마다 위쪽 y (자동 줄바꿈이면 숨은 복제본으로 잰다)
+    function editorLineTops() {
+      const value = editorEl.value;
+      const key = `${wrap}:${editorEl.clientWidth}`;
+      if (lineTopCache?.key === key && lineTopCache.value === value) return lineTopCache.tops;
+      const style = getComputedStyle(editorEl);
+      const padTop = parseFloat(style.paddingTop) || 0;
+      const lines = value.split('\n');
+      let tops;
+      if (!wrap) {
+        const lh = parseFloat(style.lineHeight) || 20;
+        tops = lines.map((_, i) => padTop + i * lh);
+      } else {
+        const mirror = document.createElement('div');
+        mirror.style.cssText = `position:absolute;visibility:hidden;left:-99999px;top:0;box-sizing:border-box;width:${editorEl.clientWidth}px;padding:0 ${style.paddingRight} 0 ${style.paddingLeft};font:${style.font};line-height:${style.lineHeight};tab-size:${style.tabSize};white-space:pre-wrap;overflow-wrap:anywhere;letter-spacing:${style.letterSpacing}`;
+        const frag = document.createDocumentFragment();
+        for (const line of lines) { const d = document.createElement('div'); d.textContent = line || '\u200b'; frag.appendChild(d); }
+        mirror.appendChild(frag);
+        document.body.appendChild(mirror);
+        tops = Array.from(mirror.children, (d) => padTop + d.offsetTop);
+        mirror.remove();
+      }
+      lineTopCache = { key, value, tops };
+      return tops;
+    }
+    // 편집기 scrollTop → 미리보기 scrollTop
+    function mapEditorTop(pane, top) {
+      const tops = editorLineTops();
+      let lo = 0;
+      let hi = tops.length - 1;
+      while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (tops[mid] <= top) lo = mid; else hi = mid - 1; }
+      const next = lo + 1 < tops.length ? tops[lo + 1] : tops[lo] + (parseFloat(getComputedStyle(editorEl).lineHeight) || 20);
+      const line = lo + Math.min(1, Math.max(0, (top - tops[lo]) / Math.max(1, next - tops[lo])));   // 소수 줄
+      const anchors = previewAnchors(pane);
+      let k = 0;
+      while (k + 1 < anchors.length && anchors[k + 1][0] <= line) k++;
+      const [l0, y0] = anchors[k];
+      const [l1, y1] = anchors[Math.min(k + 1, anchors.length - 1)];
+      const y = l1 > l0 ? y0 + ((line - l0) / (l1 - l0)) * (y1 - y0) : y0;
+      return Math.max(0, y - 12);
+    }
+    function syncPreviewScroll(reset = false) {
       const pane = bodyEl.querySelector('.exv-live');
       if (!pane || !editorEl) return;
+      const top = editorEl.scrollTop;
       const max = editorEl.scrollHeight - editorEl.clientHeight;
-      pane.scrollTop = max > 0 ? (editorEl.scrollTop / max) * (pane.scrollHeight - pane.clientHeight) : 0;
+      const paneMax = pane.scrollHeight - pane.clientHeight;
+      let target;
+      try { target = mapEditorTop(pane, top); } catch (e) { target = max > 0 ? (top / max) * paneMax : 0; }
+      if (top <= 0) target = 0;
+      if (reset || syncedTop == null || top <= 0 || top >= max - 1) pane.scrollTop = target;
+      else {
+        const delta = target - mapEditorTop(pane, syncedTop);   // 스크롤한 만큼 그대로
+        const gap = target - (pane.scrollTop + delta);
+        pane.scrollTop += delta + gap * Math.min(0.25, Math.abs(top - syncedTop) / Math.max(1, editorEl.clientHeight));   // 어긋난 만큼은 천천히
+      }
+      syncedTop = top;
+    }
+    // 미리보기를 누르면 편집기 커서를 그 부분으로 옮긴다: 누른 블록의 원본 줄 범위 안에서 누른 글자를 찾고, 못 찾으면 그 블록 첫 줄로
+    function jumpFromPreview(event) {
+      if (!editorEl || event.defaultPrevented || event.button !== 0) return;
+      const path = event.composedPath();
+      if (path.some((el) => el instanceof Element && el.matches('a, button, input, summary, label, [data-ex-open], [data-anchor]'))) return;
+      if (String(window.getSelection?.() || '').length) return;   // 글자를 끌어 선택한 경우는 그대로 둔다
+      const block = path.find((el) => el instanceof Element && el.dataset?.mdLine != null);
+      if (!block) return;
+      const value = editorEl.value;
+      const lineStart = (n) => {   // n 번째 줄의 시작 위치 (줄이 모자라면 글 끝)
+        let at = 0;
+        for (let i = 0; i < n; i++) { const nl = value.indexOf('\n', at); if (nl < 0) return value.length; at = nl + 1; }
+        return at;
+      };
+      const from = lineStart(Number(block.dataset.mdLine));
+      const to = lineStart(Number(block.dataset.mdEnd) + 1);
+      let caret = from + (value.slice(from, to).match(/^[ \t]*/)?.[0].length || 0);
+      // 누른 지점의 글자 (Shadow DOM 안도 찾도록 caretPositionFromPoint 를 먼저)
+      let node = null;
+      let offset = 0;
+      try {
+        const root = block.getRootNode();
+        const pos = document.caretPositionFromPoint?.(event.clientX, event.clientY, root instanceof ShadowRoot ? { shadowRoots: [root] } : undefined);
+        if (pos) { node = pos.offsetNode; offset = pos.offset; }
+        else { const range = document.caretRangeFromPoint?.(event.clientX, event.clientY); if (range) { node = range.startContainer; offset = range.startOffset; } }
+      } catch (e) { node = null; }
+      if (node?.nodeType === Node.TEXT_NODE && block.contains(node)) {
+        const segment = value.slice(from, to);
+        const after = node.data.slice(offset, offset + 16).trim();
+        const before = node.data.slice(Math.max(0, offset - 16), offset).trim();
+        const hits = (needle) => { const out = []; if (!needle) return out; let i = segment.indexOf(needle); while (i >= 0) { out.push(i); i = segment.indexOf(needle, i + 1); } return out; };
+        // 앞뒤 글자로 같이 찾아 정확한 자리를 먼저, 안 되면 뒤쪽 글자 → 앞쪽 글자
+        const ahead = hits(after);
+        const behind = hits(before).map((i) => i + before.length);
+        const both = ahead.filter((i) => behind.some((j) => j <= i && i - j <= 2));
+        const pick = both[0] ?? (ahead.length === 1 ? ahead[0] : null) ?? (behind.length === 1 ? behind[0] : null) ?? ahead[0] ?? behind[0];
+        if (pick != null) caret = from + pick;
+      }
+      const top = editorEl.scrollTop;
+      editorEl.focus({ preventScroll: true });
+      editorEl.setSelectionRange(caret, caret);
+      // 커서 줄이 안 보이면 편집기만 스크롤 (미리보기는 누른 자리 그대로)
+      const line = value.slice(0, caret).split('\n').length - 1;
+      let lineTop = null;
+      try { lineTop = editorLineTops()[line]; } catch (e) { lineTop = null; }
+      editorEl.scrollTop = top;
+      if (lineTop != null && (lineTop < top || lineTop + 24 > top + editorEl.clientHeight)) {
+        editorEl.scrollTop = Math.max(0, lineTop - editorEl.clientHeight / 3);
+        syncedTop = editorEl.scrollTop;   // 이 스크롤로는 미리보기를 움직이지 않는다
+      }
+      markPreviewCursor();
     }
     function bindSplitter() {
       const split = bodyEl.querySelector('.exv-split');
@@ -2323,11 +2564,16 @@
       editorEl = bodyEl.querySelector('.exv-textarea');
       editorEl.value = text;
       previewHtml = '';
+      previewCss = new Map();
       cursorLine = -1;
+      anchorCache = null;
+      lineTopCache = null;
+      syncedTop = null;
       if (live) {
         bindSplitter();
         updatePreview();
         ['focus', 'click', 'keyup'].forEach((type) => editorEl.addEventListener(type, () => markPreviewCursor()));
+        bodyEl.querySelector('.exv-live').addEventListener('click', jumpFromPreview);
       }
       const gutter = bodyEl.querySelector('.exv-gutter');
       let lineCount = 0;
@@ -2374,7 +2620,7 @@
       });
       editorEl.scrollTop = viewOf(current.path).editTop || 0;
       syncGutter();
-      if (live) requestAnimationFrame(syncPreviewScroll);
+      if (live) requestAnimationFrame(() => syncPreviewScroll(true));
     }
     function enterEdit({ focus = true } = {}) {
       if (!lastFile || !editable(lastFile)) return;
@@ -2641,7 +2887,7 @@
       const next = { auto: store.get('auto-save', true), wrap: store.get('wrap', coarse), split: store.get('md-split', true), rendered: store.get('md-rendered', true) };
       if (next.auto !== autoSave) { autoSave = next.auto; if (autoSave && current && hasDraft(current.path)) scheduleAutoSave(200); }
       if (next.wrap !== wrap) { wrap = next.wrap; applyWrap(); }
-      if (next.split !== mdSplit) { mdSplit = next.split; if (editing && current && isMarkdown(current)) rerenderEditor(); }
+      if (next.split !== mdSplit) { mdSplit = next.split; if (editing && current && splitable(current)) rerenderEditor(); }
       if (next.rendered !== mdRendered) { mdRendered = next.rendered; if (!editing && lastFile && current) renderText(lastFile, current); }
       if (current) setEditButtons();
     });

@@ -10,8 +10,8 @@ from urllib.parse import quote, unquote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
-from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 from starlette.requests import ClientDisconnect
 
 from app.routes.pages import render_page
@@ -187,6 +187,18 @@ async def pdf_page(
         "X-Content-Type-Options": "nosniff",
     }
     return FileResponse(image, media_type="image/png", headers=headers)
+
+
+@router.get("/api/fs/pdf/search", dependencies=api_auth)
+async def pdf_search(
+    path: str = Query(..., max_length=4096),
+    q: str = Query(..., min_length=1, max_length=500),
+    case_sensitive: bool = False,
+):
+    try:
+        return await pdf_service.search(path, q, case_sensitive)
+    except (FsError, OSError) as error:
+        _fail(error)
 
 
 # 폴더 다운로드: POST 로 zip 을 만들고(오류는 JSON 으로) → 받은 토큰으로 GET 해서 브라우저가 바로 내려받는다.

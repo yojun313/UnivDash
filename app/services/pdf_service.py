@@ -6,10 +6,12 @@
 
 import asyncio
 import hashlib
+import json
 import os
 import re
 import shutil
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from app.services import preview_service
@@ -31,6 +33,104 @@ WIDTHS = (
 RENDER_TIMEOUT = 30
 CACHE_LIMIT = 300 * 1024 * 1024
 _render_slots = asyncio.Semaphore(2)  # 동시에 렌더링하는 페이지 수 제한
+_text_slots = asyncio.Semaphore(2)
+
+
+async def search(path: str, query: str, case_sensitive: bool = False) -> dict:
+    """Search original PDF/converted Office text and return normalized word boxes."""
+    if not shutil.which("pdftotext"):
+        raise FsError("문서 검색에는 poppler-utils(pdftotext)가 필요합니다.")
+    file = await _pdf(path)
+    target = cache_dir() / _key(file) / "text.json"
+    async with _text_slots:
+        try:
+            pages = json.loads(await asyncio.to_thread(target.read_text))
+        except (OSError, ValueError):
+            raw = await _run(
+                "pdftotext",
+                "-f",
+                "1",
+                "-l",
+                str(MAX_PAGES),
+                "-bbox",
+                "-enc",
+                "UTF-8",
+                str(file),
+                "-",
+            )
+
+            def extract():
+                try:
+                    root = ET.fromstring(raw)
+                except ET.ParseError as error:
+                    raise FsError("문서의 검색 정보를 읽지 못했습니다.") from error
+                result = []
+                for page in root.iter():
+                    if page.tag.rsplit("}", 1)[-1] != "page":
+                        continue
+                    width, height = (
+                        float(page.attrib["width"]),
+                        float(page.attrib["height"]),
+                    )
+                    words = []
+                    for word in page.iter():
+                        if word.tag.rsplit("}", 1)[-1] != "word":
+                            continue
+                        x, y = float(word.attrib["xMin"]), float(word.attrib["yMin"])
+                        words.append(
+                            [
+                                "".join(word.itertext()),
+                                x / width,
+                                y / height,
+                                (float(word.attrib["xMax"]) - x) / width,
+                                (float(word.attrib["yMax"]) - y) / height,
+                            ]
+                        )
+                    result.append(words)
+                return result
+
+            pages = await asyncio.to_thread(extract)
+            target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            temp = target.with_suffix(f".{os.getpid()}.{time.monotonic_ns()}.tmp")
+            try:
+                await asyncio.to_thread(
+                    temp.write_text, json.dumps(pages, ensure_ascii=False)
+                )
+                os.replace(temp, target)
+            finally:
+                temp.unlink(missing_ok=True)
+
+    def find():
+        pattern = re.compile(re.escape(query), 0 if case_sensitive else re.IGNORECASE)
+        matches = []
+        total = 0
+        for number, words in enumerate(pages, 1):
+            starts = []
+            parts = []
+            offset = 0
+            for word in words:
+                starts.append(offset)
+                parts.append(word[0])
+                offset += len(word[0]) + 1
+            for hit in pattern.finditer(" ".join(parts)):
+                total += 1
+                if len(matches) >= 1000:
+                    continue
+                rects = [
+                    word[1:]
+                    for word, start in zip(words, starts)
+                    if start < hit.end() and start + len(word[0]) > hit.start()
+                ]
+                matches.append({"page": number, "rects": rects})
+        return {
+            "matches": matches,
+            "total": total,
+            "truncated": total > len(matches),
+            "has_text": any(pages),
+            "version": _key(file),
+        }
+
+    return await asyncio.to_thread(find)
 
 
 def available() -> bool:
@@ -69,7 +169,7 @@ async def _run(*args: str) -> bytes:
     )
     try:
         out, err = await asyncio.wait_for(process.communicate(), RENDER_TIMEOUT)
-    except asyncio.TimeoutError as error:
+    except TimeoutError as error:
         process.kill()
         await process.wait()
         raise FsError("PDF 처리 시간이 너무 깁니다.") from error
@@ -85,7 +185,7 @@ async def info(path: str) -> dict:
     """페이지 수와 페이지별 크기(pt). 뷰어가 미리 자리를 잡아 스크롤이 튀지 않게 한다."""
     file = await _pdf(path)
     head = (await _run("pdfinfo", str(file))).decode(errors="replace")
-    match = re.search(r"^Pages:\s+(\d+)", head, re.M)
+    match = re.search(r"^Pages:\s+(\d+)", head, re.MULTILINE)
     pages = min(int(match.group(1)) if match else 0, MAX_PAGES)
     if pages <= 0:
         raise FsError("페이지가 없는 PDF 입니다.")
@@ -97,17 +197,17 @@ async def info(path: str) -> dict:
         sizes = [
             (float(w), float(h))
             for w, h in re.findall(
-                r"^Page\s+\d+\s+size:\s+([\d.]+) x ([\d.]+)", detail, re.M
+                r"^Page\s+\d+\s+size:\s+([\d.]+) x ([\d.]+)", detail, re.MULTILINE
             )
         ]
     if not sizes:
-        match = re.search(r"^Page size:\s+([\d.]+) x ([\d.]+)", head, re.M)
+        match = re.search(r"^Page size:\s+([\d.]+) x ([\d.]+)", head, re.MULTILINE)
         sizes = (
             [(float(match.group(1)), float(match.group(2)))]
             if match
             else [(612.0, 792.0)]
         )
-    rotated = re.search(r"^Page rot:\s+(90|270)", head, re.M)
+    rotated = re.search(r"^Page rot:\s+(90|270)", head, re.MULTILINE)
     if rotated:
         sizes = [(h, w) for w, h in sizes]
     return {
@@ -123,7 +223,12 @@ def _prune() -> None:
     root = cache_dir()
     try:
         files = sorted(
-            (p for p in root.rglob("*.png")), key=lambda p: p.stat().st_atime
+            (
+                p
+                for p in root.rglob("*")
+                if p.is_file() and (p.suffix == ".png" or p.name == "text.json")
+            ),
+            key=lambda p: p.stat().st_atime,
         )
         total = sum(p.stat().st_size for p in files)
         for file in files:
