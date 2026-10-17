@@ -1282,17 +1282,190 @@
     }
     return `/${out.join('/')}`;
   }
+  // HTML 파일 미리보기: 스크립트는 절대 실행하지 않고(DOMPurify), 문서 스타일은 Shadow DOM 안에만 적용해 대시보드 화면과 섞이지 않게 한다.
+  // 그림 · CSS 의 상대 경로와 file:/// 주소는 서버의 같은 파일(/api/fs/raw)로 바꾼다. 외부(https) 그림은 CSP 로 막혀 보이지 않는다.
+  const HTML_RES_ATTRS = [['img', 'src'], ['img', 'srcset'], ['source', 'src'], ['source', 'srcset'], ['video', 'src'], ['video', 'poster'], ['audio', 'src'], ['track', 'src'], ['image', 'href'], ['image', 'xlink:href'], ['*', 'background']];
+  function htmlLocalPath(url, base) {
+    const value = (url || '').trim();
+    if (!value || value.startsWith('#') || value.startsWith('//')) return null;
+    if (/^file:/i.test(value)) { try { return resolveRelPath(base, new URL(value).pathname); } catch (e) { return null; } }
+    if (/^[a-z][\w+.-]*:/i.test(value)) return null;   // https: data: mailto: …
+    return resolveRelPath(base, value);
+  }
+  const htmlRawUrl = (path) => `/api/fs/raw?path=${encodeURIComponent(path)}`;
+  function htmlCssUrls(css, base) {
+    return css.replace(/url\(\s*(['"]?)([^'")]*)\1\s*\)/gi, (m, q, url) => { const path = htmlLocalPath(url, base); return path ? `url("${htmlRawUrl(path)}")` : m; });
+  }
+  // 문서 CSS → 이 문서 전용 스타일시트: html · :root · body 선택자를 Shadow DOM 안의 감싸개로 옮긴다
+  function htmlSheet(css, base) {
+    const sheet = new CSSStyleSheet();
+    try { sheet.replaceSync(htmlCssUrls(css.replace(/@import[^;]*;/gi, ''), base)); } catch (e) { return null; }
+    const walk = (rules) => {
+      for (const rule of rules) {
+        if (rule.selectorText && rule.style) {
+          rule.selectorText = rule.selectorText
+            .replace(/(^|[\s>+~,(])(html|:root)(?![\w-])/gi, '$1.hv-html')
+            .replace(/(^|[\s>+~,(])body(?![\w-])/gi, '$1.hv-body');
+        }
+        if (rule.cssRules) walk(rule.cssRules);
+      }
+    };
+    walk(sheet.cssRules);
+    return sheet;
+  }
+  const HTML_BASE_CSS = ':host{all:initial;display:block;color-scheme:light}.hv-html{background:#fff;color:#000;min-height:100%;overflow-wrap:break-word}.hv-body{display:block;margin:8px}.hv-html.hv-paper{background:transparent;min-width:max-content;padding:20px 24px 40px}.hv-paper>.hv-body{box-shadow:0 2px 14px rgba(0,0,0,.35)}:where(a[data-ex-open],a[data-anchor]){color:LinkText;text-decoration:underline;cursor:pointer}img,video,svg{max-width:100%}';
+  // host 안에 문서를 그린다. onOpen(path): 문서 안 로컬 파일 링크를 눌렀을 때
+  async function mountHtmlDoc(host, content, docPath, onOpen) {
+    const doc = new DOMParser().parseFromString(content, 'text/html');   // 스크립트가 돌지 않는 문서
+    const sheets = [];
+    for (const el of doc.querySelectorAll('style, link[rel~="stylesheet" i][href]')) {
+      if (el.tagName === 'STYLE') { sheets.push({ css: el.textContent, base: docPath }); continue; }
+      const path = htmlLocalPath(el.getAttribute('href'), docPath);
+      if (!path) continue;
+      try {
+        const file = await window.UnivDash.api(`/api/fs/read?path=${encodeURIComponent(path)}`);
+        if (typeof file?.content === 'string') sheets.push({ css: file.content, base: path });
+      } catch (e) { /* 못 읽는 CSS 는 건너뛴다 */ }
+    }
+    doc.querySelectorAll('style, link, script, noscript, base, meta').forEach((el) => el.remove());
+    for (const [tag, attr] of HTML_RES_ATTRS) {
+      doc.body.querySelectorAll(tag === '*' ? `[${CSS.escape(attr)}]` : tag).forEach((el) => {
+        const value = el.getAttribute(attr);
+        if (value == null) return;
+        if (attr === 'srcset') {
+          el.setAttribute(attr, value.split(',').map((part) => {
+            const [url, ...rest] = part.trim().split(/\s+/);
+            const path = htmlLocalPath(url, docPath);
+            return [path ? htmlRawUrl(path) : url, ...rest].join(' ');
+          }).join(', '));
+          return;
+        }
+        const path = htmlLocalPath(value, docPath);
+        if (path) el.setAttribute(attr, htmlRawUrl(path));
+      });
+    }
+    doc.body.querySelectorAll('[style]').forEach((el) => el.setAttribute('style', htmlCssUrls(el.getAttribute('style'), docPath)));
+    const purify = { USE_PROFILES: { html: true, svg: true, svgFilters: true }, FORBID_TAGS: ['script', 'style', 'link', 'meta', 'base', 'iframe', 'frame', 'frameset', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select'], ADD_ATTR: ['xlink:href'], RETURN_DOM_FRAGMENT: true };
+    const fragment = window.DOMPurify.sanitize(doc.body.innerHTML, purify);
+    fragment.querySelectorAll('img').forEach((img) => { img.loading = 'lazy'; img.decoding = 'async'; });
+    fragment.querySelectorAll('a[href]').forEach((a) => {
+      const href = a.getAttribute('href');
+      if (href.startsWith('#')) { a.dataset.anchor = href.slice(1); a.removeAttribute('href'); return; }
+      if (/^(https?:|mailto:|tel:)/i.test(href)) { a.target = '_blank'; a.rel = 'noopener noreferrer'; return; }
+      const path = htmlLocalPath(href, docPath);
+      a.removeAttribute('href');
+      if (path) { a.dataset.exOpen = path; a.title = shortHome(path); a.setAttribute('role', 'link'); a.tabIndex = 0; }
+    });
+    const root = host.shadowRoot || host.attachShadow({ mode: 'open' });
+    const base = new CSSStyleSheet();
+    base.replaceSync(HTML_BASE_CSS);
+    root.adoptedStyleSheets = [base, ...sheets.map((item) => htmlSheet(item.css, item.base)).filter(Boolean)];
+    const htmlEl = document.createElement('div');
+    htmlEl.className = `hv-html ${doc.documentElement.className || ''}`.trim();
+    const bodyEl = document.createElement('div');
+    bodyEl.className = `hv-body ${doc.body.className || ''}`.trim();
+    const bodyStyle = doc.body.getAttribute('style');
+    if (bodyStyle) bodyEl.setAttribute('style', bodyStyle);
+    bodyEl.appendChild(fragment);
+    htmlEl.appendChild(bodyEl);
+    root.replaceChildren(htmlEl);
+    // 폭이 고정된 문서(body{width:210mm} 같은 인쇄용 페이지)는 PDF 처럼 가운데 종이로 놓고 바깥은 뷰어 배경을 보인다.
+    // 틀을 아주 넓게 잠깐 바꿔 재 보면 화면 폭과 상관없이 알 수 있다.
+    htmlEl.style.width = '20000px';
+    const style = getComputedStyle(bodyEl);
+    const fixed = bodyEl.getBoundingClientRect().width + parseFloat(style.marginLeft) + parseFloat(style.marginRight) < 19990;
+    htmlEl.style.width = '';
+    host.classList.toggle('hv-paper', fixed);
+    if (fixed) {
+      htmlEl.classList.add('hv-paper');
+      bodyEl.style.marginLeft = 'auto';
+      bodyEl.style.marginRight = 'auto';
+      if (style.backgroundColor === 'rgba(0, 0, 0, 0)' && style.backgroundImage === 'none') bodyEl.style.backgroundColor = '#fff';
+    }
+    if (host.dataset.bound) return;
+    host.dataset.bound = '1';
+    root.addEventListener('click', (event) => {
+      const link = event.target.closest('a[data-anchor], a[data-ex-open]');
+      if (!link) return;
+      event.preventDefault();
+      if (link.dataset.anchor) {
+        const id = link.dataset.anchor;
+        (root.getElementById(id) || root.querySelector(`[name="${CSS.escape(id)}"]`))?.scrollIntoView({ behavior: 'smooth' });
+      } else onOpen?.(link.dataset.exOpen);
+    });
+  }
+
   // 마크다운 → HTML (뷰어와 PDF 가 같은 함수를 써서 모습이 똑같다):
   // 수식은 marked 전에 빼 두었다가(common.js) DOMPurify 정리 뒤 KaTeX 로 그리고, 코드는 highlight.js 로 색칠한다.
-  // options.imageUrl(path): 상대 경로 그림 주소, options.pdf: 링크를 눌러 여는 대신 글자로 둔다
+  // options.imageUrl(path): 상대 경로 그림 주소, options.pdf: 링크를 눌러 여는 대신 글자로 둔다,
+  // options.lines: 블록마다 원본 줄 범위(data-md-line · data-md-end, 0부터)를 달아 둔다 (편집 중 커서 위치 표시용)
   function renderMarkdownHtml(content, mdPath, options = {}) {
     if (!window.marked || !window.DOMPurify) return null;
     const { text, math } = window.UnivDash.math.extract(content);
-    const raw = window.marked.parse(text, { gfm: true, breaks: false });
+    const opts = { gfm: true, breaks: false };
+    let raw;
+    let marks = null;
+    // 줄 수 세기: 여러 줄 수식은 한 줄짜리 자리표시로 바뀌어 있으므로 삼킨 줄 수를 더한다
+    const span = (str) => {
+      let n = (str.match(/\n/g) || []).length;
+      str.replace(/KTXM(\d+)Z/g, (m, i) => { n += math[Number(i)]?.nl || 0; return m; });
+      return n;
+    };
+    if (options.lines) {
+      // 맨 위 블록마다 앞에 빈 표시 태그를 끼워 렌더링한 뒤, 태그 바로 다음 요소에 줄 범위를 옮겨 적고 태그는 지운다
+      const tokens = window.marked.lexer(text, opts);
+      marks = [];
+      let line = 0;
+      for (let i = 0; i < tokens.length; i += 1) {
+        const token = tokens[i];
+        const start = line;
+        line += span(token.raw);
+        if (token.type === 'space') continue;
+        marks.push({ token, start, end: start + span(token.raw.replace(/\n+$/, '')) });
+        tokens.splice(i, 0, { type: 'html', block: true, pre: false, raw: '', text: `<span data-mdmark="${marks.length - 1}"></span>` });
+        i += 1;
+      }
+      raw = window.marked.parser(tokens, opts);
+    } else {
+      raw = window.marked.parse(text, opts);
+    }
     const html = window.DOMPurify.sanitize(raw, { USE_PROFILES: { html: true }, FORBID_TAGS: ['style', 'form', 'input', 'button', 'iframe'], FORBID_ATTR: ['style'] });
     const box = document.createElement('div');
     box.className = 'exv-md';
     box.innerHTML = window.UnivDash.math.render(html, math);
+    if (marks) {
+      const tag = (el, a, b) => { el.dataset.mdLine = a; el.dataset.mdEnd = b; };
+      // 목록은 항목마다 (안쪽 목록까지), 표는 줄마다 따로 단다
+      const tagList = (el, token, start) => {
+        if (!/^(UL|OL)$/.test(el.tagName)) return;
+        const items = [...el.children].filter((c) => c.tagName === 'LI');
+        if (items.length !== token.items.length) return;
+        let line = start;
+        token.items.forEach((item, i) => {
+          const a = line;
+          line += span(item.raw);
+          tag(items[i], a, a + span(item.raw.replace(/\n+$/, '')));
+          const rows = item.raw.split('\n');
+          const nestedEls = [...items[i].children].filter((c) => /^(UL|OL)$/.test(c.tagName));
+          (item.tokens || []).filter((t) => t.type === 'list').forEach((sub, n) => {
+            const first = sub.raw.split('\n')[0].trim();
+            const k = rows.findIndex((row, j) => j > 0 && row.trim() === first);
+            if (k > 0 && nestedEls[n]) tagList(nestedEls[n], sub, a + span(rows.slice(0, k).join('\n')) + 1);
+          });
+        });
+      };
+      box.querySelectorAll('span[data-mdmark]').forEach((marker) => {
+        const info = marks[Number(marker.dataset.mdmark)];
+        const el = marker.nextElementSibling;
+        marker.remove();
+        if (!info || !el || el.matches('span[data-mdmark]')) return;
+        tag(el, info.start, info.end);
+        if (info.token.type === 'list') tagList(el, info.token, info.start);
+        if (info.token.type === 'table' && el.tagName === 'TABLE') {
+          el.querySelectorAll(':scope > thead > tr, :scope > tbody > tr').forEach((tr, i) => { const l = i ? info.start + 1 + i : info.start; tag(tr, l, l); });
+        }
+      });
+    }
     box.querySelectorAll('img[src]').forEach((img) => {
       const src = img.getAttribute('src');
       if (/^(https?:|data:|\/\/)/i.test(src)) return;
@@ -1631,19 +1804,26 @@
       });
     }
 
-    function renderMarkdown(file, entry) {
-      return renderMarkdownHtml(file.content, entry.path, { imageUrl: (path) => `/api/fs/raw?path=${encodeURIComponent(path)}` });
+    function renderMarkdown(file, entry, extra = {}) {
+      return renderMarkdownHtml(file.content, entry.path, { imageUrl: (path) => `/api/fs/raw?path=${encodeURIComponent(path)}`, ...extra });
     }
     const metaHtml = (file, extra = '') => `<div class="exv-meta">${formatSize(file.size)} · ${formatTime(file.mtime)} 수정${extra}</div>`;
     // 렌더링해서 보여줄 수 있는 텍스트 (기본은 렌더링, 코드로 전환 가능): Markdown · Jupyter · CSV
-    const renderable = (entry) => isMarkdown(entry) || ['ipynb', 'csv', 'tsv'].includes((entry?.ext || '').toLowerCase());
+    const isHtml = (entry) => ['html', 'htm', 'xhtml'].includes((entry?.ext || '').toLowerCase());
+    const renderable = (entry) => isMarkdown(entry) || isHtml(entry) || ['ipynb', 'csv', 'tsv'].includes((entry?.ext || '').toLowerCase());
     function renderRich(file, entry) {
       const ext = (entry.ext || '').toLowerCase();
       if (isMarkdown(entry)) return renderMarkdown(file, entry);
       if (ext === 'ipynb') return renderNotebook(file, entry);
       if (ext === 'csv' || ext === 'tsv') return renderCsv(file, ext === 'tsv' ? '\t' : ',');
+      if (isHtml(entry) && window.DOMPurify && window.CSSStyleSheet && document.adoptedStyleSheets) return '<div class="exv-htmldoc"></div>';   // 그린 뒤 mountHtmlDoc 이 채운다
       return null;
     }
+    const openLocal = (path) => {
+      const name = basename(path);
+      const dot = name.lastIndexOf('.');
+      (options.onOpen || open)({ path, name, type: 'file', ext: dot > 0 ? name.slice(dot + 1).toLowerCase() : '' });
+    };
     function renderText(file, entry) {
       const rich = renderable(entry);
       const toggle = $('.exv-md-toggle');
@@ -1654,6 +1834,8 @@
       if (rich && mdRendered) { try { rendered = renderRich(file, entry); } catch (e) { rendered = null; } }
       bodyEl.innerHTML = metaHtml(file) + (rendered ? `<div class="exv-rich">${rendered}</div>` : renderCode({ ...file, name: entry.name, ext: file.ext || entry.ext }));
       if (rendered) { sizeRich(); showZoom(); } else $('.exv-zoom').classList.add('hidden');
+      const htmlHost = rendered && bodyEl.querySelector('.exv-htmldoc');
+      if (htmlHost) mountHtmlDoc(htmlHost, file.content, entry.path, openLocal).catch(() => { htmlHost.textContent = 'HTML 을 그리지 못했어요. 코드 보기로 확인하세요.'; });
       $('[data-act="mdpdf"]').classList.toggle('hidden', !(rendered && isMarkdown(entry)));
     }
 
@@ -2049,14 +2231,50 @@
       const pane = bodyEl.querySelector('.exv-live');
       if (!pane || !editorEl || !current) return;
       let html = null;
-      try { html = renderMarkdown({ content: editorEl.value }, current); } catch (e) { html = null; }
+      try { html = renderMarkdown({ content: editorEl.value }, current, { lines: true }); } catch (e) { html = null; }
       html = html ?? `<pre class="exv-live-plain">${escapeHtml(editorEl.value)}</pre>`;
       if (html === previewHtml) return;
       previewHtml = html;
       const top = pane.scrollTop;
       pane.innerHTML = html;
       pane.scrollTop = top;
+      markPreviewCursor(true);
     }
+    // 편집기 커서가 있는 줄 → 미리보기에서 그 줄을 그린 블록(목록 항목 · 표 줄까지)을 표시하고, 안 보이면 그쪽으로 스크롤
+    let cursorFrame = 0;
+    let cursorLine = -1;
+    function markPreviewCursor(rendered = false) {
+      cancelAnimationFrame(cursorFrame);
+      cursorFrame = requestAnimationFrame(() => {
+        const pane = bodyEl.querySelector('.exv-live');
+        if (!pane || !editorEl) return;
+        if (document.activeElement !== editorEl && cursorLine < 0) return;   // 아직 커서를 놓은 적 없으면 표시 안 함
+        const line = editorEl.value.slice(0, editorEl.selectionStart).split('\n').length - 1;
+        if (!rendered && line === cursorLine) return;
+        cursorLine = line;
+        let best = null;
+        let bestSize = Infinity;
+        let prev = null;
+        let prevEnd = -1;
+        pane.querySelectorAll('[data-md-line]').forEach((el) => {
+          const a = Number(el.dataset.mdLine);
+          const b = Number(el.dataset.mdEnd);
+          if (a <= line && line <= b) { if (b - a <= bestSize) { best = el; bestSize = b - a; } }   // 가장 좁은 것 (같으면 안쪽)
+          else if (b < line && b > prevEnd) { prev = el; prevEnd = b; }                              // 빈 줄이면 바로 위 블록
+        });
+        const target = best || prev;
+        pane.querySelectorAll('.md-cursor').forEach((el) => { if (el !== target) el.classList.remove('md-cursor'); });
+        if (!target) return;
+        target.classList.add('md-cursor');
+        const box = pane.getBoundingClientRect();
+        const rect = target.getBoundingClientRect();
+        if (rect.top < box.top || rect.bottom > box.bottom) {
+          const offset = rect.height > box.height * 0.6 ? 16 : box.height / 3;
+          pane.scrollTop += rect.top - box.top - offset;
+        }
+      });
+    }
+    document.addEventListener('selectionchange', () => { if (editorEl && document.activeElement === editorEl && livePreview()) markPreviewCursor(); });
     // 편집기를 스크롤하면 미리보기도 같은 비율 위치로 따라간다
     function syncPreviewScroll() {
       const pane = bodyEl.querySelector('.exv-live');
@@ -2105,7 +2323,12 @@
       editorEl = bodyEl.querySelector('.exv-textarea');
       editorEl.value = text;
       previewHtml = '';
-      if (live) { bindSplitter(); updatePreview(); }
+      cursorLine = -1;
+      if (live) {
+        bindSplitter();
+        updatePreview();
+        ['focus', 'click', 'keyup'].forEach((type) => editorEl.addEventListener(type, () => markPreviewCursor()));
+      }
       const gutter = bodyEl.querySelector('.exv-gutter');
       let lineCount = 0;
       const syncGutter = () => {
@@ -2354,10 +2577,7 @@
       if (link) {
         event.preventDefault();
         if (link.dataset.anchor) { bodyEl.querySelector(`#md-${CSS.escape(link.dataset.anchor.toLowerCase())}`)?.scrollIntoView({ behavior: 'smooth' }); return; }
-        const path = link.dataset.exOpen;
-        const name = basename(path);
-        const dot = name.lastIndexOf('.');
-        (options.onOpen || open)({ path, name, type: 'file', ext: dot > 0 ? name.slice(dot + 1).toLowerCase() : '' });
+        openLocal(link.dataset.exOpen);
         return;
       }
       const button = event.target.closest('[data-act]');
@@ -2437,6 +2657,85 @@
         bodyEl.scrollTop = ratio * (bodyEl.scrollHeight - bodyEl.clientHeight);
       }, 200);
     }).observe(bodyEl);
+    // ── 다른 곳(에이전트 등)에서 바뀐 파일 바로 반영 ──
+    // 보이는 텍스트 파일만 1.5초마다 수정 시각을 확인한다 (내용은 바뀌었을 때만 읽는다).
+    // - 보기: 스크롤 위치 그대로 다시 그린다.
+    // - 편집 중 · 저장 안 한 입력 없음: 편집기 내용을 바꾼다 (커서 · 스크롤 유지, 미리보기도).
+    // - 편집 중 · 저장 안 한 입력 있음: 서로 다른 줄을 고쳤으면 합친다. 같은 줄이면 '파일이 바뀌었어요' 안내로.
+    let watching = false;
+    function replaceEditorText(next) {
+      const cur = editorEl.value;
+      if (cur === next) return;
+      let a = 0;
+      while (a < cur.length && a < next.length && cur[a] === next[a]) a += 1;
+      let b = 0;
+      while (b < cur.length - a && b < next.length - a && cur[cur.length - 1 - b] === next[next.length - 1 - b]) b += 1;
+      const top = editorEl.scrollTop;
+      const left = editorEl.scrollLeft;
+      editorEl.setRangeText(next.slice(a, next.length - b), a, cur.length - b, 'preserve');   // 바뀐 부분만 → 커서가 제자리에
+      editorEl.scrollTop = top;
+      editorEl.scrollLeft = left;
+    }
+    function flashMeta(text) {
+      const meta = bodyEl.querySelector('.exv-meta');
+      if (!meta) return;
+      const time = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      meta.textContent = `${formatSize(lastFile.size)} · ${text} ${time}`;
+      meta.classList.remove('exv-meta-flash');
+      void meta.offsetWidth;
+      meta.classList.add('exv-meta-flash');
+    }
+    async function checkExternal() {
+      if (watching || saving || !current || !lastFile || typeof lastFile.content !== 'string' || lastFile.mtime_ns == null) return;
+      if (document.hidden || !container.isConnected || !container.getClientRects().length) return;
+      if (conflictPath === current.path) return;   // 이미 어떻게 할지 묻는 중
+      const path = current.path;
+      const snap = lastFile;
+      watching = true;
+      try {
+        const response = await fetch(`/api/fs/version?path=${encodeURIComponent(path)}`, { cache: 'no-store' });
+        if (!response.ok) return;
+        const version = await response.json();
+        if (version.mtime_ns === snap.mtime_ns || current?.path !== path || lastFile !== snap || saving) return;
+        const file = await api(`/api/fs/read?path=${encodeURIComponent(path)}`);
+        if (current?.path !== path || lastFile !== snap || saving || typeof file.content !== 'string') return;
+        const next = { ...file, content: file.content || '' };
+        if (!editing) {
+          const top = bodyEl.scrollTop;
+          const left = bodyEl.scrollLeft;
+          lastFile = next;
+          renderText(lastFile, current);
+          setEditButtons();
+          bodyEl.scrollTop = top;
+          bodyEl.scrollLeft = left;
+          flashMeta('다른 곳에서 바뀐 내용 반영');
+          return;
+        }
+        if (!editorEl || !editable(next)) return;
+        if (draftTimer) writeDraft();
+        const mine = editorEl.value;
+        const draft = store.get(draftKey(path), null);
+        if (mine === snap.content && !draft) {
+          lastFile = next;
+          replaceEditorText(next.content);
+        } else {
+          // 내 초안이 지금 보고 있는 파일 버전을 바탕으로 한 것일 때만 합친다
+          const merged = (draft?.base ?? snap.mtime_ns) === snap.mtime_ns ? merge3(snap.content, mine, next.content) : null;
+          if (merged == null) { conflictPath = path; showConflict(); return; }
+          lastFile = next;
+          if (merged === next.content) clearDraft(path);
+          else store.set(draftKey(path), { text: merged, base: next.mtime_ns });
+          replaceEditorText(merged);
+        }
+        editorEl.dispatchEvent(new Event('input'));   // 줄 번호 · 미리보기 · 초안 · 자동 저장
+        renderTabs();
+        setEditButtons();
+        flashMeta(mine === snap.content ? '다른 곳에서 바뀐 내용 반영 · 편집 중' : '다른 곳의 수정과 내 수정을 합침 · 편집 중');
+      } catch (e) { /* 다음 확인 때 다시 */ } finally { watching = false; }
+    }
+    setInterval(checkExternal, 1500);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) checkExternal(); });
+
     // +/- 키 확대 · 축소 (아래 공용 키 처리가 마지막으로 만진 뷰어를 고른다)
     zoomViewers.push({
       container,
@@ -2457,6 +2756,68 @@
       get activePath() { return tabState.active; },
       iconFor: (entry) => iconFor({ ...entry, type: 'file' }),
     };
+  }
+
+  // ── 3-way 병합 (줄 단위): base 에서 mine · theirs 가 각자 고친 곳을 합친다. 같은 곳을 다르게 고쳤으면 null ──
+  function lineMatch(a, b) {
+    // a 의 각 줄이 b 의 몇 번째 줄과 짝인지 (최장 공통 부분열). 앞뒤 같은 부분은 먼저 잘라 계산을 줄인다.
+    const match = new Array(a.length).fill(-1);
+    let head = 0;
+    while (head < a.length && head < b.length && a[head] === b[head]) { match[head] = head; head += 1; }
+    let tail = 0;
+    while (tail < a.length - head && tail < b.length - head && a[a.length - 1 - tail] === b[b.length - 1 - tail]) {
+      match[a.length - 1 - tail] = b.length - 1 - tail;
+      tail += 1;
+    }
+    const n = a.length - head - tail;
+    const m = b.length - head - tail;
+    if (!n || !m) return match;
+    if (n * m > 4e6) return null;   // 너무 크게 바뀜: 합치지 않는다
+    const width = m + 1;
+    const dp = new Uint32Array((n + 1) * width);
+    for (let i = n - 1; i >= 0; i -= 1) {
+      for (let j = m - 1; j >= 0; j -= 1) {
+        dp[i * width + j] = a[head + i] === b[head + j] ? dp[(i + 1) * width + j + 1] + 1 : Math.max(dp[(i + 1) * width + j], dp[i * width + j + 1]);
+      }
+    }
+    let i = 0;
+    let j = 0;
+    while (i < n && j < m) {
+      if (a[head + i] === b[head + j]) { match[head + i] = head + j; i += 1; j += 1; } else if (dp[(i + 1) * width + j] >= dp[i * width + j + 1]) i += 1; else j += 1;
+    }
+    return match;
+  }
+  function merge3(base, mine, theirs) {
+    if (mine === base) return theirs;
+    if (theirs === base || theirs === mine) return mine;
+    const B = base.split('\n');
+    const M = mine.split('\n');
+    const T = theirs.split('\n');
+    const bm = lineMatch(B, M);
+    const bt = lineMatch(B, T);
+    if (!bm || !bt) return null;
+    const same = (x, y) => x.length === y.length && x.every((line, k) => line === y[k]);
+    const out = [];
+    let i = 0;
+    let j = 0;
+    let k = 0;
+    for (let x = 0; x <= B.length; x += 1) {
+      const end = x === B.length;
+      if (!end && (bm[x] < 0 || bt[x] < 0)) continue;   // 양쪽 모두 그대로 둔 줄을 기준점으로
+      const mj = end ? M.length : bm[x];
+      const tk = end ? T.length : bt[x];
+      const b = B.slice(i, x);
+      const m = M.slice(j, mj);
+      const t = T.slice(k, tk);
+      if (same(m, b)) out.push(...t);
+      else if (same(t, b) || same(m, t)) out.push(...m);
+      else return null;                                  // 같은 곳을 서로 다르게 고침
+      if (!end) out.push(B[x]);
+      i = x + 1;
+      j = mj + 1;
+      k = tk + 1;
+    }
+    return out.join('\n');
   }
 
   // ── 뷰어 확대 · 축소 단축키: + (=) 확대 · - 축소 · 0 원래 크기 ──

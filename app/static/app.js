@@ -12,6 +12,7 @@
   const page = document.body.dataset.page;
   const desktopQuery = window.matchMedia('(min-width: 1024px)');
   const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
+  const SOLO = document.documentElement.classList.contains('ws-solo');   // 탭 하나만 띄운 팝업 창 (theme-boot.js)
 
   const store = {
     get(key, fallback) {
@@ -3097,9 +3098,10 @@
       if (!bar) return;
       const tabs = mainTabs();
       const active = activeId();
-      bar.classList.toggle('hidden', !tabs.length && !isSplit());
-      $('#termPane').classList.toggle('has-tabs', tabs.length > 0);
-      bar.innerHTML = tabs.map((t) => tabHtml(t, t.id === active)).join('');
+      bar.classList.toggle('hidden', !tabs.length && !isSplit() && !SOLO);
+      $('#termPane').classList.toggle('has-tabs', tabs.length > 0 || SOLO);
+      bar.innerHTML = tabs.map((t) => tabHtml(t, t.id === active)).join('') + (SOLO ? soloBarHtml() : '');
+      if (SOLO) soloSync(tabs, active);
       lastActive = active;
       bar.querySelector('.wt.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     }
@@ -3130,7 +3132,7 @@
       else if (tab.type === 'pty') showPty(tab.ptyId);
       else openFile({ path: tab.path, name: tab.tab.name, ext: tab.tab.ext, type: 'file' });
     }
-    async function closeTab(id) {
+    async function closeTab(id, { keep = false } = {}) {
       const tabs = mainTabs();
       const index = tabs.findIndex((t) => t.id === id);
       if (index < 0) return;
@@ -3142,12 +3144,13 @@
       } else {
         if (neighbour) activate(neighbour);                        // 먼저 옆 탭으로 넘어간 뒤 닫는다
         if (tab.type === 'file') await viewer.closeTab(tab.path);
-        else if (tab.type === 'pty') closePty(tab.ptyId, { hasNeighbour: !!neighbour });
+        else if (tab.type === 'pty') closePty(tab.ptyId, { hasNeighbour: !!neighbour, keep });
         else workspace.termTabs.close(tab.key);
       }
       renderBar();
     }
     bar?.addEventListener('click', (event) => {
+      if (event.target.closest('[data-solo-return]')) { returnToMain(); return; }
       const el = event.target.closest('.wt');
       if (!el) return;
       const tab = mainTabs().find((t) => t.id === el.dataset.id);
@@ -3236,13 +3239,13 @@
         showPty(info.id);
       } catch (error) { toast(error.message, 'error'); }
     }
-    function closePty(id, { hasNeighbour = false } = {}) {
+    function closePty(id, { hasNeighbour = false, keep = false } = {}) {
       const p = ptys.get(id);
       if (!p) return;
       ptys.delete(id);
       savePtyTabs();
       p.client?.dispose();
-      window.UnivDashPty?.kill(id);         // 탭을 닫으면 셸도 끝낸다
+      if (!keep) window.UnivDashPty?.kill(id);         // 탭을 닫으면 셸도 끝낸다 (새 창으로 옮길 때는 그대로 둔다)
       if (activePty === id) {
         activePty = null;
         if (!hasNeighbour) leavePty();
@@ -3588,11 +3591,11 @@
       saveLayout();
       renderGroups();
     }
-    async function closeTabIn(g, id) {
+    async function closeTabIn(g, id, { keep = false } = {}) {
       const tab = tabsOf(g).find((t) => t.id === id);
       if (!tab) return;
       if (tab.type === 'file') { if (!(await g.viewer.closeTab(tab.path))) return; }
-      else if (tab.type === 'pty') closePty(tab.ptyId, { hasNeighbour: true });
+      else if (tab.type === 'pty') closePty(tab.ptyId, { hasNeighbour: true, keep });
       else if (g.mirror?.key === tab.key) g.mirror.stop();
       const list = tabsOf(g);
       const index = list.findIndex((t) => t.id === id);
@@ -3636,9 +3639,12 @@
       const moves = layoutIds().filter((id) => id !== group).map((id) => ({
         icon: 'fa-arrow-right-to-bracket', label: `${id === 'main' ? '메인 그룹' : '분할'} (${positionLabel(id)})으로 옮기기`, onClick: () => moveTab(tab, group, id),
       }));
+      const pops = [{ icon: 'fa-up-right-from-square', label: '새 창으로 띄우기', desc: '팝업 창으로 떼어 내서 다른 모니터에 두고 쓸 수 있어요', onClick: () => popOut(tab, group) }];
+      if (window.screen?.isExtended && 'getScreenDetails' in window) pops.push({ icon: 'fa-display', label: '다른 모니터에 띄우기', onClick: () => popOut(tab, group, { otherScreen: true }) });
       actionSheet({
         title: el.querySelector('.wt-name')?.textContent || '탭',
         actions: [
+          ...pops, 'sep',
           ...splits, ...(splits.length && moves.length ? ['sep'] : []), ...moves, 'sep',
           { icon: 'fa-xmark', label: '닫기', onClick: () => (group === 'main' ? closeTab(tab.id) : closeTabIn(groups[group], tab.id)) },
           ...(group !== 'main' ? [{ icon: 'fa-table-columns', label: '이 분할 닫기', onClick: () => closeGroup(group) }] : []),
@@ -3646,6 +3652,113 @@
       });
     }
     bar?.addEventListener('contextmenu', (event) => tabMenu(event, 'main'));
+
+    // ── 새 창으로 띄우기: 탭 하나만 보이는 팝업 창 (/?solo=…). 다른 모니터로 끌어다 두고 쓴다 ──
+    // tmux 창 · Terminal 셸은 서버에 그대로 살아 있고, 새 창이 같은 것에 붙는다. 이 창에서는 탭을 뺀다.
+    // 팝업의 '메인 창으로' 를 누르거나, Terminal 팝업을 그냥 닫으면 이 창으로 돌아온다.
+    const SOLO_CHANNEL = 'univdash-solo';
+    let screenDetails = null;
+    const tabInfo = (tab) => (tab.type === 'term' ? { type: 'term', key: tab.key }
+      : tab.type === 'pty' ? { type: 'pty', id: tab.ptyId, cwd: tab.p?.cwd || '' }
+        : { type: 'file', path: tab.path, name: tab.tab?.name, ext: tab.tab?.ext });
+    function soloUrl(info) {
+      const q = new URLSearchParams({ solo: info.type });
+      if (info.type === 'term') q.set('key', info.key);
+      else if (info.type === 'pty') q.set('id', info.id);
+      else q.set('path', info.path);
+      return `/?${q}${info.type === 'term' ? `#${encodeURIComponent(info.key)}` : ''}`;
+    }
+    function popupName(id) {
+      let h = 0;
+      for (const c of id) h = (h * 31 + c.charCodeAt(0)) | 0;
+      return `univdash-solo-${(h >>> 0).toString(36)}`;
+    }
+    async function popOut(tab, group, { otherScreen = false } = {}) {
+      if (!tab) return;
+      if (tab.type === 'file' && tab.tab?.dirty) { toast('저장하지 않은 변경이 있어요. 저장한 뒤 새 창으로 띄워 주세요.', 'error'); return; }
+      const info = tabInfo(tab);
+      const pane = (group === 'main' ? $('#termPane') : groups[group]?.el)?.getBoundingClientRect();
+      const width = Math.round(Math.min(window.screen.availWidth, Math.max(1100, pane?.width || 1100)));
+      const height = Math.round(Math.min(window.screen.availHeight, Math.max(520, (pane?.height || 760) + 40)));
+      let left = window.screenX + 48;
+      let top = window.screenY + 48;
+      if (otherScreen) {
+        try {
+          screenDetails = screenDetails || await window.getScreenDetails();   // 처음 한 번 '창 관리' 권한을 물어본다
+          const here = screenDetails.currentScreen;
+          const other = screenDetails.screens.find((sc) => sc !== here && (sc.left !== here.left || sc.top !== here.top));
+          if (other) {
+            left = other.availLeft + Math.max(0, Math.round((other.availWidth - width) / 2));
+            top = other.availTop + Math.max(0, Math.round((other.availHeight - height) / 2));
+          }
+        } catch (e) { /* 권한 거부: 그냥 옆에 띄운다 */ }
+      }
+      const win = window.open(soloUrl(info), popupName(tab.id), `popup=yes,width=${width},height=${height},left=${left},top=${top}`);
+      if (!win) { toast('팝업이 막혔어요. 주소창의 팝업 차단 아이콘에서 이 사이트를 허용한 뒤 다시 눌러 주세요.', 'error'); return; }
+      if (group === 'main') await closeTab(tab.id, { keep: true });
+      else await closeTabIn(groups[group], tab.id, { keep: true });
+      if (info.type === 'pty') watchPopup(win, info);
+      toast('새 창으로 띄웠어요. 원하는 모니터로 옮겨 쓰세요.', 'success', 2200);
+    }
+    // 팝업이 닫혔는데 Terminal 이 돌아오지 않았으면 (그냥 창을 닫은 경우) 셸이 살아 있는 한 이 창 탭으로 되돌린다
+    function watchPopup(win, info) {
+      const timer = setInterval(async () => {
+        if (!win.closed) return;
+        clearInterval(timer);
+        if (ptys.has(info.id)) return;
+        try {
+          const alive = (await window.UnivDashPty.list()).find((t) => t.id === info.id && t.alive);
+          if (!alive || ptys.has(info.id)) return;
+          addPty(alive);
+          renderBar();
+          toast('새 창을 닫아서 Terminal 을 이 창 탭으로 돌려놨어요.', 'info', 2600);
+        } catch (e) { /* noop */ }
+      }, 1200);
+    }
+    function adoptTabs(list) {
+      let last = null;
+      for (const info of list || []) {
+        if (info?.type === 'term' && byKey().has(info.key)) { workspace.select(info.key, { pushHistory: false }); last = info; }
+        else if (info?.type === 'pty' && typeof info.id === 'string') { addPty({ id: info.id, cwd: info.cwd || '', alive: true }); showPty(info.id); last = info; }
+        else if (info?.type === 'file' && typeof info.path === 'string') { openFile({ path: info.path, name: info.name, ext: info.ext, type: 'file' }); last = info; }
+      }
+      if (last) { renderBar(); window.focus(); }
+    }
+    if (!SOLO) {
+      // 팝업에서 '메인 창으로': 연 창(opener)이 있으면 그 창으로, 없으면(메인 창을 새로고침 등) 열린 메인 창들로
+      window.addEventListener('message', (event) => {
+        if (event.origin !== location.origin || event.data?.type !== 'univdash-solo-return') return;
+        adoptTabs(event.data.tabs);
+      });
+      if ('BroadcastChannel' in window) {
+        const channel = new BroadcastChannel(SOLO_CHANNEL);
+        channel.addEventListener('message', (event) => { if (event.data?.type === 'univdash-solo-return' && document.visibilityState !== 'hidden') adoptTabs(event.data.tabs); });
+      }
+    }
+    // ── 팝업(solo) 창 쪽 ──
+    let soloSeen = false;
+    function soloBarHtml() {
+      return `<button type="button" class="wt-solo-return" data-solo-return title="이 창의 탭을 메인 창으로 돌려놓고 닫기"><i class="fas fa-arrow-right-to-bracket fa-flip-horizontal"></i><span>메인 창으로</span></button>`;
+    }
+    function soloSync(tabs, active) {
+      const all = currentTabs();
+      if (all.length) soloSeen = true;
+      const name = all.find((t) => t.id === active) || all[0];
+      if (name) document.title = `${name.type === 'term' ? displayName(name.w) : name.type === 'pty' ? ptyName(name.p) : name.tab.name} — UnivDash`;
+      // 마지막 탭을 닫으면 창도 닫는다
+      if (soloSeen && !workspace.termTabs.list().length && !ptys.size && !(viewer?.tabs || []).length) window.close();
+    }
+    function returnToMain() {
+      const tabs = [...currentTabs(), ...Object.values(groups).flatMap((g) => tabsOf(g))];
+      if (tabs.some((t) => t.type === 'file' && t.tab?.dirty)) { toast('저장하지 않은 변경이 있어요. 저장한 뒤 돌려놓아 주세요.', 'error'); return; }
+      const message = { type: 'univdash-solo-return', tabs: [...new Map(tabs.map((t) => [t.id.replace(/^sfile:/, 'file:'), tabInfo(t)])).values()] };
+      let sent = false;
+      try { if (window.opener && !window.opener.closed) { window.opener.postMessage(message, location.origin); sent = true; } } catch (e) { /* noop */ }
+      if (!sent && 'BroadcastChannel' in window) { const channel = new BroadcastChannel(SOLO_CHANNEL); channel.postMessage(message); channel.close(); }
+      ptys.forEach((p) => p.client?.dispose());   // 셸은 끝내지 않는다 (메인 창이 이어서 붙는다)
+      ptys.clear();
+      setTimeout(() => window.close(), 60);
+    }
 
     // ── 탭 끌어 놓기: 탭바 안에서는 순서 · 그룹 이동, 화면 위로 끌면 놓을 자리 (가장자리 = 그 그룹을 반으로 분할) ──
     let dragTab = null;       // { id, group }

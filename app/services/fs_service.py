@@ -205,6 +205,15 @@ def list_dir(path: str) -> dict:
     }
 
 
+def file_version(path: str) -> dict:
+    """열어 둔 파일이 다른 곳(에이전트 등)에서 바뀌었는지 가볍게 확인할 때 쓴다 (내용은 읽지 않는다)."""
+    file = resolve(path)
+    if not file.is_file():
+        raise FsError("파일이 아닙니다.")
+    st = file.stat()
+    return {"mtime_ns": str(st.st_mtime_ns), "size": st.st_size}
+
+
 def read_file(path: str) -> dict:
     file = resolve(path)
     if not file.is_file():

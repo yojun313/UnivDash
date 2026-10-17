@@ -10,22 +10,20 @@ Built as a mobile-first web app (installable to the iPhone home screen as a PWA)
 
 <table>
   <tr>
-    <td align="center" width="20%"><img src="./static/imgs/mobile/1.png" alt="Workspace (mobile)" width="100%"><br><sub>Workspace</sub></td>
-    <td align="center" width="20%"><img src="./static/imgs/mobile/2.png" alt="Window organizer (mobile)" width="100%"><br><sub>Organizer</sub></td>
-    <td align="center" width="20%"><img src="./static/imgs/mobile/3.png" alt="Server & processes (mobile)" width="100%"><br><sub>Server</sub></td>
-    <td align="center" width="20%"><img src="./static/imgs/mobile/4.png" alt="AI usage (mobile)" width="100%"><br><sub>AI Usage</sub></td>
-    <td align="center" width="20%"><img src="./static/imgs/mobile/5.png" alt="Git manager (mobile)" width="100%"><br><sub>Git</sub></td>
+    <td align="center" width="25%"><img src="./static/imgs/mobile/1.png" alt="Workspace (mobile)" width="100%"><br><sub>Workspace</sub></td>
+    <td align="center" width="25%"><img src="./static/imgs/mobile/2.png" alt="Window organizer (mobile)" width="100%"><br><sub>Organizer</sub></td>
+    <td align="center" width="25%"><img src="./static/imgs/mobile/3.png" alt="AI usage (mobile)" width="100%"><br><sub>AI Usage</sub></td>
+    <td align="center" width="25%"><img src="./static/imgs/mobile/4.png" alt="Git manager (mobile)" width="100%"><br><sub>Git</sub></td>
   </tr>
 </table>
 
 <table>
   <tr>
-    <td align="center" width="50%"><img src="./static/imgs/2.png" alt="Window organizer" width="100%"><br><sub>Window organizer: folders, drag-to-reorder, hide, rename</sub></td>
-    <td align="center" width="50%"><img src="./static/imgs/3.png" alt="Server & processes" width="100%"><br><sub>Server resources, PM2 processes and ecosystem.config.js</sub></td>
+    <td align="center" width="50%"><img src="./static/imgs/2.png" alt="Git manager" width="100%"><br><sub>Git: stage, commit, branch, merge, stash, push, AI commit messages</sub></td>
+    <td align="center" width="50%"><img src="./static/imgs/3.png" alt="AI usage" width="100%"><br><sub>Claude Code / Codex remaining limits, accounts and token statistics</sub></td>
   </tr>
   <tr>
-    <td align="center" width="50%"><img src="./static/imgs/4.png" alt="AI usage" width="100%"><br><sub>Claude Code / Codex remaining limits and token statistics</sub></td>
-    <td align="center" width="50%"><img src="./static/imgs/5.png" alt="Git manager" width="100%"><br><sub>Git: stage, commit, branch, merge, stash, push</sub></td>
+    <td align="center" colspan="2"><img src="./static/imgs/4.png" alt="Server & processes" width="50%"><br><sub>Server resources, PM2 processes and ecosystem.config.js</sub></td>
   </tr>
 </table>
 

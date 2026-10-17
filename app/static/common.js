@@ -420,7 +420,7 @@
     src = repairTexEscapes(src);
     const math = [];
     if (!window.katex || !/\$|\\\(|\\\[/.test(src)) return { text: src, math };
-    const put = (tex, display) => { math.push({ tex: tex.trim(), display }); return `KTXM${math.length - 1}Z`; };
+    const put = (tex, display) => { math.push({ tex: tex.trim(), display, nl: (tex.match(/\n/g) || []).length }); return `KTXM${math.length - 1}Z`; };   // nl: 자리표시가 삼킨 줄 수 (미리보기 줄 맞추기)
     const inText = (text) => text
       .replace(/\$\$([\s\S]+?)\$\$/g, (m, tex) => put(tex, true))
       .replace(/\\\[([\s\S]+?)\\\]/g, (m, tex) => put(tex, true))

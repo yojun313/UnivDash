@@ -756,6 +756,16 @@ html[data-ui-theme-mode="light"] .exv-zoom button, html[data-ui-theme-mode="ligh
 .exv-live { flex: 1; min-width: 0; overflow: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 .exv-live .exv-md { padding-bottom: 40vh; }
 .exv-live-plain { margin: 0; padding: 18px 20px; white-space: pre-wrap; }
+/* 편집기 커서가 있는 줄을 그린 블록: 왼쪽 파란 막대 + 옅은 바탕 (자리는 안 밀리게 그림자 · 가상 요소로) */
+.exv-live { --md-cur-bg: rgba(96,165,250,.09); --md-cur-bar: #60a5fa; }
+html[data-ui-theme-mode="light"] .exv-live { --md-cur-bg: rgba(37,99,235,.07); --md-cur-bar: #2563eb; }
+.exv-live .md-cursor:not(tr) { position: relative; background: var(--md-cur-bg); box-shadow: -8px 0 0 var(--md-cur-bg); border-radius: 0 4px 4px 0; }
+.exv-live .md-cursor:not(tr)::before { content: ''; position: absolute; left: -11px; top: 0; bottom: 0; width: 3px; border-radius: 2px; background: var(--md-cur-bar); pointer-events: none; }
+.exv-live li.md-cursor { box-shadow: -22px 0 0 var(--md-cur-bg); }
+.exv-live li.md-cursor::before { left: -25px; }
+.exv-live li.md-cursor::marker { color: var(--md-cur-bar); }
+.exv-live tr.md-cursor > * { background: var(--md-cur-bg); }
+.exv-live tr.md-cursor > :first-child { box-shadow: inset 3px 0 0 var(--md-cur-bar); }
 @media (max-width: 767px) {
   .exv-split { flex-direction: column; }
   .exv-split > .exv-editor { flex-basis: var(--split); min-height: 0; }
@@ -1513,3 +1523,18 @@ html.hide-overview #sbOverviewStats { display: none; }
 #sidebar #sysMon { max-height: 62vh; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
 #sidebar #sysMon::-webkit-scrollbar { display: none; }
 html.sidebar-collapsed #sidebar #sysMon { display: none !important; }
+
+/* ── 새 창으로 띄운 탭 (팝업, html.ws-solo): 앱 메뉴 · 창 목록 · 파일 사이드바 없이 그 탭만 ── */
+html.ws-solo #sidebar, html.ws-solo #sidebarOverlay, html.ws-solo main > header, html.ws-solo .tabbar,
+html.ws-solo #listPane, html.ws-solo #filePane, html.ws-solo .ws-switch,
+html.ws-solo #termBack, html.ws-solo #ptyBack, html.ws-solo #fileView [data-act="back"] { display: none !important; }
+html.ws-solo #termPane { display: flex !important; }
+html.ws-solo #termEmpty { display: none !important; }
+.wt-solo-return { margin-left: auto; flex-shrink: 0; position: sticky; right: 0; display: inline-flex; align-items: center; gap: 6px; height: 26px; margin-top: auto; margin-bottom: auto; padding: 0 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: rgba(255,255,255,.75); font-size: 11px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.wt-solo-return:hover, .wt-solo-return:focus-visible { background: rgba(59,130,246,.22); border-color: rgba(96,165,250,.45); color: #fff; }
+html[data-ui-theme-mode="light"] .wt-solo-return { border-color: rgba(15,23,42,.12); background: rgba(255,255,255,.85); color: #334155; }
+html[data-ui-theme-mode="light"] .wt-solo-return:hover { background: rgba(37,99,235,.1); color: #1d4ed8; }
+/* 다른 곳(에이전트 등)에서 바뀐 파일을 반영했을 때 상태 줄을 잠깐 밝힌다 */
+@keyframes exv-meta-flash { 0% { color: #93c5fd; background: rgba(59,130,246,.16); } 100% { color: #64748b; background: transparent; } }
+.exv-meta.exv-meta-flash { animation: exv-meta-flash 1.6s ease-out; }
+@media (prefers-reduced-motion: reduce) { .exv-meta.exv-meta-flash { animation: none; } }

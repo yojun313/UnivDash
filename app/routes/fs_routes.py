@@ -87,6 +87,14 @@ async def read_file(path: str = Query(..., max_length=4096)):
         _fail(error)
 
 
+@router.get("/api/fs/version", dependencies=api_auth)
+async def file_version(path: str = Query(..., max_length=4096)):
+    try:
+        return await asyncio.to_thread(fs_service.file_version, path)
+    except (FsError, OSError) as error:
+        _fail(error)
+
+
 @router.get("/api/fs/preview/hwpx", dependencies=api_auth)
 async def preview_hwpx(path: str = Query(..., max_length=4096)):
     try:
