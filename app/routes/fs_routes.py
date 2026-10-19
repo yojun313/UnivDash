@@ -274,9 +274,10 @@ async def search(
     root: str = Query(..., max_length=4096),
     q: str = Query(..., max_length=200),
     hidden: bool = False,
+    env: bool = False,
 ):
     try:
-        return await asyncio.to_thread(fs_service.search, root, q, hidden)
+        return await asyncio.to_thread(fs_service.search, root, q, hidden, env)
     except (FsError, OSError) as error:
         _fail(error)
 

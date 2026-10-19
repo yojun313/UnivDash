@@ -19,6 +19,7 @@
       ['auto-save', '자동 저장', '입력을 멈추면 0.8초 뒤 저장해요.', () => raw.get('univdash-ex-auto-save', true), (v) => raw.set('univdash-ex-auto-save', v)],
       ['md-split', '마크다운 실시간 미리보기', '편집할 때 오른쪽(휴대폰은 아래)에 렌더링 결과를 바로 보여 줘요.', () => raw.get('univdash-ex-md-split', true), (v) => raw.set('univdash-ex-md-split', v)],
       ['md-rendered', '마크다운 · 노트북 렌더링해서 열기', '끄면 파일을 코드로 먼저 보여 줘요.', () => raw.get('univdash-ex-md-rendered', true), (v) => raw.set('univdash-ex-md-rendered', v)],
+      ['show-env', '.env 파일 항상 보이기', '숨김 파일(. 파일)을 꺼 둬도 파일 탐색기에 .env · .env.local 같은 파일은 보여 줘요.', () => raw.get('univdash-ex-show-env', true), (v) => raw.set('univdash-ex-show-env', v)],
       ['wrap', '긴 줄 줄바꿈', '코드 보기와 편집기에서 긴 줄을 화면 폭에 맞춰 접어요.', () => raw.get('univdash-ex-wrap', coarse), (v) => raw.set('univdash-ex-wrap', v)],
     ],
     notify: [

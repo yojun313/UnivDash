@@ -27,7 +27,7 @@
 
   // ── 정렬 (즐겨찾기 · 폴더 · 미분류 각 묶음 안에서) ─────────────────────
   const SORTS = {
-    changes: { label: '변경사항 우선', icon: 'fa-pen-to-square', desc: '충돌 → 변경 있음 → 푸시/풀 필요 → 깨끗함' },
+    changes: { label: '변경사항 우선', icon: 'fa-pen-to-square', desc: '충돌 → 변경 있음 → 풀 필요 → 푸시 필요 → 깨끗함' },
     recent: { label: '최근 커밋순', icon: 'fa-clock', desc: '마지막 커밋이 최근인 저장소부터' },
     name: { label: '이름순', icon: 'fa-arrow-down-a-z', desc: '표시 이름 가나다/ABC 순' },
     manual: { label: '직접 지정', icon: 'fa-hand-pointer', desc: '끌어다 놓은 순서 그대로' },
@@ -35,18 +35,19 @@
   const sortMode = () => (SORTS[state.prefs.sort] ? state.prefs.sort : 'changes');
   function changeRank(repo) {
     const status = repo.status;
-    if (!status) return 4;
+    if (!status) return 5;
     if (status.conflicts) return 0;
     if (status.changes) return 1;
-    if (status.ahead || status.behind) return 2;
-    return 3;
+    if (status.behind) return 2;   // 풀 필요 (받을 커밋)
+    if (status.ahead) return 3;    // 푸시 필요
+    return 4;
   }
   // 같은 순위끼리는 직접 지정한 순서를 유지한다 (Array.prototype.sort 는 안정 정렬)
   function sortRepos(repos) {
     const mode = sortMode();
     if (mode === 'manual') return repos;
     const sorted = [...repos];
-    if (mode === 'changes') sorted.sort((a, b) => changeRank(a) - changeRank(b) || (b.status?.changes || 0) - (a.status?.changes || 0));
+    if (mode === 'changes') sorted.sort((a, b) => changeRank(a) - changeRank(b) || (b.status?.changes || 0) - (a.status?.changes || 0) || (b.status?.behind || 0) - (a.status?.behind || 0));
     else if (mode === 'recent') sorted.sort((a, b) => (b.status?.last_commit || 0) - (a.status?.last_commit || 0));
     else if (mode === 'name') sorted.sort((a, b) => displayName(a).localeCompare(displayName(b), 'ko', { numeric: true }));
     return sorted;

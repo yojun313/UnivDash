@@ -249,7 +249,10 @@ def read_file(path: str) -> dict:
     return info
 
 
-def search(root: str, query: str, show_hidden: bool) -> dict:
+ENV_NAME = re.compile(r"^\.env(\..+)?$")  # .env · .env.local · .env.example …
+
+
+def search(root: str, query: str, show_hidden: bool, show_env: bool = False) -> dict:
     base = resolve(root)
     query = (query or "").strip().lower()
     if not query:
@@ -267,7 +270,11 @@ def search(root: str, query: str, show_hidden: bool) -> dict:
         except OSError:
             continue
         for item in items:
-            if not show_hidden and item.name.startswith("."):
+            if (
+                not show_hidden
+                and item.name.startswith(".")
+                and not (show_env and ENV_NAME.match(item.name))
+            ):
                 continue
             if query in item.name.lower():
                 entry = _entry(Path(item.path))

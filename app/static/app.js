@@ -3673,15 +3673,15 @@
       for (const c of id) h = (h * 31 + c.charCodeAt(0)) | 0;
       return `univdash-solo-${(h >>> 0).toString(36)}`;
     }
-    async function popOut(tab, group, { otherScreen = false } = {}) {
+    async function popOut(tab, group, { otherScreen = false, at = null } = {}) {
       if (!tab) return;
       if (tab.type === 'file' && tab.tab?.dirty) { toast('저장하지 않은 변경이 있어요. 저장한 뒤 새 창으로 띄워 주세요.', 'error'); return; }
       const info = tabInfo(tab);
       const pane = (group === 'main' ? $('#termPane') : groups[group]?.el)?.getBoundingClientRect();
       const width = Math.round(Math.min(window.screen.availWidth, Math.max(1100, pane?.width || 1100)));
       const height = Math.round(Math.min(window.screen.availHeight, Math.max(520, (pane?.height || 760) + 40)));
-      let left = window.screenX + 48;
-      let top = window.screenY + 48;
+      let left = at ? Math.round(at.x - 120) : window.screenX + 48;   // at: 탭을 끌어 놓은 화면 위치
+      let top = at ? Math.round(at.y - 20) : window.screenY + 48;
       if (otherScreen) {
         try {
           screenDetails = screenDetails || await window.getScreenDetails();   // 처음 한 번 '창 관리' 권한을 물어본다
@@ -3922,6 +3922,14 @@
       return new window.Sortable(el, {
         group: 'ws-tabs', draggable: '.wt', direction: 'horizontal', animation: 150, delay: 250, delayOnTouchOnly: true,
         filter: '.wt-close', preventOnFilter: false,
+        // 다른 창(팝업 ↔ 메인)에 놓을 수 있게 탭 정보를 같이 싣는다
+        setData: (dataTransfer, dragEl) => {
+          const tab = findTab(group, dragEl.dataset.id);
+          if (!tab) return;
+          const payload = { from: WIN_ID, srcId: tab.id, group, info: tabInfo(tab), dirty: !!(tab.type === 'file' && tab.tab?.dirty) };
+          dataTransfer.setData(XTAB, JSON.stringify(payload));
+          dataTransfer.effectAllowed = 'move';
+        },
         onStart: (event) => {
           dragTab = { id: event.item.dataset.id, group };
           if (desktopQuery.matches) zonesEl?.classList.remove('hidden');
@@ -3942,6 +3950,98 @@
         },
       });
     }
+    // ── 창 사이로 탭 옮기기: 메인 창 ↔ 새 창(팝업)으로 띄운 창, 탭을 끌어서 다른 창 위에 놓는다 ──
+    // 놓은 창이 탭을 열고, 원래 창에 '가져갔다' 고 알려서 그 창의 탭을 닫는다 (tmux · Terminal 은 서버에 그대로 살아 있다).
+    const XTAB = 'application/x-univdash-tab';
+    const WIN_ID = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    const tabChannel = 'BroadcastChannel' in window ? new BroadcastChannel('univdash-tabs') : null;
+    const crossDrag = (event) => !dragTab && !dragFile && !dragWin && [...(event.dataTransfer?.types || [])].includes(XTAB);
+    let xdropBefore = null;   // 놓을 자리: 이 탭 앞 (null 이면 맨 끝)
+    function clearXdrop() {
+      document.body.classList.remove('xtab-over');
+      bar?.querySelectorAll('.xdrop-before, .xdrop-after').forEach((el) => el.classList.remove('xdrop-before', 'xdrop-after'));
+      xdropBefore = null;
+    }
+    document.addEventListener('dragover', (event) => {
+      if (!crossDrag(event)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      document.body.classList.add('xtab-over');
+      bar?.querySelectorAll('.xdrop-before, .xdrop-after').forEach((el) => el.classList.remove('xdrop-before', 'xdrop-after'));
+      const tabs = bar ? [...bar.querySelectorAll('.wt')] : [];
+      const overBar = bar && event.target.closest?.('#wsTabs');
+      const at = overBar ? tabs.find((el) => { const r = el.getBoundingClientRect(); return event.clientX < r.left + r.width / 2; }) : null;
+      xdropBefore = at?.dataset.id || null;
+      if (at) at.classList.add('xdrop-before');
+      else tabs[tabs.length - 1]?.classList.add('xdrop-after');
+    });
+    document.addEventListener('dragleave', (event) => { if (crossDrag(event) && (event.clientX <= 0 || event.clientY <= 0 || event.clientX >= window.innerWidth || event.clientY >= window.innerHeight)) clearXdrop(); });
+    document.addEventListener('drop', (event) => {
+      if (!crossDrag(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const before = xdropBefore;
+      clearXdrop();
+      let payload = null;
+      try { payload = JSON.parse(event.dataTransfer.getData(XTAB)); } catch (e) { payload = null; }
+      const info = payload?.info;
+      if (!info || payload.from === WIN_ID) return;
+      if (payload.dirty) { toast('저장하지 않은 변경이 있어요. 저장한 뒤 옮겨 주세요.', 'error'); return; }
+      const id = info.type === 'term' ? termId(info.key) : info.type === 'pty' ? ptyId(info.id) : fileId(info.path);
+      if (info.type === 'term' && !byKey().has(info.key)) { toast('이 창에서 찾을 수 없는 tmux 세션이에요.', 'error'); return; }
+      adoptTabs([info]);
+      tabChannel?.postMessage({ type: 'tab-taken', from: payload.from, srcId: payload.srcId, group: payload.group });
+      // 놓은 자리로 순서 맞추기 (파일 탭은 열리는 데 조금 걸린다)
+      let tries = 0;
+      const place = () => {
+        if (!currentTabs().some((t) => t.id === id)) { if (++tries < 30) setTimeout(place, 100); return; }
+        const order = orderedTabs().map((t) => t.id).filter((x) => x !== id);
+        const k = before ? order.indexOf(before) : -1;
+        order.splice(k < 0 ? order.length : k, 0, id);
+        tabOrder = order;
+        store.set('ws-tab-order', tabOrder);
+        renderBar();
+      };
+      place();
+    }, true);
+    window.addEventListener('dragend', clearXdrop);
+    // 끌던 탭을 창 밖으로 가져가면 이 창의 놓을 자리(분할 표시)는 지운다 → 다른 창에 놓아도 이 창에서 분할되지 않게
+    document.addEventListener('dragleave', (event) => {
+      if (!dragTab) return;
+      const { clientX: x, clientY: y } = event;
+      if (x <= 0 || y <= 0 || x >= window.innerWidth || y >= window.innerHeight) { dropTarget = null; showZone(null); }
+    });
+    // 탭을 창 밖(바탕화면 · 다른 프로그램 위)에 놓으면 그 자리에 새 창으로 띄운다.
+    // 다른 UnivDash 창이 받았으면 그 창이 'tab-taken' 을 보내므로 잠깐 기다렸다가, 아무도 안 받았을 때만 띄운다.
+    let outside = false;       // 끌던 탭이 마지막으로 창 밖으로 나갔는지
+    let pendingPop = null;
+    document.addEventListener('dragover', () => { if (dragTab) outside = false; }, true);
+    // 드래그 이벤트의 relatedTarget 은 브라우저가 잘 채우지 않으므로, 창 가장자리 밖 좌표로 나갔는지 본다
+    const offWindow = (e) => e.clientX <= 0 || e.clientY <= 0 || e.clientX >= window.innerWidth || e.clientY >= window.innerHeight;
+    document.addEventListener('dragleave', (event) => { if (dragTab && offWindow(event)) outside = true; }, true);
+    document.addEventListener('dragend', (event) => {
+      const drag = dragTab;
+      const left = outside;
+      outside = false;
+      if (!drag || !left || !desktopQuery.matches || event.dataTransfer?.dropEffect === 'move') return;
+      const at = event.screenX || event.screenY ? { x: event.screenX, y: event.screenY } : null;
+      clearTimeout(pendingPop?.timer);
+      pendingPop = { id: drag.id, timer: setTimeout(() => {
+        pendingPop = null;
+        const tab = findTab(drag.group, drag.id);
+        if (tab) popOut(tab, drag.group, { at });
+      }, 250) };
+    }, true);
+    tabChannel?.addEventListener('message', async (event) => {
+      const msg = event.data;
+      if (msg?.type !== 'tab-taken' || msg.from !== WIN_ID) return;
+      if (pendingPop?.id === msg.srcId) { clearTimeout(pendingPop.timer); pendingPop = null; }
+      const group = msg.group === 'main' || groups[msg.group] ? msg.group : 'main';
+      if (!findTab(group, msg.srcId)) return;
+      if (group === 'main') await closeTab(msg.srcId, { keep: true });
+      else await closeTabIn(groups[group], msg.srcId, { keep: true });
+      renderBar(); renderGroups();
+    });
     window.addEventListener('DOMContentLoaded', () => {
       if (!window.Sortable) return;
       if (bar) sortableFor(bar, 'main');

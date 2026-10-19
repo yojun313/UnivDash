@@ -8,6 +8,8 @@
   const ui = () => window.UnivDashUI;
   const coarse = window.matchMedia('(pointer: coarse)').matches;
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  const ENV_NAME = /^\.env(\..+)?$/;   // .env · .env.local · .env.example …
+  const showEnv = () => { try { const v = localStorage.getItem('univdash-ex-show-env'); return v === null ? true : JSON.parse(v) !== false; } catch (e) { return true; } };
   const store = {
     get(key, fallback) { try { const v = localStorage.getItem(`univdash-ex-${key}`); return v === null ? fallback : JSON.parse(v); } catch (e) { return fallback; } },
     set(key, value) { try { localStorage.setItem(`univdash-ex-${key}`, JSON.stringify(value)); } catch (e) { /* noop */ } },
@@ -193,8 +195,11 @@
 
     function visibleEntries(dir, entries) {
       const p = prefs();
-      return entries.filter((e) => (p.show_dotfiles || !e.name.startsWith('.')) && (p.show_hidden || !isGated(e.path)));
+      const env = showEnv();
+      return entries.filter((e) => (p.show_dotfiles || !e.name.startsWith('.') || (env && ENV_NAME.test(e.name))) && (p.show_hidden || !isGated(e.path)));
     }
+    // 숨김 파일을 꺼 둬도 .env 는 보이게 (설정 → 파일 · 편집기, 기본 켜짐)
+    window.addEventListener('univdash:settings', (event) => { if (event.detail?.key === 'show-env') render(); });
     function sortEntries(dir, entries) {
       const mode = prefs().sort;
       const byName = (a, b) => a.name.localeCompare(b.name, 'ko', { numeric: true, sensitivity: 'base' });
@@ -1211,7 +1216,7 @@
         treeEl.classList.add('hidden');
         results.innerHTML = '<div class="ex-note"><i class="fas fa-circle-notch fa-spin"></i> 검색 중…</div>';
         try {
-          const data = await api(`/api/fs/search?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&hidden=${prefs().show_dotfiles ? 1 : 0}`);
+          const data = await api(`/api/fs/search?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&hidden=${prefs().show_dotfiles ? 1 : 0}&env=${showEnv() ? 1 : 0}`);
           if (seq !== searchSeq) return;
           results.innerHTML = data.results.length ? data.results.map((entry) => `
             <div class="ex-row ex-result" data-path="${escapeHtml(entry.path)}" data-type="${entry.type}">
@@ -2381,7 +2386,11 @@
         }
       });
     }
-    document.addEventListener('selectionchange', () => { if (editorEl && document.activeElement === editorEl && livePreview()) markPreviewCursor(); });
+    document.addEventListener('selectionchange', () => {
+      if (!editorEl || document.activeElement !== editorEl) return;
+      placeCaretLine();
+      if (livePreview()) markPreviewCursor();
+    });
     // 편집기를 스크롤하면 미리보기도 같은 줄로 따라간다.
     // 원본 줄 → 미리보기 위치는 블록마다 단 줄 범위(data-md-line)를 기준점으로 잇고, 스크롤한 만큼만 움직여서
     // 커서 표시로 맞춰 둔 미리보기가 휙 넘어가지 않게 한다 (차이는 스크롤하는 동안 조금씩 줄여 간다).
@@ -2512,16 +2521,43 @@
       const top = editorEl.scrollTop;
       editorEl.focus({ preventScroll: true });
       editorEl.setSelectionRange(caret, caret);
-      // 커서 줄이 안 보이면 편집기만 스크롤 (미리보기는 누른 자리 그대로)
-      const line = value.slice(0, caret).split('\n').length - 1;
-      let lineTop = null;
-      try { lineTop = editorLineTops()[line]; } catch (e) { lineTop = null; }
       editorEl.scrollTop = top;
-      if (lineTop != null && (lineTop < top || lineTop + 24 > top + editorEl.clientHeight)) {
-        editorEl.scrollTop = Math.max(0, lineTop - editorEl.clientHeight / 3);
+      // 커서 줄을 편집기 위아래 가운데로 (미리보기는 누른 자리 그대로)
+      const box = caretLineBox();
+      if (box) {
+        editorEl.scrollTop = Math.max(0, box.top + box.height / 2 - editorEl.clientHeight / 2);
         syncedTop = editorEl.scrollTop;   // 이 스크롤로는 미리보기를 움직이지 않는다
       }
+      placeCaretLine({ flash: true });
       markPreviewCursor();
+    }
+    // 편집기 현재 줄 표시 (VS Code 처럼 줄 전체에 옅은 띠, 미리보기에서 옮겨 오면 잠깐 반짝)
+    function caretLineBox() {
+      if (!editorEl) return null;
+      const line = editorEl.value.slice(0, editorEl.selectionStart).split('\n').length - 1;
+      let tops;
+      try { tops = editorLineTops(); } catch (e) { return null; }
+      const lh = parseFloat(getComputedStyle(editorEl).lineHeight) || 20;
+      const top = tops[line];
+      if (top == null) return null;
+      const height = line + 1 < tops.length ? Math.max(lh, tops[line + 1] - top) : lh;
+      return { top, height };
+    }
+    let caretFrame = 0;
+    let caretFlash = false;   // 같은 프레임에 다른 이벤트가 다시 불러도 반짝임은 남긴다
+    function placeCaretLine({ flash = false } = {}) {
+      caretFlash ||= flash;
+      cancelAnimationFrame(caretFrame);
+      caretFrame = requestAnimationFrame(() => {
+        const band = editorEl?.parentElement?.querySelector('.exv-caretline');
+        if (!band) return;
+        const box = caretLineBox();
+        if (!box) { band.hidden = true; return; }
+        band.hidden = false;
+        band.classList.toggle('focused', document.activeElement === editorEl);
+        Object.assign(band.style, { top: `${editorEl.offsetTop + box.top - editorEl.scrollTop}px`, height: `${box.height}px`, left: `${editorEl.offsetLeft}px`, width: `${editorEl.clientWidth}px` });
+        if (caretFlash) { caretFlash = false; band.classList.remove('flash'); void band.offsetWidth; band.classList.add('flash'); }
+      });
     }
     function bindSplitter() {
       const split = bodyEl.querySelector('.exv-split');
@@ -2563,6 +2599,11 @@
         : editorHtml);
       editorEl = bodyEl.querySelector('.exv-textarea');
       editorEl.value = text;
+      const band = document.createElement('div');
+      band.className = 'exv-caretline'; band.hidden = true; band.setAttribute('aria-hidden', 'true');
+      band.addEventListener('animationend', () => band.classList.remove('flash'));
+      editorEl.before(band);
+      ['focus', 'blur', 'click', 'keyup', 'input'].forEach((type) => editorEl.addEventListener(type, () => placeCaretLine()));
       previewHtml = '';
       previewCss = new Map();
       cursorLine = -1;
@@ -2593,6 +2634,7 @@
       });
       editorEl.addEventListener('scroll', () => {
         gutter.style.transform = `translateY(${-editorEl.scrollTop}px)`;
+        placeCaretLine();
         if (live) syncPreviewScroll();
         viewOf(current.path).editTop = Math.round(editorEl.scrollTop);
         clearTimeout(scrollTimer);
