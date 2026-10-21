@@ -1793,6 +1793,7 @@
       // 창 상태(응답 필요 등)가 바뀌면 화면이 그대로여도 채팅 아래 카드를 다시 판단한다 (Codex 선택 창은 화면이 안 바뀜)
       if (lastScreen && lastScreen.pane === state.paneId) updateChatStatus(lastScreen);
       $('#termTitle').textContent = displayName(w);
+      $('#promptInput').placeholder = `${displayName(w)} · 프롬프트 입력`;
       $('#termSubtitle').textContent = [STATUS[w.status]?.label, w.title, w.path].filter(Boolean).join(' · ');
       $('#termStatusDot').className = `status-dot flex-shrink-0 ${w.status}`;
       const pill = $('#termAgent');
@@ -2268,7 +2269,11 @@
       const files = Array.from(event.dataTransfer.files || []);
       if (!files.length) return;
       if (item) select(item.dataset.key);
-      addFiles(files);
+      // 놓자마자 메모리로 복사 (Yoink 등은 끌어낸 뒤 원본을 지워서, 나중에 읽으면 '네트워크 오류' 가 난다)
+      Promise.all(files.map((file) => (file.size > 512 * 1024 * 1024 ? file
+        : file.arrayBuffer().then((buf) => new File([buf], file.name, { type: file.type, lastModified: file.lastModified }))
+          .catch(() => { toast(`${file.name}: 원본 파일을 읽을 수 없어요. 끌어온 앱(Yoink 등)이 파일을 옮기거나 지웠을 수 있어요.`, 'error'); return null; }))))
+        .then((copies) => { const ok = copies.filter(Boolean); if (ok.length) addFiles(ok); });
     });
     window.addEventListener('blur', hideDrop);
 
@@ -4258,6 +4263,7 @@
         if (!w) return;
         $$in('.tp-dot').className = `status-dot tp-dot ${w.status}`;
         $$in('.tp-title').textContent = displayName(w);
+        if (!direct) input.placeholder = promptHint();
         const pill = $$in('.tp-agent');
         pill.className = `tp-agent ${w.agent ? `agent-pill agent-${w.agent}` : 'agent-pill agent-shell'}`;   // 메인 머리글과 같은 색
         pill.textContent = w.agent || 'shell';
@@ -4365,12 +4371,13 @@
       });
       // 직접 입력 모드: 누르는 키를 바로 터미널로
       const DIRECT_KEYS = { Enter: 'Enter', Backspace: 'BSpace', Tab: 'Tab', Escape: 'Escape', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right', Delete: 'DC', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown' };
+      const promptHint = () => (w ? `${displayName(w)} · 프롬프트 입력` : '프롬프트 입력');
       function setDirect(on) {
         direct = on;
         $$in('[data-tp-direct]').setAttribute('aria-pressed', String(on));
         $$in('[data-tp-direct]').classList.toggle('active', on);
         $$in('.tp-direct-banner').classList.toggle('hidden', !on);
-        input.placeholder = on ? '직접 입력 중 (Esc 두 번이면 해제)' : '프롬프트 입력';
+        input.placeholder = on ? '직접 입력 중 (Esc 두 번이면 해제)' : promptHint();
         if (on) { input.value = ''; autosize(); input.focus(); }
       }
       $$in('[data-tp-direct]').addEventListener('click', () => setDirect(!direct));

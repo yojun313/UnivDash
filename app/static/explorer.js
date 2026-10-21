@@ -310,7 +310,13 @@
       const dirs = [...new Set([root, ...expanded].filter((dir) => dir === root || dir.startsWith(`${root}/`)))];
       const before = new Map(dirs.map((dir) => [dir, JSON.stringify(cache.get(dir))]));
       await Promise.all(dirs.map((dir) => load(dir, true)));
-      if (dirs.some((dir) => before.get(dir) !== JSON.stringify(cache.get(dir)))) render();
+      // 밖에서 지우거나 옮긴 펼친 폴더는 잊는다 (계속 다시 읽으며 오류를 내지 않게)
+      const gone = dirs.filter((dir) => dir !== root && cache.get(dir)?.error);
+      if (gone.length) {
+        gone.forEach((dir) => { expanded.delete(dir); cache.delete(dir); });
+        saveExpanded();
+      }
+      if (gone.length || dirs.some((dir) => before.get(dir) !== JSON.stringify(cache.get(dir)))) render();
     }
     const treeRefreshTimer = setInterval(() => {
       if (!container.isConnected) { clearInterval(treeRefreshTimer); return; }
@@ -725,10 +731,31 @@
       }
       if (!any && rel) out.dirs.push(sub);
     }
+    // 끌어다 놓은 파일은 놓자마자 메모리로 복사해 둔다: Yoink 같은 앱은 끌어낸 뒤 원본을 지우거나 옮겨서,
+    // 나중에 업로드하면서 읽으면 브라우저가 읽지 못해 '네트워크 오류' 가 난다. 아주 큰 파일은 메모리 대신 원본에서 바로 읽는다.
+    const SNAP_FILE = 512 * 1024 * 1024;
+    const SNAP_TOTAL = 1024 * 1024 * 1024;
+    function snapshotFiles(files) {
+      let budget = SNAP_TOTAL;
+      return Promise.all(files.map((file) => {
+        if (!file || file.size > SNAP_FILE || file.size > budget) return Promise.resolve({ file });
+        budget -= file.size;
+        return file.arrayBuffer()   // drop 이벤트 안에서 바로 읽기 시작한다
+          .then((buf) => ({ file: new File([buf], file.name, { type: file.type, lastModified: file.lastModified }) }))
+          .catch(() => ({ file, unreadable: true }));
+      }));
+    }
+    async function uploadSnapshots(pending, dir) {
+      const list = await pending;
+      const bad = list.filter((x) => x.unreadable);
+      bad.forEach(({ file }) => toast(`${file.name}: 원본 파일을 읽을 수 없어요. 끌어온 앱(Yoink 등)이 파일을 옮기거나 지웠을 수 있어요.`, 'error'));
+      const ok = list.filter((x) => !x.unreadable).map((x) => x.file);
+      if (ok.length) upload(ok, dir);
+    }
     async function uploadDropped(dataTransfer, dir) {
       // 항목 목록은 drop 이벤트가 끝나면 사라지므로 먼저 모두 꺼내 둔다
       const entries = [...(dataTransfer.items || [])].map((item) => (item.kind === 'file' ? item.webkitGetAsEntry?.() : null));
-      if (!entries.some((e) => e?.isDirectory)) { upload([...dataTransfer.files], dir); return; }
+      if (!entries.some((e) => e?.isDirectory)) { uploadSnapshots(snapshotFiles([...dataTransfer.files]), dir); return; }
       const files = [...dataTransfer.files];
       toast('폴더를 읽는 중…', 'info');
       const items = [];
