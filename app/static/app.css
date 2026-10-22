@@ -461,6 +461,11 @@ html[data-ui-theme-mode="light"] .mode-switch button.on { background: rgba(59,13
 .md-code { margin: 6px 0; padding: 10px 12px; border-radius: 10px; background: rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.06); overflow-x: auto; white-space: pre; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.5; color: #cbd5e1; }
 .msg-body code { font-family: 'JetBrains Mono', monospace; font-size: 0.88em; padding: 1px 5px; border-radius: 5px; background: rgba(148,163,184,0.16); color: #fcd34d; }
 .md-h { font-weight: 800; color: #fff; }
+.md-table { margin: 10px 0; overflow-x: auto; white-space: normal; }
+.md-table table { border-collapse: collapse; font-size: 13px; line-height: 1.45; min-width: 60%; }
+.md-table th, .md-table td { padding: 6px 10px; border: 1px solid rgba(255,255,255,0.1); text-align: left; vertical-align: top; overflow-wrap: normal; word-break: keep-all; }
+.md-table th { font-weight: 700; color: #fff; background: rgba(255,255,255,0.06); }
+.md-table tbody tr:nth-child(even) td { background: rgba(255,255,255,0.025); }
 .msg-tool { border-radius: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); font-size: 12px; }
 .msg-tool summary { display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer; list-style: none; min-width: 0; }
 .msg-tool summary::-webkit-details-marker { display: none; }
@@ -1119,6 +1124,9 @@ html[data-ui-theme-mode="light"] .exv-conflict { color: #92400e; }
 /* Terminal (xterm) */
 html[data-ui-theme-mode="light"] .pty-host, html[data-ui-theme-mode="light"] .pty-screen .xterm-viewport { background: #f8fafc !important; }
 html[data-ui-theme-mode="light"] .pty-keys { background: rgba(248,250,252,.95); border-top-color: rgba(15,23,42,.08); }
+html[data-ui-theme-mode="light"] .md-table th, html[data-ui-theme-mode="light"] .md-table td { border-color: rgba(15,23,42,.12); }
+html[data-ui-theme-mode="light"] .md-table th { color: #0f172a; background: rgba(15,23,42,.05); }
+html[data-ui-theme-mode="light"] .md-table tbody tr:nth-child(even) td { background: rgba(15,23,42,.025); }
 html[data-ui-theme-mode="light"] .md-code { background: #f1f5f9; border-color: rgba(15,23,42,.1); color: #1e293b; }
 @media (min-width: 1280px) { .git-page.safe-bottom { padding-bottom: 0 !important; } }
 .ex-copy { font-size: 11.5px; }

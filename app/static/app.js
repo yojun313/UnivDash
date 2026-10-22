@@ -2459,11 +2459,51 @@
         const { text: plain, math } = window.UnivDash.math.extract(part);
         // 블록 수식 앞뒤 줄바꿈은 수식 상자가 이미 줄을 차지하므로 하나씩 없앤다 (빈 줄이 생기지 않게)
         const tidy = plain.replace(/\n?(KTXM(\d+)Z)\n?/g, (m, token, i) => (math[Number(i)]?.display ? token : m));
-        return window.UnivDash.math.render(linkPaths(escapeHtml(tidy)
-          .replace(/`([^`\n]+)`/g, '<code>$1</code>')
-          .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
-          .replace(/^(#{1,6}) (.+)$/gm, '<span class="md-h">$2</span>')), math);
+        return window.UnivDash.math.render(linkPaths(mdTables(tidy)), math);
       }).join('');
+    }
+    const mdInline = (text) => escapeHtml(text)
+      .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
+      .replace(/^(#{1,6}) (.+)$/gm, '<span class="md-h">$2</span>');
+    // GFM 표: 머리 줄 + 구분 줄(|---|:--:|) + 본문 줄들. 나머지는 줄 단위 그대로 (pre-wrap)
+    const TABLE_SEP = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+    function tableCells(line) {
+      let row = line.trim();
+      if (row.startsWith('|')) row = row.slice(1);
+      if (row.endsWith('|') && !row.endsWith('\\|')) row = row.slice(0, -1);
+      return row.split(/(?<!\\)\|/).map((cell) => cell.trim().replace(/\\\|/g, '|'));
+    }
+    function mdTables(text) {
+      const lines = text.split('\n');
+      const out = [];
+      let buf = [];
+      const flush = () => { if (buf.length) out.push(mdInline(buf.join('\n'))); buf = []; };
+      for (let i = 0; i < lines.length; i += 1) {
+        const sep = lines[i + 1];
+        if (lines[i].includes('|') && sep?.includes('|') && TABLE_SEP.test(sep)) {
+          const head = tableCells(lines[i]);
+          const aligns = tableCells(sep).map((c) => (c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : ''));
+          if (head.length === aligns.length) {
+            let j = i + 2;
+            const rows = [];
+            while (j < lines.length && lines[j].includes('|') && lines[j].trim()) rows.push(tableCells(lines[j++]));
+            const cell = (tag, value, k) => `<${tag}${aligns[k] ? ` style="text-align:${aligns[k]}"` : ''}>${mdInline(value || '')}</${tag}>`;
+            // 표 앞뒤 빈 줄은 표 여백이 대신한다
+            while (buf.length && !buf[buf.length - 1].trim()) buf.pop();
+            flush();
+            out.push(`<div class="md-table"><table><thead><tr>${head.map((v, k) => cell('th', v, k)).join('')}</tr></thead><tbody>${
+              rows.map((r) => `<tr>${aligns.map((_, k) => cell('td', r[k], k)).join('')}</tr>`).join('')}</tbody></table></div>`);
+            i = j - 1;
+            while (lines[i + 1] !== undefined && !lines[i + 1].trim()) i += 1;
+            continue;
+          }
+        }
+        buf.push(lines[i]);
+      }
+      flush();
+      // 표 블록 바로 앞뒤 줄바꿈은 블록이 줄을 차지하므로 넣지 않는다
+      return out.reduce((acc, piece) => (acc && !acc.endsWith('</div>') && !piece.startsWith('<div class="md-table">') ? `${acc}\n${piece}` : acc + piece), '');
     }
     const TOOL_ICONS = { Bash: 'fa-terminal', exec_command: 'fa-terminal', shell: 'fa-terminal', Read: 'fa-file-lines', Edit: 'fa-pen', Write: 'fa-file-pen', MultiEdit: 'fa-pen', apply_patch: 'fa-pen', Grep: 'fa-magnifying-glass', Glob: 'fa-folder-open', WebFetch: 'fa-globe', WebSearch: 'fa-globe', Agent: 'fa-robot', Task: 'fa-robot', TodoWrite: 'fa-list-check' };
     function logItemHtml(item) {
