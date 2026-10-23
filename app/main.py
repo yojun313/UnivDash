@@ -17,6 +17,7 @@ from app.routes import (
     fs_routes,
     git_routes,
     pty_routes,
+    push_routes,
     server_routes,
     settings_routes,
     tmux_routes,
@@ -24,18 +25,23 @@ from app.routes import (
 )
 from app.security import SecurityMiddleware, env_flag, resolve_secret_key
 from app.services.auth_service import SESSION_MAX_AGE
-from app.services import upload_service
+from app.services import push_service, upload_service
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    cleanup_task = asyncio.create_task(upload_service.cleanup_loop())
+    tasks = [
+        asyncio.create_task(upload_service.cleanup_loop()),
+        asyncio.create_task(push_service.watch_loop()),
+    ]
     try:
         yield
     finally:
-        cleanup_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await cleanup_task
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            with suppress(asyncio.CancelledError):
+                await task
 
 
 # 관리용 대시보드이므로 API 문서(/docs, /redoc, /openapi.json)는 노출하지 않는다.
@@ -79,3 +85,4 @@ app.include_router(git_routes.router)
 app.include_router(fs_routes.router)
 app.include_router(pty_routes.router)
 app.include_router(settings_routes.router)
+app.include_router(push_routes.router)

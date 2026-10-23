@@ -23,7 +23,7 @@ SESSION_ID = re.compile(r"^[0-9a-fA-F-]{16,64}$")
 MAX_TEXT = 20000
 MAX_OUTPUT = 4000
 MAX_SUMMARY = 300
-CACHE_FILES = 16
+CACHE_FILES = 96  # 에이전트 창 수보다 넉넉히: 모자라면 매 상태 확인마다 모든 로그를 처음부터 다시 파싱한다
 
 # 사용자 입력처럼 보이지만 에이전트가 끼워 넣은 문맥은 숨긴다.
 _INJECTED_PREFIXES = (
@@ -105,6 +105,47 @@ _RESUME_ID = re.compile(
 )
 
 
+# rollout 첫 줄(session_meta)은 바뀌지 않으므로 기억해 둔다: path → {"cwd", "sub"}
+_meta_cache: dict[str, dict | None] = {}
+
+
+def _rollout_meta(path: Path) -> dict | None:
+    key = str(path)
+    if key in _meta_cache:
+        return _meta_cache[key]
+    try:
+        with path.open("rb") as handle:
+            first = json.loads(handle.readline(8 * 1024 * 1024))
+    except (OSError, ValueError):
+        return None  # 아직 쓰는 중일 수 있으니 기억하지 않는다
+    payload = first.get("payload") if isinstance(first, dict) else None
+    meta = None
+    if (
+        isinstance(first, dict)
+        and first.get("type") == "session_meta"
+        and isinstance(payload, dict)
+    ):
+        source = payload.get("source")
+        meta = {
+            "id": payload.get("id"),
+            "parent": payload.get("parent_thread_id"),
+            "agent_path": payload.get("agent_path"),
+            "cwd": payload.get("cwd"),
+            # 서브에이전트(thread_spawn)의 대화: 같은 작업 폴더에 따로 생기지만 사용자의 대화가 아니다
+            "sub": bool(payload.get("parent_thread_id"))
+            or (isinstance(source, dict) and "subagent" in source),
+        }
+    if len(_meta_cache) > 512:
+        _meta_cache.clear()
+    _meta_cache[key] = meta
+    return meta
+
+
+def _is_subagent(path: Path) -> bool:
+    meta = _rollout_meta(path)
+    return bool(meta and meta["sub"])
+
+
 def _codex_log(proc: psutil.Process, cwd: str) -> Path | None:
     root = _data_root("CODEX_DATA_DIR", ".codex")
     # `codex resume <ID>` 로 켜진 창은 그 대화의 로그가 확실하다 (공유 데몬이 파일을 열고 있어 아래 방법으로는 못 찾을 때가 많다)
@@ -129,6 +170,7 @@ def _codex_log(proc: psutil.Process, cwd: str) -> Path | None:
                     path.name.startswith("rollout-")
                     and path.suffix == ".jsonl"
                     and _inside(path, root)
+                    and not _is_subagent(path)
                 ):
                     return path
         except psutil.Error:
@@ -143,13 +185,9 @@ def _codex_log(proc: psutil.Process, cwd: str) -> Path | None:
         reverse=True,
     )[:40]
     for path in recent:
-        try:
-            with path.open(encoding="utf-8") as handle:
-                first = json.loads(handle.readline())
-            if (first.get("payload") or {}).get("cwd") == cwd:
-                return path
-        except (OSError, ValueError):
-            continue
+        meta = _rollout_meta(path)
+        if meta and meta["cwd"] == cwd and not meta["sub"]:
+            return path
     return None
 
 
@@ -160,6 +198,46 @@ def find_log(pane_pid: int, agent: str | None, cwd: str) -> Path | None:
     if proc is None:
         return None
     return _claude_log(proc) if agent == "claude" else _codex_log(proc, cwd)
+
+
+_AGENT_KEY = re.compile(r"^(?:[A-Za-z0-9_-]{1,64}|(?:/[A-Za-z0-9_.-]{1,64}){1,8})$")
+_sub_cache: dict[tuple[str, str], Path] = {}
+
+
+def find_subagent_log(main: Path, agent: str | None, key: str) -> Path | None:
+    """본 대화 기록(main) 의 서브에이전트(key: Claude agentId · Codex /root/이름) 기록 파일."""
+    if not _AGENT_KEY.match(key or ""):
+        return None
+    cached = _sub_cache.get((str(main), key))
+    if cached is not None and cached.exists():
+        return cached
+    found: Path | None = None
+    if agent == "claude":
+        root = _data_root("CLAUDE_DATA_DIR", ".claude")
+        path = main.with_suffix("") / "subagents" / f"agent-{key}.jsonl"
+        if "/" not in key and path.is_file() and _inside(path, root):
+            found = path
+    elif agent == "codex":
+        root = _data_root("CODEX_DATA_DIR", ".codex")
+        meta = _rollout_meta(main)
+        if meta and meta.get("id"):
+            # 서브에이전트는 부모보다 나중에 생기므로 파일 이름(시각순)이 부모 이후인 것만 본다
+            for path in sorted((root / "sessions").glob("*/*/*/rollout-*.jsonl")):
+                if path.name < main.name or not _inside(path, root):
+                    continue
+                sub = _rollout_meta(path)
+                if (
+                    sub
+                    and sub.get("parent") == meta["id"]
+                    and sub.get("agent_path") == key
+                ):
+                    found = path
+                    break
+    if found is not None:
+        if len(_sub_cache) > 256:
+            _sub_cache.clear()
+        _sub_cache[(str(main), key)] = found
+    return found
 
 
 # ── 파싱 ─────────────────────────────────────────────────────────────────────
@@ -192,6 +270,8 @@ def _tool_summary(name: str, data: Any) -> str:
         for key in (
             "command",
             "cmd",
+            "task_name",
+            "target",
             "file_path",
             "path",
             "pattern",
@@ -203,9 +283,12 @@ def _tool_summary(name: str, data: Any) -> str:
             value = data.get(key)
             if isinstance(value, list):
                 value = " ".join(map(str, value))
-            if value:
+            if value and not _encrypted(value):
                 return _clip(str(value).strip(), MAX_SUMMARY)
-        return _clip(json.dumps(data, ensure_ascii=False), MAX_SUMMARY)
+        shown = {k: v for k, v in data.items() if not _encrypted(v)}
+        return (
+            _clip(json.dumps(shown, ensure_ascii=False), MAX_SUMMARY) if shown else ""
+        )
     return ""
 
 
@@ -228,12 +311,34 @@ def _user_text(text: str) -> tuple[str, str] | None:
     return "user", stripped
 
 
+# ── 서브에이전트 ──
+# Claude: 백그라운드로 띄운 Agent 가 끝나면 "<task-notification>…" 이 사용자 메시지처럼 끼워진다 (사용자가 쓴 글이 아님)
+_NOTIFY = "<task-notification>"
+_NOTIFY_TAG = re.compile(
+    r"<(task-id|tool-use-id|status|summary|result)>(.*?)</\1>", re.DOTALL
+)
+# Codex: 서브에이전트 → 부모 메시지 (agent_message). 중간 메시지는 암호화되어 있고 최종 보고만 평문이다.
+_AGENT_MSG = re.compile(r"Message Type:\s*(\w+).*?Payload:\n?(.*)", re.DOTALL)
+SUBAGENT_TOOLS = {"Agent", "Task", "spawn_agent"}
+
+
+def _encrypted(value: Any) -> bool:
+    """Codex 가 암호화해 기록한 값 (Fernet 토큰)."""
+    return isinstance(value, str) and value.startswith("gAAAAA") and " " not in value
+
+
+def _parse_notification(text: str) -> dict:
+    return {key: value.strip() for key, value in _NOTIFY_TAG.findall(text)}
+
+
 class _Log:
     """한 로그 파일의 파싱 상태. 끝에 추가된 줄만 이어서 읽는다."""
 
     def __init__(self, path: Path, agent: str):
         self.path = path
         self.agent = agent
+        # Claude 서브에이전트 기록(…/subagents/agent-*.jsonl)은 모든 줄이 isSidechain 이다
+        self.sidechain = path.parent.name == "subagents"
         self.offset = 0
         self.size = 0
         self.items: list[dict] = []
@@ -241,6 +346,9 @@ class _Log:
         self.title = ""
         # Claude Code 대기열: 작업 중에 입력해 아직 전달되지 않은 프롬프트 (queue-operation enqueue/remove)
         self.queue: list[str] = []
+        self.agent_names: dict[str, str] = {}  # Claude 서브에이전트 ID → 설명(이름)
+        # Codex 서브에이전트 경로(/root/ground) → spawn_agent 도구 항목
+        self.subagents: dict[str, dict] = {}
 
     def _add(self, kind: str, text: str = "", ts: str = "", **extra) -> dict:
         item = {
@@ -254,25 +362,98 @@ class _Log:
         return item
 
     def _tool(self, call_id: str, name: str, data: Any, ts: str) -> None:
+        summary = _tool_summary(name, data)
+        if name == "SendMessage" and isinstance(data, dict):
+            # 서브에이전트에게 추가 지시: "받는 에이전트 이름 · 요약"
+            to = str(data.get("to") or "")
+            note = data.get("summary") or data.get("message") or ""
+            summary = _clip(
+                f"{self.agent_names.get(to) or to} · {note}".strip(" ·"), MAX_SUMMARY
+            )
         item = self._add(
             "tool",
             ts=ts,
             name=name,
-            summary=_tool_summary(name, data),
+            summary=summary,
             output=None,
             error=False,
         )
         if call_id:
             self.by_call[call_id] = item
 
-    def _result(self, call_id: str, output: Any, error: bool = False) -> None:
+    def _result(
+        self, call_id: str, output: Any, error: bool = False, launched: Any = None
+    ) -> None:
         item = self.by_call.get(call_id)
+        if (
+            item is not None
+            and isinstance(launched, dict)
+            and isinstance(launched.get("agentId"), str)
+        ):
+            self.agent_names[launched["agentId"]] = item.get("summary") or ""
+            if item.get("name") in SUBAGENT_TOOLS:
+                item["agent"] = launched[
+                    "agentId"
+                ]  # 펼치면 이 서브에이전트의 대화를 보여 준다
+        if item is not None and item.get("name") in SUBAGENT_TOOLS:
+            # 백그라운드로 띄운 서브에이전트: 지금은 '시작됨' 일 뿐 — 끝날 때(알림 · 최종 보고)까지 진행 중으로 둔다
+            if (
+                isinstance(launched, dict)
+                and launched.get("status") == "async_launched"
+            ):
+                item["running"] = True
+                return
+            if item.get("name") == "spawn_agent":
+                try:
+                    path = (
+                        json.loads(output).get("task_name")
+                        if isinstance(output, str)
+                        else None
+                    )
+                except (ValueError, AttributeError):
+                    path = None
+                if isinstance(path, str) and path:
+                    self.subagents[path] = item
+                    item["agent"] = path
+                    item["running"] = True
+                    return
         if item is not None:
             item["output"] = _clip(
                 _blocks_text(output) if not isinstance(output, str) else output,
                 MAX_OUTPUT,
             )
             item["error"] = bool(error)
+
+    def _subagent_done(
+        self, tool: dict | None, name: str, status: str, text: str, ts: str
+    ) -> None:
+        """서브에이전트가 끝났다(또는 보고했다): 도구 항목을 완료로 바꾸고, 보고 내용을 채팅에 보인다."""
+        failed = status in {"failed", "error", "killed", "cancelled"}
+        if tool is not None and tool.get("running"):
+            tool["running"] = False
+            tool["output"] = _clip(text or status, MAX_OUTPUT)
+            tool["error"] = failed
+        self._add(
+            "subagent",
+            text,
+            ts,
+            name=name or "서브에이전트",
+            status=status,
+            ref=tool["id"] if tool is not None else None,
+        )
+
+    def _notification(self, text: str, ts: str) -> None:
+        info = _parse_notification(text)
+        tool = self.by_call.get(info.get("tool-use-id", ""))
+        name = self.agent_names.get(info.get("task-id", "")) or (
+            tool.get("summary") if tool and tool.get("name") in SUBAGENT_TOOLS else ""
+        )
+        if not name:
+            match = re.search(r'Agent "(.+?)"', info.get("summary", ""))
+            name = match.group(1) if match else info.get("summary", "")
+        self._subagent_done(
+            tool, name, info.get("status", "completed"), info.get("result", ""), ts
+        )
 
     def _claude(self, d: dict) -> None:
         kind, ts = d.get("type"), d.get("timestamp") or ""
@@ -282,7 +463,9 @@ class _Log:
             text = d.get("content")
             operation = d.get("operation")
             if operation == "enqueue" and isinstance(text, str):
-                self.queue.append(text)
+                self.queue.append(
+                    text
+                )  # 서브에이전트 알림도 여기 들어온다 — 보여 줄 때 뺀다 (read)
             elif operation in {"remove", "dequeue", "popAll", "clear"}:
                 if operation in {"popAll", "clear"}:
                     self.queue.clear()
@@ -292,20 +475,24 @@ class _Log:
                     self.queue.pop(0)  # dequeue 는 내용 없이 가장 오래된 것을 꺼낸다
             return
         # 작업 도중에 받은 메시지는 user 가 아니라 attachment(queued_command) 로 기록된다
-        if kind == "attachment" and not d.get("isSidechain"):
+        side = d.get("isSidechain") and not self.sidechain
+        if kind == "attachment" and not side:
             att = d.get("attachment") or {}
             if (
                 isinstance(att, dict)
                 and att.get("type") == "queued_command"
                 and isinstance(att.get("prompt"), str)
             ):
+                if att["prompt"].lstrip().startswith(_NOTIFY):
+                    self._notification(att["prompt"], d.get("timestamp") or "")
+                    return
                 parsed = _user_text(att["prompt"])
                 if parsed:
                     self._add(
                         parsed[0], parsed[1], d.get("timestamp") or "", queued=True
                     )
             return
-        if kind not in {"user", "assistant"} or d.get("isMeta") or d.get("isSidechain"):
+        if kind not in {"user", "assistant"} or d.get("isMeta") or side:
             return
         content = (d.get("message") or {}).get("content")
         if kind == "user":
@@ -318,9 +505,14 @@ class _Log:
                             block.get("tool_use_id", ""),
                             block.get("content"),
                             block.get("is_error", False),
+                            d.get("toolUseResult"),
                         )
                 return
-            parsed = _user_text(_blocks_text(content))
+            text = _blocks_text(content)
+            if text.lstrip().startswith(_NOTIFY):
+                self._notification(text, ts)
+                return
+            parsed = _user_text(text)
             if parsed:
                 self._add(parsed[0], parsed[1], ts)
             return
@@ -358,6 +550,8 @@ class _Log:
             text = _blocks_text(p.get("content")).strip()
             if text:
                 self._add("assistant", text, ts)
+        elif ptype == "agent_message":
+            self._agent_message(p, ts)
         elif ptype in {"function_call", "custom_tool_call", "local_shell_call"}:
             self._tool(
                 p.get("call_id", ""),
@@ -371,6 +565,29 @@ class _Log:
             "local_shell_call_output",
         }:
             self._result(p.get("call_id", ""), p.get("output"))
+
+    def _agent_message(self, p: dict, ts: str) -> None:
+        """Codex 서브에이전트가 부모에게 보낸 메시지. 평문(최종 보고 등)만 보인다."""
+        text = "".join(
+            b.get("text", "")
+            for b in p.get("content") or []
+            if isinstance(b, dict)
+            and b.get("type") in {"input_text", "output_text", "text"}
+        )
+        match = _AGENT_MSG.search(text)
+        kind, body = (
+            (match.group(1), match.group(2).strip()) if match else ("", text.strip())
+        )
+        author = str(p.get("author") or "")
+        tool = self.subagents.get(author)
+        final = kind.upper() == "FINAL_ANSWER"
+        if not body:  # 암호화된 중간 메시지: 내용은 못 보지만 진행 중임은 그대로
+            return
+        name = author.rsplit("/", 1)[-1] or "서브에이전트"
+        if final:
+            self._subagent_done(tool, name, "completed", body, ts)
+        else:
+            self._add("subagent", body, ts, name=name, status="message", ref=None)
 
     def refresh(self) -> None:
         size = self.path.stat().st_size
@@ -416,13 +633,25 @@ def read(path: Path, agent: str, start: int | None, limit: int) -> dict:
             start = max(0, total - limit)
         start = max(0, min(int(start), total))
         items = [dict(item) for item in log.items[start : start + limit]]
+        # 서브에이전트가 끝나면 앞쪽(이미 받아 간) 도구 항목도 바뀐다 → 함께 보낸다
+        refs = {
+            item["ref"]
+            for item in items
+            if isinstance(item.get("ref"), int) and item["ref"] < start
+        }
+        related = [dict(log.items[i]) for i in sorted(refs) if i < total]
         return {
+            "related": related,
             "total": total,
             "start": start,
             "items": items,
             "title": log.title,
             "file": path.name,
-            "queued": [_clip(text, MAX_TEXT) for text in log.queue],
+            "queued": [
+                _clip(text, MAX_TEXT)
+                for text in log.queue
+                if not text.lstrip().startswith(_NOTIFY)
+            ],
         }
 
 

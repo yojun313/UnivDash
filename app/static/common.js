@@ -50,7 +50,7 @@
   // ── 이 기기 설정 (설정 창) ─────────────────────────────────────────────
   // 기기마다 다르게 둘 값은 localStorage 에 둔다. 바뀌면 'univdash:settings' 이벤트로 열린 화면에 알린다.
   const SETTING_DEFAULTS = {
-    'notify-agents': true, 'notify-git': true, haptics: true, 'editor-font': 13,
+    'notify-agents': true, 'notify-desktop': true, 'notify-git': true, haptics: true, 'editor-font': 13,
     // 사이드바: OVERVIEW 숫자 카드, 서버 상태 (sysmon.js)
     'show-overview': true,
     'sysmon-cpu': true, 'sysmon-gpu': true, 'sysmon-mem': true, 'sysmon-disk': true, 'sysmon-net': false, 'sysmon-interval': 2, 'sysmon-detail': false,
@@ -443,5 +443,18 @@
     });
   }
 
-  window.UnivDash = { escapeHtml, api, toast, gitWorkflows, settings, uploadFile, formatNumber, relativeTime, duration, formatDate, chartColors, typingOrBusy, plainKey, haptic, busy, math: { extract: extractMath, render: renderMath } };
+  // 이 브라우저를 구분하는 임의 ID (웹 푸시 구독 · 지금 보고 있는 기기 판단용). 저장이 막힌 환경에서는 탭마다 새로 만든다.
+  let deviceIdCache = null;
+  function deviceId() {
+    if (deviceIdCache) return deviceIdCache;
+    try { deviceIdCache = localStorage.getItem('univdash-device-id'); } catch (e) { /* 저장 불가 */ }
+    if (!deviceIdCache || !/^[A-Za-z0-9_-]{8,64}$/.test(deviceIdCache)) {
+      const bytes = crypto.getRandomValues(new Uint8Array(16));
+      deviceIdCache = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+      try { localStorage.setItem('univdash-device-id', deviceIdCache); } catch (e) { /* 저장 불가 */ }
+    }
+    return deviceIdCache;
+  }
+
+  window.UnivDash = { deviceId, escapeHtml, api, toast, gitWorkflows, settings, uploadFile, formatNumber, relativeTime, duration, formatDate, chartColors, typingOrBusy, plainKey, haptic, busy, math: { extract: extractMath, render: renderMath } };
 })();

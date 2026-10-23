@@ -23,7 +23,8 @@
       ['wrap', '긴 줄 줄바꿈', '코드 보기와 편집기에서 긴 줄을 화면 폭에 맞춰 접어요.', () => raw.get('univdash-ex-wrap', coarse), (v) => raw.set('univdash-ex-wrap', v)],
     ],
     notify: [
-      ['notify-agents', '에이전트 알림', '응답이 필요하거나 작업이 끝나면 알려 줘요.', () => U().settings.get('notify-agents'), (v) => U().settings.set('notify-agents', v)],
+      ['notify-desktop', '시스템 알림 (푸시)', '다른 앱 · 다른 화면을 보거나 브라우저를 닫아 둬도, 에이전트 작업이 끝나거나 응답이 필요하면 맥 · 윈도우 · 휴대폰 알림으로 알려 줘요.', () => U().settings.get('notify-desktop'), (v) => U().settings.set('notify-desktop', v)],
+      ['notify-agents', '화면 안 알림', '대시보드를 보고 있을 때, 다른 창에서 응답이 필요하거나 작업이 끝나면 화면 아래에 알려 줘요.', () => U().settings.get('notify-agents'), (v) => U().settings.set('notify-agents', v)],
       ['notify-git', 'Git 푸시 완료 알림', '자동 커밋 · 푸시가 끝나면 알려 줘요. 실패는 항상 알려요.', () => U().settings.get('notify-git'), (v) => U().settings.set('notify-git', v)],
       ['haptics', '진동', '버튼을 누르거나 알림이 올 때 짧게 진동해요 (지원하는 기기만).', () => U().settings.get('haptics'), (v) => U().settings.set('haptics', v)],
     ],
@@ -105,7 +106,14 @@
         </div>
         ${SWITCHES.monitor.map(([key, title, desc, read]) => switchHtml(key, title, desc, read())).join('')}`;
     }
-    if (id === 'editor' || id === 'notify') return SWITCHES[id].map(([key, title, desc, read]) => switchHtml(key, title, desc, read())).join('');
+    if (id === 'notify') {
+      return `${SWITCHES.notify.map(([key, title, desc, read]) => switchHtml(key, title, desc, read())).join('')}
+        <div class="ud-set-row">
+          <div class="ud-set-text"><p class="ud-set-title">이 기기 푸시 상태</p><p class="ud-set-desc" data-push-status>확인하는 중…</p></div>
+          <button type="button" class="ud-set-btn" data-push-test><i class="fas fa-bell"></i> 테스트 알림</button>
+        </div>`;
+    }
+    if (id === 'editor') return SWITCHES[id].map(([key, title, desc, read]) => switchHtml(key, title, desc, read())).join('');
     if (!server) return '<p class="ud-set-note"><i class="fas fa-circle-notch fa-spin"></i> 서버 설정을 불러오는 중…</p>';
     const limit = server.limits.upload_max_mb;
     const gb = s.upload_max_mb >= 1024 && s.upload_max_mb % 1024 === 0;
@@ -149,6 +157,16 @@
     scroller.dataset.shown = tab;
     scroller.innerHTML = section(tab);
     scroller.scrollTop = same ? top : 0;
+    if (tab === 'notify') showPush();
+  }
+  // 이 기기 웹 푸시 상태 (push.js)
+  function showPush(promise) {
+    const el = overlay?.querySelector('[data-push-status]');
+    if (!el) return;
+    const push = window.UnivDashPush;
+    (promise || push?.status() || Promise.resolve({ text: '알림 모듈을 불러오지 못했어요.' }))
+      .then((info) => { const now = overlay?.querySelector('[data-push-status]'); if (now) { now.textContent = info.text; now.dataset.state = info.state || ''; } })
+      .catch((error) => { const now = overlay?.querySelector('[data-push-status]'); if (now) now.textContent = error.message; });
   }
   function selectTab(id) {
     if (!TABS.some((t) => t.id === id)) return;
@@ -188,6 +206,21 @@
       sw.classList.toggle('on', next);
       sw.setAttribute('aria-checked', String(next));
       if (item[0] === 'haptics' && next) U().haptic(10);
+      // 권한 요청은 이 클릭 안에서 해야 브라우저가 물어본다
+      if (item[0] === 'notify-desktop' && window.UnivDashPush) showPush(window.UnivDashPush.sync({ ask: next }));
+      return;
+    }
+    if (event.target.closest('[data-push-test]')) {
+      const push = window.UnivDashPush;
+      if (!push) return;
+      if (!U().settings.get('notify-desktop')) {
+        U().settings.set('notify-desktop', true);
+        render();
+      }
+      const test = push.test();
+      showPush(test.then(() => push.status()));
+      test.then(() => U().toast('테스트 알림을 보냈어요. 안 보이면 OS 알림 설정에서 브라우저 알림이 켜져 있는지 확인해 주세요.', 'success', 6000))
+        .catch((error) => U().toast(error.message, 'error'));
       return;
     }
     const layout = event.target.closest('[data-layout]');

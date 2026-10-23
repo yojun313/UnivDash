@@ -34,7 +34,7 @@ _CSP_BASE = [
     "media-src 'self' blob:",
     "connect-src 'self'",
     "manifest-src 'self'",
-    "worker-src 'none'",
+    "worker-src 'self'",  # 웹 푸시 알림용 서비스 워커 (/sw.js)
     "object-src 'none'",
     "frame-src 'none'",
     "base-uri 'none'",

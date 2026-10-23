@@ -475,6 +475,18 @@ html[data-ui-theme-mode="light"] .mode-switch button.on { background: rgba(59,13
 .msg-tool.error summary .tool-state { color: #f87171; }
 .msg-tool.error { border-color: rgba(248,113,113,0.25); }
 .msg-tool pre { margin: 0; padding: 8px 10px 10px; border-top: 1px solid rgba(255,255,255,0.06); max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.5; color: #a8b3c4; }
+.msg-tool summary .sub-badge { flex-shrink: 0; padding: 1px 6px; border-radius: 999px; font-size: 10px; font-weight: 800; color: #6ee7b7; background: rgba(52,211,153,.12); }
+.msg-tool summary .sub-badge.run { color: #93c5fd; background: rgba(96,165,250,.14); }
+.msg-sub.error summary .sub-badge { color: #fca5a5; background: rgba(248,113,113,.14); }
+.msg-sub summary .sub-time { flex-shrink: 0; font-size: 10px; color: #64748b; }
+.msg-tool .sub-live { max-height: 420px; overflow: auto; padding: 8px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 6px; background: rgba(0,0,0,.12); }
+.msg-tool .sub-live:empty { display: none; }
+.msg-tool .sub-live .msg-body { font-size: 12.5px; }
+.msg-tool .sub-live .msg-meta { font-size: 10px; }
+.sub-empty { font-size: 11px; color: #64748b; text-align: center; padding: 4px; }
+.msg-sub { border-color: rgba(129,140,248,.22); background: rgba(99,102,241,.05); }
+.msg-sub .sub-body { padding: 8px 12px 10px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 13px; max-height: 480px; overflow: auto; }
+.msg-sub .sub-body .copy-btn { display: inline-flex; gap: 5px; align-items: center; margin-top: 6px; padding: 2px 8px; border-radius: 6px; font-size: 11px; color: #94a3b8; background: rgba(255,255,255,.05); }
 
 /* 시트 폼 안의 체크박스 줄 */
 .sheet-form label.check-row { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; opacity: 0.9; }
@@ -1064,6 +1076,11 @@ html[data-ui-theme-mode="light"] .msg-ai .copy-btn { color: #94a3b8; }
 @media (hover: hover) { html[data-ui-theme-mode="light"] .msg-ai .copy-btn:hover { color: #0f172a; background: rgba(15,23,42,.06); } }
 html[data-ui-theme-mode="light"] .msg-system { color: #475569; background: rgba(100,116,139,.12); }
 html[data-ui-theme-mode="light"] .msg-body code { background: rgba(15,23,42,.06); color: #b45309; }
+html[data-ui-theme-mode="light"] .msg-tool .sub-live { background: rgba(15,23,42,.03); border-top-color: rgba(15,23,42,.08); }
+html[data-ui-theme-mode="light"] .msg-sub { background: rgba(99,102,241,.05); border-color: rgba(79,70,229,.2); }
+html[data-ui-theme-mode="light"] .msg-sub .sub-body { border-top-color: rgba(15,23,42,.08); }
+html[data-ui-theme-mode="light"] .msg-tool summary .sub-badge { color: #047857; background: rgba(5,150,105,.1); }
+html[data-ui-theme-mode="light"] .msg-tool summary .sub-badge.run { color: #1d4ed8; background: rgba(37,99,235,.1); }
 html[data-ui-theme-mode="light"] .msg-tool { background: rgba(15,23,42,.03); border-color: rgba(15,23,42,.1); }
 html[data-ui-theme-mode="light"] .msg-tool summary .tool-name { color: #4f46e5; }
 html[data-ui-theme-mode="light"] .msg-tool summary .tool-sum { color: #64748b; }

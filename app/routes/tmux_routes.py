@@ -7,6 +7,7 @@ from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    Query,
     Request,
     WebSocket,
     WebSocketDisconnect,
@@ -15,9 +16,14 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 from app.routes.pages import render_page
-from app.services import tmux_service, transcript_service, upload_service
+from app.services import (
+    push_service,
+    seen_service,
+    tmux_service,
+    transcript_service,
+    upload_service,
+)
 from app.services.auth_service import AuthService
-from app.services import seen_service
 from app.services.preferences import Preferences, PreferencesStore, rename_session_keys
 from app.services.tmux_service import TmuxError
 
@@ -112,8 +118,12 @@ async def api_create_session(body: CreateSessionRequest):
 
 async def _resolve_log(pane: str):
     """pane 에서 실행 중인 에이전트의 세션 로그 파일 (없으면 None) 과 에이전트 종류."""
-    windows = await asyncio.to_thread(tmux_service.cached_windows)
+    # 상태 확인을 기다리지 않게 조금 오래된 목록도 쓴다 (pane 의 pid · 폴더는 거의 안 바뀜). 없으면 새로 조회
+    windows = await asyncio.to_thread(tmux_service.cached_windows, 30)
     target = next(((w, p) for w in windows for p in w.panes if p.id == pane), None)
+    if target is None:
+        windows = await asyncio.to_thread(tmux_service.cached_windows)
+        target = next(((w, p) for w in windows for p in w.panes if p.id == pane), None)
     if target is None:
         raise KeyError("존재하지 않는 pane 입니다.")
     window, pane_info = target
@@ -221,6 +231,27 @@ async def api_transcript(pane: str, start: int | None = None, limit: int = 80):
         return {"available": False, "agent": agent, "total": 0, "start": 0, "items": []}
     data = await asyncio.to_thread(transcript_service.read, path, agent, start, limit)
     return {"available": True, "agent": agent, **data}
+
+
+@router.get("/api/transcript/sub", dependencies=api_auth)
+async def api_transcript_sub(
+    pane: str, agent: str = Query(max_length=600), limit: int = 60
+):
+    """서브에이전트 하나의 대화 (채팅에서 서브에이전트 항목을 펼쳤을 때)."""
+    try:
+        pane = await asyncio.to_thread(tmux_service.require_pane, pane)
+        path, kind = await _resolve_log(pane)
+    except (TmuxError, KeyError) as error:
+        _raise_for(error)
+    sub = (
+        await asyncio.to_thread(transcript_service.find_subagent_log, path, kind, agent)
+        if path
+        else None
+    )
+    if sub is None:
+        return {"available": False, "total": 0, "start": 0, "items": []}
+    data = await asyncio.to_thread(transcript_service.read, sub, kind, None, limit)
+    return {"available": True, **data}
 
 
 class RenameSessionRequest(BaseModel):
@@ -368,38 +399,55 @@ async def push_log(channel: _Channel, loop) -> None:
         max(0, channel.log_since - 12),
         300,
     )
+    if data["start"] + len(data["items"]) < data["total"]:
+        # 한 번에 보낼 수 있는 것보다 많이 쌓였다(재연결 등) → 최신 묶음을 보내고, 화면은 처음부터 다시 받는다
+        data = await asyncio.to_thread(
+            transcript_service.read, channel.log_path, channel.log_agent, None, 300
+        )
     channel.log_since = data["total"]
     await channel.send({"t": "log", "pane": pane, **data})
+
+
+async def _push_windows(channel: _Channel) -> None:
+    try:
+        await channel.push_windows()
+    except TmuxError:
+        pass
+    except Exception:  # 연결이 끊긴 뒤 보내기 실패 등
+        logger.debug("창 목록 전송 실패", exc_info=True)
 
 
 async def _pump(channel: _Channel) -> None:
     loop = asyncio.get_running_loop()
     next_windows = 0.0
     next_auth = loop.time() + AUTH_RECHECK
-    while True:
-        now = loop.time()
-        # 입력이 없어도 화면은 계속 나가므로, 로그아웃 · 만료된 세션은 여기서 끊는다.
-        if now >= next_auth:
-            if not AuthService.current_user(channel.ws):
-                await channel.ws.close(code=1008)
-                return
-            next_auth = now + AUTH_RECHECK
-        if now >= next_windows:
+    # 창 목록(상태 확인)은 따로 돌린다 — 기다리는 동안에도 화면 · 채팅은 즉시 나가게
+    windows_task: asyncio.Task | None = None
+    try:
+        while True:
+            now = loop.time()
+            # 입력이 없어도 화면은 계속 나가므로, 로그아웃 · 만료된 세션은 여기서 끊는다.
+            if now >= next_auth:
+                if not AuthService.current_user(channel.ws):
+                    await channel.ws.close(code=1008)
+                    return
+                next_auth = now + AUTH_RECHECK
+            if now >= next_windows and (windows_task is None or windows_task.done()):
+                windows_task = asyncio.create_task(_push_windows(channel))
+                next_windows = now + WINDOWS_INTERVAL
+            await channel.push_seen()
+            if seen_service.dirty():
+                await asyncio.to_thread(seen_service.flush)
+            await channel.push_screen()
+            await push_log(channel, loop)
             try:
-                await channel.push_windows()
-            except TmuxError:
+                await asyncio.wait_for(channel.wake.wait(), timeout=SCREEN_INTERVAL)
+            except TimeoutError:
                 pass
-            next_windows = now + WINDOWS_INTERVAL
-        await channel.push_seen()
-        if seen_service.dirty():
-            await asyncio.to_thread(seen_service.flush)
-        await channel.push_screen()
-        await push_log(channel, loop)
-        try:
-            await asyncio.wait_for(channel.wake.wait(), timeout=SCREEN_INTERVAL)
-        except TimeoutError:
-            pass
-        channel.wake.clear()
+            channel.wake.clear()
+    finally:
+        if windows_task is not None:
+            windows_task.cancel()
 
 
 async def _handle(channel: _Channel, message: dict) -> None:
@@ -417,6 +465,12 @@ async def _handle(channel: _Channel, message: dict) -> None:
         return
     if kind == "ping":
         await channel.send({"t": "pong"})
+        return
+    if kind == "focus":
+        # 이 기기에서 지금 대시보드를 보고 있으면 웹 푸시를 보내지 않는다
+        device = message.get("device")
+        on = message.get("on") is True and isinstance(device, str)
+        push_service.set_focus(id(channel), device if on else None)
         return
 
     pane = await asyncio.to_thread(tmux_service.require_pane, message.get("pane"))
@@ -526,4 +580,5 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
     finally:
+        push_service.set_focus(id(channel), None)
         pump.cancel()

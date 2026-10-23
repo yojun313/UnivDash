@@ -2505,7 +2505,10 @@
       // 표 블록 바로 앞뒤 줄바꿈은 블록이 줄을 차지하므로 넣지 않는다
       return out.reduce((acc, piece) => (acc && !acc.endsWith('</div>') && !piece.startsWith('<div class="md-table">') ? `${acc}\n${piece}` : acc + piece), '');
     }
-    const TOOL_ICONS = { Bash: 'fa-terminal', exec_command: 'fa-terminal', shell: 'fa-terminal', Read: 'fa-file-lines', Edit: 'fa-pen', Write: 'fa-file-pen', MultiEdit: 'fa-pen', apply_patch: 'fa-pen', Grep: 'fa-magnifying-glass', Glob: 'fa-folder-open', WebFetch: 'fa-globe', WebSearch: 'fa-globe', Agent: 'fa-robot', Task: 'fa-robot', TodoWrite: 'fa-list-check' };
+    const TOOL_ICONS = { Bash: 'fa-terminal', exec_command: 'fa-terminal', shell: 'fa-terminal', Read: 'fa-file-lines', Edit: 'fa-pen', Write: 'fa-file-pen', MultiEdit: 'fa-pen', apply_patch: 'fa-pen', Grep: 'fa-magnifying-glass', Glob: 'fa-folder-open', WebFetch: 'fa-globe', WebSearch: 'fa-globe', Agent: 'fa-robot', Task: 'fa-robot', TodoWrite: 'fa-list-check', spawn_agent: 'fa-robot', SendMessage: 'fa-robot', send_message: 'fa-robot', followup_task: 'fa-robot', list_agents: 'fa-robot' };
+    // 서브에이전트 관련 도구는 이름 대신 뜻으로 보인다
+    const TOOL_LABELS = { Agent: '서브에이전트', Task: '서브에이전트', spawn_agent: '서브에이전트', SendMessage: '추가 지시', send_message: '서브에이전트에 메시지', followup_task: '추가 지시', list_agents: '서브에이전트 목록' };
+    const SUB_FAILED = new Set(['failed', 'error', 'killed', 'cancelled']);
     function logItemHtml(item) {
       const agentName = { claude: 'Claude', codex: 'Codex' }[log.agent] || 'Agent';
       if (item.kind === 'user') {
@@ -2515,12 +2518,55 @@
         return `<div class="msg msg-ai"><div class="msg-meta">${agentName} · ${escapeHtml(logTime(item.ts))}<button type="button" class="copy-btn" data-copy="${item.id}" aria-label="복사"><i class="far fa-copy"></i></button></div><div class="msg-body">${mdLite(item.text)}</div></div>`;
       }
       if (item.kind === 'system') return `<div class="msg-system">${escapeHtml(item.text)}</div>`;
+      if (item.kind === 'subagent') {
+        // 서브에이전트의 보고 (완료 · 중간 메시지): 한 줄 미리보기, 누르면 전체
+        const failed = SUB_FAILED.has(item.status);
+        const state = item.status === 'message' ? '메시지' : failed ? '실패' : '완료';
+        const preview = String(item.text || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+        return `<details class="msg-tool msg-sub ${failed ? 'error' : ''}"><summary><i class="fas fa-robot text-[11px]"></i>
+          <span class="tool-name">${escapeHtml(item.name || '서브에이전트')}</span><span class="sub-badge">${state}</span><span class="tool-sum">${escapeHtml(preview)}</span><span class="sub-time">${escapeHtml(logTime(item.ts))}</span></summary>
+          <div class="msg-body sub-body">${item.text ? mdLite(item.text) : '(내용 없음)'}<button type="button" class="copy-btn" data-copy="${item.id}" aria-label="복사"><i class="far fa-copy"></i> 복사</button></div></details>`;
+      }
       const pending = item.output === null || item.output === undefined;
       const stateIcon = pending ? '<i class="fas fa-circle-notch fa-spin text-slate-400"></i>' : item.error ? '<i class="fas fa-xmark"></i>' : '<i class="fas fa-check"></i>';
-      return `<details class="msg-tool ${item.error ? 'error' : ''}"><summary><i class="fas ${TOOL_ICONS[item.name] || 'fa-wrench'} text-slate-500 text-[11px]"></i>
-          <span class="tool-name">${escapeHtml(item.name)}</span><span class="tool-sum">${escapeHtml(item.summary || '')}</span><span class="tool-state">${stateIcon}</span></summary>
-          ${pending ? '' : `<pre>${escapeHtml(item.output || '(출력 없음)')}</pre>`}</details>`;
+      const sub = item.agent ? ` data-sub-agent="${escapeHtml(item.agent)}"` : '';
+      return `<details class="msg-tool ${item.error ? 'error' : ''}" data-item="${item.id}"${sub}><summary><i class="fas ${TOOL_ICONS[item.name] || 'fa-wrench'} text-slate-500 text-[11px]"></i>
+          <span class="tool-name" title="${escapeHtml(item.name)}">${escapeHtml(TOOL_LABELS[item.name] || item.name)}</span>${item.running ? '<span class="sub-badge run">작업 중</span>' : ''}<span class="tool-sum">${escapeHtml(item.summary || '')}</span><span class="tool-state">${stateIcon}</span></summary>
+          ${item.agent ? '<div class="sub-live"></div>' : ''}${pending ? '' : `<pre>${escapeHtml(item.output || '(출력 없음)')}</pre>`}</details>`;
     }
+    // 서브에이전트 항목을 펼치면: 그 서브에이전트의 대화(작업 내용)를 보여 주고, 펼쳐 둔 동안 계속 새로 고친다
+    const SUB_POLL_MS = 1500;
+    async function showSubagent(details) {
+      const box = details.querySelector(':scope > .sub-live');
+      const pane = details.closest('[data-pane]')?.dataset.pane;
+      if (!box || !pane || details.dataset.subLoading) return;
+      details.dataset.subLoading = '1';
+      try {
+        const data = await api('GET', `/api/transcript/sub?${new URLSearchParams({ pane, agent: details.dataset.subAgent, limit: 60 })}`);
+        if (!details.open || !details.isConnected) return;
+        const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+        const sig = `${data.total}:${JSON.stringify(data.items.at(-1) ?? null)}`;
+        if (box.dataset.sig !== sig) {
+          box.dataset.sig = sig;
+          box.innerHTML = !data.available ? '<div class="sub-empty">서브에이전트 기록을 찾지 못했어요.</div>'
+            : `${data.start > 0 ? `<div class="sub-empty">앞의 ${data.start}개 생략 · 최근 작업만 보여요</div>` : ''}${data.items.map((item) => logItemHtml(item)).join('') || '<div class="sub-empty">아직 기록이 없어요.</div>'}`;
+          box.querySelectorAll('.copy-btn').forEach((b) => b.remove());   // 복사 버튼은 본 대화 항목 기준이라 뺀다
+          if (atBottom || !box.dataset.shown) box.scrollTop = box.scrollHeight;
+          box.dataset.shown = '1';
+        }
+      } catch (error) {
+        box.innerHTML = `<div class="sub-empty">${escapeHtml(error.message)}</div>`;
+      } finally {
+        delete details.dataset.subLoading;
+      }
+      clearTimeout(details._subTimer);
+      if (details.open && details.isConnected) details._subTimer = setTimeout(() => { if (document.visibilityState === 'visible') showSubagent(details); else details._subTimer = setTimeout(() => showSubagent(details), SUB_POLL_MS); }, SUB_POLL_MS);
+    }
+    document.addEventListener('toggle', (event) => {
+      const details = event.target;
+      if (!(details instanceof HTMLDetailsElement) || !details.dataset.subAgent) return;
+      if (details.open) showSubagent(details); else clearTimeout(details._subTimer);
+    }, true);
     function logAtBottom() { return logScroll.scrollHeight - logScroll.scrollTop - logScroll.clientHeight < 60; }
     function renderLogOlder() {
       logOlder.classList.toggle('hidden', log.start <= 0);
@@ -2550,7 +2596,14 @@
       tmp.innerHTML = html.map(([item]) => logItemHtml(item)).join('');
       const nodes = Array.from(tmp.children);
       nodes.forEach((el, index) => log.rendered.set(html[index][0].id, { key: html[index][1], el, item: html[index][0] }));
-      if (prepend) logList.prepend(...nodes); else logList.append(...nodes);
+      if (prepend) { logList.prepend(...nodes); return; }
+      // 번호 순서대로: 늦게 도착한 앞 항목이 맨 아래에 붙지 않게
+      nodes.forEach((el, index) => {
+        const id = html[index][0].id;
+        let after = null;
+        for (const [other, entry] of log.rendered) if (other > id && entry.el.isConnected && (!after || other < after[0])) after = [other, entry.el];
+        if (after) logList.insertBefore(el, after[1]); else logList.append(el);
+      });
     }
     async function fetchLog(params) {
       const query = new URLSearchParams({ pane: state.paneId, ...params });
@@ -2626,6 +2679,7 @@
     async function loadLatestLog() {
       const pane = state.paneId;
       if (!pane) return;
+      logList.dataset.pane = pane;
       log.pane = pane;
       lastStatusKey = '';
       chatStatus.classList.add('hidden');
@@ -2886,10 +2940,14 @@
       if (Array.isArray(data.queued)) { log.queued = data.queued; }
       const stick = logAtBottom();
       if (data.total < log.total) { loadLatestLog(); return; }  // 세션이 바뀜 (/clear 등)
+      // 그사이 기록이 너무 많이 쌓여 중간이 빠졌으면(백그라운드 · 재연결) 최신부터 다시 — 이전 것은 '더 보기'로
+      if (data.items.length && (data.items[0].id > log.total || data.items.at(-1).id + 1 < data.total)) { loadLatestLog(); return; }
       const items = data.items.filter((item) => item.id >= log.start);
       const hasNew = items.some((item) => !log.rendered.has(item.id));
       if (hasNew) logList.querySelector('.log-empty')?.remove();
       upsertLogItems(items);
+      // 서브에이전트가 끝나면 앞쪽 도구 항목(작업 중 → 완료)도 바뀐다
+      if (Array.isArray(data.related)) upsertLogItems(data.related.filter((item) => log.rendered.has(item.id)));
       log.total = Math.max(log.total, data.total);
       renderPending();
       if (stick) logScroll.scrollTop = logScroll.scrollHeight;
@@ -4209,7 +4267,11 @@
           while (sent.length && (arrived > 0 || Date.now() - sent[0].at > 10 * 60 * 1000)) { if (arrived > 0) arrived -= 1; sent.shift(); }
         }
         const pending = sent.map((e) => `<div class="msg msg-user"><div class="msg-meta">나 · ${escapeHtml(new Date(e.at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }))}</div><div class="msg-body">${escapeHtml(e.text)}</div></div>`).join('');
+        // 다시 그려도 펼쳐 둔 항목(서브에이전트 등)은 펼친 채로
+        const opened = new Set([...listEl.querySelectorAll(':scope > details[open][data-item]')].map((el) => el.dataset.item));
+        listEl.dataset.pane = pane || '';
         listEl.innerHTML = (items.length || pending) ? items.map((item) => R.logItem(item, chat.agent)).join('') + pending : '<div class="log-empty">아직 대화가 없습니다.</div>';
+        opened.forEach((id) => { const el = listEl.querySelector(`:scope > details[data-item="${CSS.escape(id)}"]`); if (el) el.open = true; });
         if (logStick) logEl.scrollTop = logEl.scrollHeight;
       }
       window.addEventListener('univdash:agent-switched', (event) => {
@@ -4243,7 +4305,9 @@
       function applyLog(data) {
         if (modeOf() !== 'log') return;
         if (data.total < chat.total) { loadChat(); return; }
+        if (data.items.length && (data.items[0].id > chat.total || data.items.at(-1).id + 1 < data.total)) { loadChat(); return; }
         data.items.forEach((item) => chat.items.set(item.id, item));
+        (data.related || []).forEach((item) => { if (chat.items.has(item.id)) chat.items.set(item.id, item); });
         chat.total = Math.max(chat.total, data.total);
         renderChat();
       }
@@ -4725,6 +4789,17 @@
   socket.on('windows', (message) => {
     onWindows(message.windows);
     workspace?.onWindowsChanged();
+  });
+  // 이 기기에서 지금 대시보드를 보고 있는지 서버에 알린다 → 보고 있으면 웹 푸시 대신 화면 안 알림만 (push.js)
+  const reportFocus = () => socket.send({ t: 'focus', device: window.UnivDash.deviceId(), on: document.visibilityState === 'visible' && document.hasFocus() });
+  socket.on('open', reportFocus);
+  window.addEventListener('focus', reportFocus);
+  window.addEventListener('blur', reportFocus);
+  document.addEventListener('visibilitychange', reportFocus);
+  // 푸시 알림을 눌렀을 때 그 창 열기
+  window.addEventListener('univdash:open-window', (event) => {
+    const key = event.detail?.key;
+    if (workspace && state.windows.some((w) => w.key === key)) workspace.select(key);
   });
   socket.on('seen', (message) => { if (mergeSeen(message.seen)) renderAll(true); flushSeen(); });
   socket.on('open', flushSeen);
