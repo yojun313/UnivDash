@@ -363,11 +363,158 @@ def _launch_command(
     return ["codex", "resume", session_id, *flags]
 
 
-def switch_agent(pane_id: str, target: str) -> dict:
+# ── 대화 넘기기: 지금 에이전트의 대화 기록을 파일로 만들어 다른 에이전트가 읽고 이어 가게 한다 ──
+HANDOFF_KEEP = 40  # 인계 파일은 최근 것만 남긴다
+HANDOFF_LIMIT = (
+    240_000  # 인계 파일 전체 글자 수 (새 에이전트가 읽고도 일할 여유가 남게)
+)
+HANDOFF_FULL = 120_000  # 최근 대화는 이만큼 그대로 싣고, 그 앞은 줄인다
+HANDOFF_TOOLS = 6  # 이어진 도구 호출 중 요약을 적는 개수 (마지막 몇 개)
+HANDOFF_SUMMARY = 160
+AGENT_LABEL = {"claude": "Claude", "codex": "Codex"}
+
+
+def _handoff_dir() -> Path:
+    path = data_dir() / "handoff"
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return path
+
+
+def _clip_middle(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit // 2].rstrip()}\n…(중간 {len(text) - limit}자 생략)…\n{text[-limit // 2 :].lstrip()}"
+
+
+def _handoff_blocks(items: list[dict], name: str) -> list[tuple[str, str]]:
+    """대화를 (전체, 줄인) 글 덩어리로. 이어진 도구 호출은 한 덩어리로 묶는다."""
+    blocks: list[tuple[str, str]] = []
+    tools: list[dict] = []
+
+    def flush() -> None:
+        if not tools:
+            return
+        counts: dict[str, int] = {}
+        for tool in tools:
+            counts[tool.get("name") or "tool"] = (
+                counts.get(tool.get("name") or "tool", 0) + 1
+            )
+        head = (
+            f"- (도구 {len(tools)}번: "
+            + ", ".join(f"{k} ×{v}" if v > 1 else k for k, v in counts.items())
+            + ")"
+        )
+        rows = []
+        for tool in tools[-HANDOFF_TOOLS:]:
+            summary = " ".join((tool.get("summary") or "").split())[:HANDOFF_SUMMARY]
+            mark = " · 실패" if tool.get("error") else ""
+            rows.append(f"  - {tool.get('name') or 'tool'}{mark}: {summary}")
+        if len(tools) > HANDOFF_TOOLS:
+            rows.insert(0, f"  - …앞의 {len(tools) - HANDOFF_TOOLS}번은 생략")
+        blocks.append(("\n".join([head, *rows]) + "\n", head + "\n"))
+        tools.clear()
+
+    for item in items:
+        kind, text, ts = item.get("kind"), item.get("text") or "", item.get("ts") or ""
+        if kind == "tool":
+            tools.append(item)
+            continue
+        flush()
+        stamp = f" ({ts[:16].replace('T', ' ')})" if ts else ""
+        if kind == "user":
+            head = f"## 사용자{stamp}\n\n"
+            blocks.append((head + text + "\n", head + _clip_middle(text, 1500) + "\n"))
+        elif kind == "assistant":
+            head = f"## {name}{stamp}\n\n"
+            blocks.append((head + text + "\n", head + _clip_middle(text, 500) + "\n"))
+        elif kind == "system":
+            line = f"> [시스템] {' '.join(text.split())[:200]}\n"
+            blocks.append((line, line))
+        elif kind == "subagent":
+            head = f"### 서브에이전트 보고 · {item.get('name') or '서브에이전트'}{stamp}\n\n"
+            blocks.append(
+                (
+                    head + _clip_middle(text, 4000) + "\n",
+                    head + _clip_middle(text, 400) + "\n",
+                )
+            )
+    flush()
+    return blocks
+
+
+def _handoff_markdown(
+    items: list[dict], source: str, target: str, cwd: str, log: Path
+) -> str:
+    """인계 기록. 길면 최근 대화는 그대로, 앞쪽은 줄이고, 그래도 넘치면 가장 앞부분을 뺀다."""
+    name = AGENT_LABEL[source]
+    blocks = _handoff_blocks(items, name)
+    kept: list[str] = []
+    used = 0
+    for full, short in reversed(blocks):
+        text = full if used + len(full) <= HANDOFF_FULL else short
+        if used + len(text) > HANDOFF_LIMIT:
+            break
+        kept.append(text)
+        used += len(text)
+    kept.reverse()
+    dropped = len(blocks) - len(kept)
+    lines = [
+        f"# 대화 인계 기록 ({name} → {AGENT_LABEL[target]})",
+        "",
+        f"- 작업 폴더: {cwd}",
+        f"- 원본 대화 기록(JSONL, 모든 도구 결과 포함): {log}",
+        f"- 만든 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}",
+        "",
+        (
+            f"아래는 사용자와 {name} 가 이 폴더에서 나눈 대화를 순서대로 옮긴 것이다. "
+            "도구 호출은 요약만 적었고, 오래된 메시지는 줄였을 수 있다. "
+            "자세한 내용이 필요하면 원본 기록을 찾아본다."
+        ),
+        "",
+    ]
+    if dropped:
+        # 앞부분을 빼도 처음 요청(목표)은 남긴다
+        first = next(
+            (short for full, short in blocks[:dropped] if full.startswith("## 사용자")),
+            None,
+        )
+        lines += [
+            f"> 너무 길어서 앞의 {dropped}개 덩어리는 뺐다 (원본 기록에 있다).",
+            "",
+        ]
+        if first:
+            lines += ["(처음 요청)", "", first, "> …(중간 생략)…", ""]
+    return "\n".join([*lines, *kept])
+
+
+def _write_handoff(window_key: str, text: str) -> Path:
+    folder = _handoff_dir()
+    safe = re.sub(r"[^A-Za-z0-9_-]", "-", window_key)[:40]
+    path = folder / f"{time.strftime('%Y%m%d-%H%M%S')}-{safe}-{secrets.token_hex(3)}.md"
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    for old in sorted(folder.glob("*.md"))[:-HANDOFF_KEEP]:
+        old.unlink(missing_ok=True)
+    return path
+
+
+def _handoff_prompt(source: str, path: Path) -> str:
+    return (
+        f"이 작업은 다른 에이전트({AGENT_LABEL[source]})에서 넘어왔어요. "
+        f"지금까지 이 폴더에서 나눈 대화 전체가 {path} 파일에 있어요. "
+        "이 파일을 처음부터 끝까지 읽고(길면 나눠서) 목표, 결정한 것, 진행 상황, 남은 일을 파악해 주세요. "
+        "기록 안에 다른 인계 파일이 언급돼 있으면 그것도 읽어 주세요. "
+        "다 읽으면 파악한 맥락을 짧게 정리해 알려 주고, 새 작업은 시작하지 말고 제 다음 지시를 기다려 주세요."
+    )
+
+
+def switch_agent(pane_id: str, target: str, carry: bool = False) -> dict:
     """지금 에이전트를 끄고(없으면 그대로) 다른 에이전트를 같은 셸에서 켠다.
 
     이 창에서 target 으로 하던 대화가 있으면 그 대화를 이어서(resume), 없으면 그 폴더의 최근 대화를,
     그것도 없으면 새 대화로 켠다. 끄는 에이전트의 대화도 기억해 두어 다시 바꾸면 이어진다.
+    carry 면 지금 대화 기록 전체를 인계 파일로 만들고, target 을 새 대화로 켜서 그 파일을 읽고 이어 가게 한다.
     """
     if target not in LAUNCH:
         raise ValueError("Claude 또는 Codex 만 켤 수 있어요.")
@@ -413,14 +560,45 @@ def switch_agent(pane_id: str, target: str) -> dict:
             _remember(
                 window.key, current, ids[-1], keep_flags(argv, KEEP[current]), cwd
             )
+        if carry:
+            # 끄기 전에 기록을 만든다 (못 만들면 끄지 않는다)
+            items = transcript_service.all_items(log, current) if log else []
+            if not any(item.get("kind") in {"user", "assistant"} for item in items):
+                raise ValueError("넘겨줄 대화 기록이 없어요.")
+            handoff = _write_handoff(
+                window.key, _handoff_markdown(items, current, target, cwd, log)
+            )
         _stop(pane_id, proc)
     else:
+        if carry:
+            raise ValueError("넘겨줄 대화가 없어요 (지금 켜진 에이전트가 없어요).")
         tmux_service.send_keys(pane_id, ["C-u"])  # 셸에 쓰다 만 명령이 있으면 지운다
         time.sleep(0.1)
     # 이어갈 대화: 이 창에서 하던 대화 → 그 폴더의 최근 대화 → 새 대화
     remembered = (_read_memory().get(window.key) or {}).get(target) or {}
     open_ids = _open_session_ids()
     session_id, flags, resumed = None, None, "new"
+    if carry:
+        # 넘겨받은 기록으로 새 대화를 시작한다 (옵션은 그 창에서 쓰던 것을 따른다)
+        flags = (
+            remembered.get("flags")
+            if isinstance(remembered.get("flags"), list)
+            else None
+        )
+        command = shlex.join(
+            [*_launch_command(target, None, flags), _handoff_prompt(current, handoff)]
+        )
+        tmux_service.send_literal(pane_id, command)
+        tmux_service.send_keys(pane_id, ["Enter"])
+        watch_startup(pane_id, agent=target)
+        tmux_service.invalidate_cache()
+        return {
+            "from": current,
+            "to": target,
+            "command": command,
+            "resumed": "carried",
+            "items": len(items),
+        }
     if remembered.get("id") not in open_ids and _session_exists(
         target, remembered.get("id", "")
     ):

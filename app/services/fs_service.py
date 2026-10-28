@@ -15,6 +15,7 @@ import subprocess
 import tempfile
 import time
 import zipfile
+from collections import deque
 from pathlib import Path
 
 from app.services import settings_service
@@ -287,6 +288,55 @@ def search(root: str, query: str, show_hidden: bool, show_env: bool = False) -> 
                     stack.append(Path(item.path))
             except OSError:
                 continue
+    return {"results": results, "truncated": truncated}
+
+
+DIR_SEARCH_LIMIT = 60
+
+
+def search_dirs(root: str, query: str, show_hidden: bool) -> dict:
+    """폴더만 이름으로 찾는다 (가까운 폴더부터 — 너비 우선)."""
+    base = resolve(root)
+    query = (query or "").strip().lower()
+    # "csed/week" → 끝의 폴더 이름들이 차례로 csed · week 를 포함
+    parts = [part for part in query.split("/") if part]
+    if not parts:
+        return {"results": [], "truncated": False}
+    deadline = time.monotonic() + SEARCH_SECONDS
+    results, queue, truncated = [], deque([base]), False
+    while queue:
+        if time.monotonic() > deadline:
+            truncated = True
+            break
+        current = queue.popleft()
+        try:
+            with os.scandir(current) as it:
+                items = sorted(it, key=lambda e: e.name.lower())
+        except OSError:
+            continue
+        for item in items:
+            if not show_hidden and item.name.startswith("."):
+                continue
+            try:
+                if not item.is_dir(follow_symlinks=False):
+                    continue
+            except OSError:
+                continue
+            names = (
+                os.path.relpath(item.path, base).lower().split(os.sep)
+                if len(parts) > 1
+                else [item.name.lower()]
+            )
+            if len(names) >= len(parts) and all(
+                part in name for part, name in zip(parts, names[-len(parts) :])
+            ):
+                entry = _entry(Path(item.path))
+                if entry:
+                    results.append(entry)
+                    if len(results) >= DIR_SEARCH_LIMIT:
+                        return {"results": results, "truncated": True}
+            if item.name not in SEARCH_SKIP:
+                queue.append(Path(item.path))
     return {"results": results, "truncated": truncated}
 
 

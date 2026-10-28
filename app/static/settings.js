@@ -46,6 +46,7 @@
     { id: 'editor', icon: 'fa-pen-to-square', label: '파일 · 편집기', desc: '저장 · 미리보기 · 줄바꿈' },
     { id: 'notify', icon: 'fa-bell', label: '알림', desc: '에이전트 · Git · 진동' },
     { id: 'monitor', icon: 'fa-gauge-high', label: '사이드바', desc: 'Overview · 서버 상태 (CPU · GPU …)' },
+    { id: 'keys', icon: 'fa-keyboard', label: '단축키', desc: '키 바꾸기 · 설정 내보내기 / 불러오기' },
     { id: 'upload', icon: 'fa-cloud-arrow-up', label: '업로드 · 파일', desc: '최대 크기 · 보관 · 뷰어', server: true },
   ];
   const TAB_KEY = 'univdash-settings-tab';
@@ -113,6 +114,7 @@
           <button type="button" class="ud-set-btn" data-push-test><i class="fas fa-bell"></i> 테스트 알림</button>
         </div>`;
     }
+    if (id === 'keys') return keysSection();
     if (id === 'editor') return SWITCHES[id].map(([key, title, desc, read]) => switchHtml(key, title, desc, read())).join('');
     if (!server) return '<p class="ud-set-note"><i class="fas fa-circle-notch fa-spin"></i> 서버 설정을 불러오는 중…</p>';
     const limit = server.limits.upload_max_mb;
@@ -142,9 +144,214 @@
       </div>`;
   }
 
+  // ── 단축키 (keys.js) · 설정 내보내기 / 불러오기 ─────────────────────────
+  const K = () => window.UnivDashKeys;
+  let keyQuery = '';
+  let recording = null;        // { id, mode: 'edit' | 'add', strokes: [] }
+  let importing = null;        // 고른 파일에서 읽은 내용 (확인 전)
+  // 내보낼 이 기기 설정 (localStorage 키). 단축키는 따로 keybindings 에 담는다.
+  const EXPORT_KEYS = () => [
+    ...Object.keys(U().settings.defaults).map((key) => `univdash-set-${key}`),
+    ...SWITCHES.editor.map(([key]) => `univdash-ex-${key}`),
+    'univdash-theme', 'univdash-theme-style', 'univdash-ws-swapped',
+  ];
+  const kbd = (binding) => K().label(binding).map((stroke) => `<kbd>${esc(stroke)}</kbd>`).join('<i class="ud-kb-then">,</i>');
+  const searchText = (action) => [action.label, action.id, K().SCOPES[action.scope], ...K().keysOf(action.id).flatMap((b) => [b, K().label(b).join(' ')])].join(' ').toLowerCase();
+
+  function keyRow(action) {
+    const keys = K().keysOf(action.id);
+    const modified = !K().isDefault(action.id);
+    const rec = recording?.id === action.id ? recording : null;
+    let binds;
+    if (rec) {
+      const binding = rec.strokes.join(' ');
+      const clash = binding ? K().conflicts(action.id, binding) : [];
+      binds = `<div class="ud-keys-rec" role="status" aria-live="polite">
+          ${binding ? `<span class="ud-kb">${kbd(binding)}</span>` : '<span class="ud-keys-wait">원하는 키를 누르세요…</span>'}
+          <small>${binding ? (clash.length ? `⚠ ${esc(clash.map((a) => a.label).join(', '))} 와(과) 겹쳐요` : '두 번째 키를 이어 누를 수도 있어요') : `${rec.mode === 'add' ? '키 추가' : '키 바꾸기'} · Enter 저장 · Esc 취소`}</small>
+          <span class="ud-keys-rec-btns"><button type="button" class="ud-set-btn" data-key-save ${binding ? '' : 'disabled'}>저장</button><button type="button" class="ud-set-btn" data-key-cancel>취소</button></span>
+        </div>`;
+    } else {
+      binds = keys.length
+        ? keys.map((b) => `<span class="ud-kb">${kbd(b)}<button type="button" data-key-remove="${esc(b)}" aria-label="${esc(K().label(b).join(' '))} 지우기" title="이 키 지우기">&times;</button></span>`).join('')
+        : '<span class="ud-keys-none">—</span>';
+    }
+    return `<div class="ud-keys-row${modified ? ' modified' : ''}${rec ? ' recording' : ''}" data-key-id="${esc(action.id)}">
+        <div class="ud-keys-name"><span>${esc(action.label)}</span>${modified ? '<em>사용자</em>' : ''}</div>
+        <div class="ud-keys-binds">${binds}</div>
+        <div class="ud-keys-acts">
+          <button type="button" data-key-edit title="키 바꾸기" aria-label="${esc(action.label)} 키 바꾸기"><i class="fas fa-pen"></i></button>
+          <button type="button" data-key-add title="키 추가" aria-label="${esc(action.label)} 키 추가"><i class="fas fa-plus"></i></button>
+          <button type="button" data-key-reset title="기본값으로" aria-label="${esc(action.label)} 기본값으로" ${modified ? '' : 'disabled'}><i class="fas fa-rotate-left"></i></button>
+        </div>
+      </div>`;
+  }
+  function keyList() {
+    const words = keyQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const groups = Object.entries(K().SCOPES).map(([scope, title]) => {
+      const rows = K().actions.filter((a) => a.scope === scope && words.every((w) => searchText(a).includes(w)));
+      return rows.length ? `<h5 class="ud-keys-scope">${esc(title)}<span>${rows.length}</span></h5>${rows.map(keyRow).join('')}` : '';
+    }).join('');
+    return groups || '<p class="ud-set-note">찾는 명령이 없어요.</p>';
+  }
+  function importPanel() {
+    if (!importing) return '';
+    const date = importing.exported_at ? new Date(importing.exported_at) : null;
+    return `<div class="ud-keys-import">
+        <p><b>${esc(importing.name)}</b>${date && !Number.isNaN(date.getTime()) ? ` · ${esc(date.toLocaleString())} 에 내보냄` : ''}</p>
+        <p>단축키 ${importing.keyCount}개 · 이 기기 설정 ${importing.settingCount}개를 불러와 지금 값을 덮어써요.${importing.settingCount ? ' 적용하려고 화면을 새로 고쳐요.' : ''}</p>
+        <div><button type="button" class="ud-set-btn primary" data-import-apply>불러오기</button><button type="button" class="ud-set-btn" data-import-cancel>취소</button></div>
+      </div>`;
+  }
+  function keysSection() {
+    if (!K()) return '<p class="ud-set-note">단축키 모듈을 불러오지 못했어요.</p>';
+    return `
+      <div class="ud-keys-top">
+        <label class="ud-keys-search"><i class="fas fa-magnifying-glass"></i><input type="search" data-keys-search value="${esc(keyQuery)}" placeholder="명령 · 키 검색 (예: 사이드바, ctrl+b)" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="단축키 검색"></label>
+        <div class="ud-keys-tools">
+          <button type="button" class="ud-set-btn" data-keys-export title="단축키와 이 기기 설정을 JSON 파일로 저장"><i class="fas fa-file-export"></i> 내보내기</button>
+          <button type="button" class="ud-set-btn" data-keys-import title="내보낸 JSON 파일로 한 번에 설정"><i class="fas fa-file-import"></i> 불러오기</button>
+          <button type="button" class="ud-set-btn" data-keys-reset-all title="모든 단축키를 기본값으로"><i class="fas fa-rotate-left"></i> 모두 기본값</button>
+          <input type="file" accept="application/json,.json" data-keys-file hidden>
+        </div>
+      </div>
+      <div data-import-panel>${importPanel()}</div>
+      <p class="ud-set-note ud-keys-help">✎ 를 누르거나 줄을 두 번 누른 뒤 원하는 키를 누르고 <kbd>Enter</kbd>. 두 키를 이어 누르는 조합(예: <kbd>G</kbd><i class="ud-kb-then">,</i><kbd>W</kbd>)도 돼요. 글자 키 단축키는 입력칸에 쓰는 중이거나 터미널에 직접 입력할 때는 동작하지 않아요. 내보내기 파일에는 화면 · 편집기 · 알림 · 사이드바 설정과 테마도 함께 담겨요.</p>
+      <div class="ud-keys-list" data-keys-list>${keyList()}</div>`;
+  }
+  function refreshKeys() {
+    const listEl = overlay?.querySelector('[data-keys-list]');
+    if (!listEl) return;
+    listEl.innerHTML = keyList();
+    overlay.querySelector('[data-import-panel]').innerHTML = importPanel();
+    overlay.querySelector('.ud-keys-row.recording')?.scrollIntoView({ block: 'nearest' });
+  }
+
+  function startRecording(id, mode) {
+    if (!recording) K().pause();
+    recording = { id, mode, strokes: [] };
+    refreshKeys();
+  }
+  function stopRecording(saveIt) {
+    if (!recording) return;
+    const { id, mode, strokes } = recording;
+    recording = null;
+    K().resume();
+    if (saveIt && strokes.length) {
+      const binding = strokes.join(' ');
+      const clash = K().conflicts(id, binding);
+      K().setKeys(id, mode === 'add' ? [...K().keysOf(id), binding] : [binding]);
+      U().toast(clash.length ? `저장했어요. ${clash.map((a) => a.label).join(', ')} 와(과) 키가 겹쳐요.` : '단축키를 저장했어요.', clash.length ? 'error' : 'success', clash.length ? 5000 : 1600);
+    }
+    refreshKeys();
+  }
+  // 녹화 중에는 모든 키를 가로챈다 (설정 창의 Esc 닫기 등보다 먼저)
+  window.addEventListener('keydown', (event) => {
+    if (!recording) return;
+    if (event.isComposing || event.keyCode === 229) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.repeat) return;
+    if (event.key === 'Escape' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) { stopRecording(false); return; }
+    if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && recording.strokes.length) { stopRecording(true); return; }
+    const stroke = K().strokeOf(event);
+    if (!stroke) return;
+    recording.strokes = recording.strokes.length >= 2 ? [stroke] : [...recording.strokes, stroke];
+    refreshKeys();
+  }, true);
+
+  // 저장된 값, 없으면 지금 적용 중인 기본값 (불러온 기기가 똑같아지도록)
+  function currentSetting(key) {
+    try { const value = localStorage.getItem(key); if (value !== null) return value; } catch (e) { /* noop */ }
+    if (key.startsWith('univdash-set-')) return JSON.stringify(U().settings.get(key.slice('univdash-set-'.length)));
+    const editor = SWITCHES.editor.find(([id]) => `univdash-ex-${id}` === key);
+    if (editor) return JSON.stringify(editor[3]());
+    if (key === 'univdash-theme') return window.UnivDashTheme?.current() || null;
+    if (key === 'univdash-theme-style') return document.documentElement.getAttribute('data-ui-theme') || 'default';
+    if (key === 'univdash-ws-swapped') return JSON.stringify(document.documentElement.classList.contains('ws-swapped'));
+    return null;
+  }
+  function exportSettings() {
+    const settings = {};
+    for (const key of EXPORT_KEYS()) {
+      const value = currentSetting(key);
+      if (value !== null && value !== undefined) settings[key] = value;
+    }
+    const data = { app: 'univdash', kind: 'settings', version: 1, exported_at: new Date().toISOString(), keybindings: K().overrides(), settings };
+    const blob = new Blob([`${JSON.stringify(data, null, 2)}\n`], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    a.href = url;
+    a.download = `univdash-settings-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    U().toast(`내보냈어요 · 바꾼 단축키 ${Object.keys(data.keybindings).length}개 · 설정 ${Object.keys(settings).length}개`, 'success', 2600);
+  }
+  // 불러올 값 검사: 아는 키만, 값은 짧은 문자열만 (테마는 정해진 값만)
+  function validSetting(key, value) {
+    if (typeof value !== 'string' || value.length > 2000) return false;
+    if (key === 'univdash-theme') return value === 'light' || value === 'dark';
+    if (key === 'univdash-theme-style') return /^[a-z]{1,20}$/.test(value);
+    try { const parsed = JSON.parse(value); return parsed === null || ['boolean', 'number', 'string'].includes(typeof parsed); } catch (e) { return false; }
+  }
+  async function readImport(file) {
+    if (!file) return;
+    if (file.size > 1024 * 1024) { U().toast('파일이 너무 커요 (1MB 이하).', 'error'); return; }
+    let data;
+    try { data = JSON.parse(await file.text()); } catch (e) { U().toast('JSON 파일이 아니에요.', 'error'); return; }
+    if (!data || typeof data !== 'object' || data.app !== 'univdash') { U().toast('UnivDash 에서 내보낸 설정 파일이 아니에요.', 'error'); return; }
+    const allowed = new Set(EXPORT_KEYS());
+    const keybindings = data.keybindings && typeof data.keybindings === 'object' && !Array.isArray(data.keybindings) ? data.keybindings : null;
+    const settings = Object.fromEntries(Object.entries(data.settings && typeof data.settings === 'object' ? data.settings : {})
+      .filter(([key, value]) => allowed.has(key) && validSetting(key, value)));
+    if (!keybindings && !Object.keys(settings).length) { U().toast('불러올 단축키나 설정이 없어요.', 'error'); return; }
+    importing = { name: file.name, exported_at: data.exported_at, keybindings, settings, keyCount: keybindings ? Object.keys(keybindings).length : 0, settingCount: Object.keys(settings).length };
+    refreshKeys();
+  }
+  function applyImport() {
+    if (!importing) return;
+    const { keybindings, settings, settingCount } = importing;
+    importing = null;
+    const result = keybindings ? K().replaceAll(keybindings) : { applied: 0, skipped: 0 };
+    for (const [key, value] of Object.entries(settings)) {
+      try { localStorage.setItem(key, value); } catch (e) { /* noop */ }
+    }
+    U().toast(`불러왔어요 · 단축키 ${result.applied}개${result.skipped ? ` (모르는 항목 ${result.skipped}개는 건너뜀)` : ''} · 설정 ${settingCount}개`, 'success', 3000);
+    if (settingCount) setTimeout(() => location.reload(), 900);
+    else refreshKeys();
+  }
+
+  function onKeysClick(event) {
+    if (event.target.closest('[data-keys-export]')) { exportSettings(); return true; }
+    if (event.target.closest('[data-keys-import]')) { overlay.querySelector('[data-keys-file]').click(); return true; }
+    if (event.target.closest('[data-keys-reset-all]')) {
+      if (window.confirm('모든 단축키를 기본값으로 되돌릴까요?')) { K().resetAll(); U().toast('모든 단축키를 기본값으로 되돌렸어요.', 'success', 1800); }
+      return true;
+    }
+    if (event.target.closest('[data-import-apply]')) { applyImport(); return true; }
+    if (event.target.closest('[data-import-cancel]')) { importing = null; refreshKeys(); return true; }
+    if (event.target.closest('[data-key-save]')) { stopRecording(true); return true; }
+    if (event.target.closest('[data-key-cancel]')) { stopRecording(false); return true; }
+    const row = event.target.closest('[data-key-id]');
+    if (!row) return false;
+    const id = row.dataset.keyId;
+    const remove = event.target.closest('[data-key-remove]');
+    if (remove) { K().setKeys(id, K().keysOf(id).filter((k) => k !== remove.dataset.keyRemove)); return true; }
+    if (event.target.closest('[data-key-edit]')) { startRecording(id, 'edit'); return true; }
+    if (event.target.closest('[data-key-add]')) { startRecording(id, 'add'); return true; }
+    if (event.target.closest('[data-key-reset]')) { K().reset(id); return true; }
+    return true;
+  }
+
   function render() {
     if (!overlay) return;
     const current = TABS.find((t) => t.id === tab);
+    overlay.querySelector('.ud-settings-modal').classList.toggle('wide', tab === 'keys');
+    if (tab !== 'keys' && recording) { recording = null; K()?.resume(); }
     overlay.querySelectorAll('[data-tab]').forEach((b) => {
       const on = b.dataset.tab === tab;
       b.classList.toggle('on', on);
@@ -195,6 +402,7 @@
     if (event.target === overlay || event.target.closest('[data-close]')) { close(); return; }
     const tabBtn = event.target.closest('[data-tab]');
     if (tabBtn) { selectTab(tabBtn.dataset.tab); return; }
+    if (tab === 'keys' && event.target.closest('.ud-set-body') && onKeysClick(event)) return;
     const sw = event.target.closest('[data-switch]');
     if (sw) {
       const all = Object.values(SWITCHES).flat();
@@ -297,7 +505,19 @@
       </div>`;
     document.body.appendChild(overlay);
     overlay.addEventListener('click', onClick);
-    overlay.addEventListener('change', onChange);
+    overlay.addEventListener('change', (event) => {
+      if (event.target.matches('[data-keys-file]')) { readImport(event.target.files?.[0]); event.target.value = ''; return; }
+      onChange(event);
+    });
+    overlay.addEventListener('input', (event) => {
+      if (!event.target.matches('[data-keys-search]')) return;
+      keyQuery = event.target.value;
+      overlay.querySelector('[data-keys-list]').innerHTML = keyList();
+    });
+    overlay.addEventListener('dblclick', (event) => {
+      const row = event.target.closest('.ud-keys-row');
+      if (row && !event.target.closest('button')) startRecording(row.dataset.keyId, 'edit');
+    });
     overlay.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && event.target.matches('input')) { event.preventDefault(); event.target.blur(); }
       const tabBtn = event.target.closest?.('[data-tab]');
@@ -310,8 +530,9 @@
     });
   }
 
-  async function open() {
+  async function open(tabId) {
     if (!overlay) build();
+    if (tabId && TABS.some((t) => t.id === tabId)) { tab = tabId; raw.set(TAB_KEY, tabId); }
     lastFocus = document.activeElement;
     // 휴대폰: 사이드바에서 열었으면 사이드바를 닫는다
     if (!window.matchMedia('(min-width: 768px)').matches) document.getElementById('closeSidebarBtn')?.click();
@@ -330,6 +551,8 @@
   }
   function close() {
     if (!overlay || overlay.hidden) return;
+    if (recording) { recording = null; K()?.resume(); }
+    importing = null;
     overlay.hidden = true;
     document.body.classList.remove('ud-settings-open');
     lastFocus?.focus?.({ preventScroll: true });
@@ -344,6 +567,9 @@
     });
     // 다른 탭에서 바꾼 값도 열린 창에 반영
     window.addEventListener('univdash:settings', () => { if (overlay && !overlay.hidden) render(); });
+    window.addEventListener('univdash:keybindings', () => { if (overlay && !overlay.hidden && tab === 'keys' && !recording) refreshKeys(); });
+    window.UnivDashKeys?.register('app.settings', () => { open(); });
+    window.UnivDashKeys?.register('app.keybindings', () => { open('keys'); });
     window.UnivDashSettings = { open, close };
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();

@@ -212,24 +212,151 @@ def _restart_daemon() -> bool | None:
     return result.returncode == 0
 
 
-def apply_to_sessions() -> dict:
-    """지금 로그인(auth.json)을 모든 Codex 창에 적용: 창을 끄고 → 데몬 재시작 → 같은 대화로 다시 켠다."""
-    from app.services import agent_restart
+# ── 새 계정을 모든 Codex 창에 적용 (자동) ─────────────────────────────────────────
+# 공유 데몬을 다시 켜면 작업 중인 대화가 끊기므로, Codex 창이 모두 쉬고 있을 때 한 번에:
+#   모든 Codex 창 끄기 → codex update → 로그인 파일이 고른 계정인지 다시 확인 → 데몬 재시작 → 같은 대화로 다시 켜기
+APPLY_WAIT = (
+    12 * 3600
+)  # 이 시간 안에 모두 쉬는 순간이 오지 않으면 포기 (설정 화면에서 다시 적용 가능)
+APPLY_POLL = 3.0
+UPDATE_TIMEOUT = 300
+_apply_lock = threading.Lock()
+_apply: dict = {
+    "state": "idle",
+    "target": None,
+    "waiting": [],
+    "since": 0.0,
+    "result": None,
+    "error": None,
+    "seq": 0,
+}
 
+
+def _update_codex() -> bool | None:
+    """codex 를 최신으로 (기본 Codex 폴더일 때만 — 테스트 · 별도 폴더에서는 진짜 설치를 건드리지 않는다)."""
+    if codex_home().resolve() != (Path.home() / ".codex").resolve():
+        return None
     try:
-        return agent_restart.relaunch_codex(after_stop=_restart_daemon)
-    except ValueError as error:
-        raise AccountError(str(error)) from error
+        result = subprocess.run(
+            [_codex_bin(), "update"],
+            env=_child_env(codex_home()),
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            timeout=UPDATE_TIMEOUT,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError, AccountError):
+        return False
+    return result.returncode == 0
+
+
+def _ensure_live(target: str | None) -> None:
+    """기다리는 동안 예전 계정의 Codex 가 토큰을 갱신하며 auth.json 을 되돌렸으면, 고른 계정으로 다시 끼운다."""
+    if not target:
+        return
+    with _lock:
+        live = _read_json(live_file())
+        info = _info(live) if live else None
+        if info and _account_id(info["email"]) == target:
+            return
+        if info:
+            _save_profile(live, info)  # 되돌아간 예전 계정의 최신 토큰은 그 계정에 저장
+        record = _read_json(_profile_path(target))
+        if record and isinstance(record.get("auth"), dict):
+            _write_secret(
+                live_file(), json.dumps(record["auth"], indent=2, ensure_ascii=False)
+            )
+            _invalidate_usage_cache()
+
+
+def _after_stop(target: str | None) -> dict:
+    updated = _update_codex()
+    _ensure_live(target)
+    return {"updated": updated, "daemon": _restart_daemon()}
+
+
+def _apply_worker(seq: int) -> None:
+    from app.services import agent_restart, tmux_service
+
+    deadline = time.monotonic() + APPLY_WAIT
+    while time.monotonic() < deadline:
+        with _apply_lock:
+            if _apply["seq"] != seq:
+                return  # 더 새로 예약된 적용이 이어받았다
+            target = _apply["target"]
+        tmux_service.invalidate_cache()
+        busy = [w.key for w, _ in agent_restart.codex_panes() if w.status == "busy"]
+        with _apply_lock:
+            _apply["waiting"] = busy
+            _apply["state"] = "waiting" if busy else "applying"
+        if not busy:
+            try:
+                result = agent_restart.relaunch_codex(
+                    after_stop=lambda target=target: _after_stop(target)
+                )
+            except ValueError:
+                time.sleep(APPLY_POLL)  # 그 사이 작업이 시작됐다 → 다시 기다린다
+                continue
+            except Exception as error:  # noqa: BLE001 — 상태로 알려 준다
+                with _apply_lock:
+                    if _apply["seq"] == seq:
+                        _apply.update(
+                            state="error",
+                            error=str(error) or "적용하지 못했어요.",
+                            waiting=[],
+                        )
+                return
+            with _apply_lock:
+                if _apply["seq"] == seq:
+                    _apply.update(state="done", result=result, waiting=[], error=None)
+            return
+        time.sleep(APPLY_POLL)
+    with _apply_lock:
+        if _apply["seq"] == seq:
+            _apply.update(
+                state="error",
+                error="Codex 작업이 끝나지 않아 적용하지 못했어요. 나중에 '모든 Codex 창에 적용'을 눌러 주세요.",
+            )
+
+
+def schedule_apply(target: str | None = None) -> dict:
+    """모든 Codex 창이 쉬는 즉시(지금 쉬고 있으면 바로) 업데이트하고 새 계정으로 다시 켠다. 백그라운드로 돈다."""
+    with _apply_lock:
+        _apply["seq"] += 1
+        _apply.update(
+            state="waiting",
+            target=target,
+            waiting=[],
+            since=time.time(),
+            result=None,
+            error=None,
+        )
+        seq = _apply["seq"]
+    threading.Thread(
+        target=_apply_worker, args=(seq,), daemon=True, name="codex-apply"
+    ).start()
+    time.sleep(0.3)  # 바로 시작할 수 있는지 첫 확인을 응답에 담는다
+    return apply_status()
+
+
+def apply_status() -> dict:
+    with _apply_lock:
+        return {
+            "state": _apply["state"],
+            "waiting": list(_apply["waiting"]),
+            "since": _apply["since"],
+            "result": _apply["result"],
+            "error": _apply["error"],
+            "seq": _apply["seq"],
+        }
+
+
+def apply_to_sessions() -> dict:
+    """지금 로그인을 모든 Codex 창에 적용 (업데이트 포함, 작업 중인 창이 있으면 끝난 뒤 자동으로)."""
+    return schedule_apply(sync_current())
 
 
 def switch(account_id: str) -> dict:
-    from app.services import agent_restart
-
-    busy = [w.key for w, _ in agent_restart.codex_panes() if w.status == "busy"]
-    if busy:
-        raise AccountError(
-            f"Codex 가 작업 중인 창이 있어요 ({', '.join(busy)}). 끝난 뒤에 계정을 바꿔 주세요."
-        )
     with _lock:
         path = _profile_path(account_id)
         record = _read_json(path)
@@ -254,12 +381,13 @@ def switch(account_id: str) -> dict:
         live.parent.mkdir(parents=True, exist_ok=True)
         _write_secret(live, json.dumps(record["auth"], indent=2, ensure_ascii=False))
         _invalidate_usage_cache()
-    # 실행 중인 Codex(와 공유 데몬)는 예전 계정을 들고 있어 토큰 갱신 때 "다른 계정" 오류가 난다 → 같은 대화로 다시 켠다
-    try:
-        applied = apply_to_sessions()
-    except AccountError as error:
-        applied = {"error": str(error)}
-    return {"email": info["email"], "changed": True, "applied": applied}
+    # 실행 중인 Codex(와 공유 데몬)는 예전 계정을 들고 있어 토큰 갱신 때 "다른 계정" 오류가 난다
+    # → 업데이트 후 같은 대화로 다시 켠다 (작업 중인 창이 있으면 모두 끝난 뒤 자동으로)
+    return {
+        "email": info["email"],
+        "changed": True,
+        "applied": schedule_apply(account_id),
+    }
 
 
 def remove(account_id: str) -> None:

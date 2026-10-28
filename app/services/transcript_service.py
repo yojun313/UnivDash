@@ -9,9 +9,12 @@ pane → 로그 파일 찾기 (추측 없이 실행 중인 프로세스 기준):
 파일 경로는 모두 서버가 정하고, 에이전트 데이터 폴더 밖은 읽지 않는다.
 """
 
+import base64
+import hashlib
 import json
 import os
 import re
+import secrets
 import threading
 from collections import OrderedDict
 from pathlib import Path
@@ -24,6 +27,21 @@ MAX_TEXT = 20000
 MAX_OUTPUT = 4000
 MAX_SUMMARY = 300
 CACHE_FILES = 96  # 에이전트 창 수보다 넉넉히: 모자라면 매 상태 확인마다 모든 로그를 처음부터 다시 파싱한다
+
+# 사용자가 첨부한 그림: 기록 안의 base64 를 한 번만 풀어 캐시 파일로 두고 이름(내용 해시)만 항목에 넣는다
+IMAGE_TYPES = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+}
+IMAGE_NAME = re.compile(r"^[0-9a-f]{32}\.(png|jpg|gif|webp)$")
+MAX_IMAGE_BYTES = 30 * 1024 * 1024
+MAX_IMAGES = 12
+IMAGE_CACHE_BYTES = 300 * 1024 * 1024
+# Codex 는 그림 앞뒤에 <image name=[Image #1] path="…"> · </image> 글을 붙인다
+_CODEX_IMAGE_TAG = re.compile(r"^\s*(?:<image\b[^>]*>|</image>)\s*$")
+_IMAGE_PLACEHOLDER = "[이미지]"
 
 # 사용자 입력처럼 보이지만 에이전트가 끼워 넣은 문맥은 숨긴다.
 _INJECTED_PREFIXES = (
@@ -38,6 +56,9 @@ _INJECTED_PREFIXES = (
     "<turn_aborted",
     "Caveat: The messages below",
 )
+COMPACTED = "대화가 길어 압축(compact)됐어요"
+# 대시보드의 '대화 넘기기'로 새 에이전트에 보낸 첫 지시 (agent_restart._handoff_prompt)
+_HANDOFF_PREFIX = "이 작업은 다른 에이전트("
 _COMMAND_NAME = re.compile(r"<command-name>(.*?)</command-name>", re.DOTALL)
 _COMMAND_ARGS = re.compile(r"<command-args>(.*?)</command-args>", re.DOTALL)
 
@@ -252,10 +273,93 @@ def _blocks_text(content: Any) -> str:
             continue
         kind = block.get("type")
         if kind in {"text", "input_text", "output_text"}:
-            parts.append(block.get("text") or "")
+            text = block.get("text") or ""
+            if not _CODEX_IMAGE_TAG.match(text):
+                parts.append(text)
         elif kind in {"image", "input_image", "localImage", "image_url"}:
-            parts.append("[이미지]")
+            parts.append(_IMAGE_PLACEHOLDER)
     return "\n".join(p for p in parts if p)
+
+
+def image_dir() -> Path:
+    path = Path.home() / ".univdash" / "cache" / "chat-images"
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return path
+
+
+def _prune_images(root: Path) -> None:
+    try:
+        files = sorted(
+            (p for p in root.iterdir() if p.is_file()), key=lambda p: p.stat().st_mtime
+        )
+        total = sum(p.stat().st_size for p in files)
+        for file in files:
+            if total <= IMAGE_CACHE_BYTES:
+                break
+            total -= file.stat().st_size
+            file.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _save_image(media_type: str, data: str) -> str | None:
+    """base64 그림을 캐시에 두고 파일 이름을 돌려준다 (같은 그림은 한 번만 푼다)."""
+    ext = IMAGE_TYPES.get((media_type or "").lower())
+    if not ext or not isinstance(data, str) or not data:
+        return None
+    if len(data) > MAX_IMAGE_BYTES * 4 // 3 + 4:
+        return None
+    name = f"{hashlib.sha256(data.encode()).hexdigest()[:32]}.{ext}"
+    root = image_dir()
+    target = root / name
+    if target.exists():
+        return name
+    try:
+        raw = base64.b64decode(data, validate=False)
+    except ValueError:
+        return None
+    if not raw:
+        return None
+    tmp = root / f".{name}.{secrets.token_hex(4)}.tmp"
+    try:
+        tmp.write_bytes(raw)
+        os.replace(tmp, target)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        return None
+    _prune_images(root)
+    return name
+
+
+def _blocks_images(content: Any) -> list[str]:
+    """사용자 메시지에 붙은 그림 (Claude: image · base64, Codex: input_image · data URL)."""
+    if not isinstance(content, list):
+        return []
+    names: list[str] = []
+    for block in content:
+        if not isinstance(block, dict) or len(names) >= MAX_IMAGES:
+            continue
+        name = None
+        if block.get("type") == "image":
+            source = block.get("source") or {}
+            if source.get("type") == "base64":
+                name = _save_image(source.get("media_type", ""), source.get("data", ""))
+        elif block.get("type") == "input_image":
+            url = block.get("image_url")
+            url = url.get("url") if isinstance(url, dict) else url
+            match = re.match(r"^data:([\w/+.-]+);base64,", url or "")
+            if match:
+                name = _save_image(match.group(1), url[match.end() :])
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def image_path(name: str) -> Path | None:
+    if not IMAGE_NAME.match(name or ""):
+        return None
+    path = image_dir() / name
+    return path if path.is_file() else None
 
 
 def _tool_summary(name: str, data: Any) -> str:
@@ -306,6 +410,9 @@ def _user_text(text: str) -> tuple[str, str] | None:
         )
     if stripped.startswith(_INJECTED_PREFIXES):
         return None
+    if stripped.startswith(_HANDOFF_PREFIX) and "나눈 대화 전체가" in stripped:
+        agent = stripped[len(_HANDOFF_PREFIX) :].split(")", 1)[0]
+        return "system", f"{agent} 에서 넘겨받은 대화 기록을 읽고 이어 가요"
     if stripped.startswith("[Request interrupted"):
         return "system", "사용자가 중단함"
     return "user", stripped
@@ -360,6 +467,22 @@ class _Log:
         }
         self.items.append(item)
         return item
+
+    def _user(self, content: Any, ts: str) -> None:
+        """사용자 메시지 (첨부한 그림이 있으면 images 로)."""
+        text = _blocks_text(content)
+        images = _blocks_images(content)
+        if images:
+            text = "\n".join(
+                line for line in text.splitlines() if line.strip() != _IMAGE_PLACEHOLDER
+            ).strip()
+            parsed = _user_text(text) if text else ("user", "")
+        else:
+            parsed = _user_text(text)
+        if not parsed:
+            return
+        extra = {"images": images} if images and parsed[0] == "user" else {}
+        self._add(parsed[0], parsed[1], ts, **extra)
 
     def _tool(self, call_id: str, name: str, data: Any, ts: str) -> None:
         summary = _tool_summary(name, data)
@@ -494,6 +617,10 @@ class _Log:
             return
         if kind not in {"user", "assistant"} or d.get("isMeta") or side:
             return
+        if d.get("isCompactSummary") or d.get("isVisibleInTranscriptOnly"):
+            # 대화 압축(/compact · 자동 압축) 요약: 사용자가 쓴 글이 아니다 → 한 줄 안내만
+            self._add("system", COMPACTED, d.get("timestamp") or "")
+            return
         content = (d.get("message") or {}).get("content")
         if kind == "user":
             if isinstance(content, list) and any(
@@ -512,9 +639,7 @@ class _Log:
             if text.lstrip().startswith(_NOTIFY):
                 self._notification(text, ts)
                 return
-            parsed = _user_text(text)
-            if parsed:
-                self._add(parsed[0], parsed[1], ts)
+            self._user(content, ts)
             return
         for block in content or []:
             if not isinstance(block, dict):
@@ -539,13 +664,15 @@ class _Log:
     def _codex(self, d: dict) -> None:
         kind, ts = d.get("type"), d.get("timestamp") or ""
         p = d.get("payload") or {}
+        if kind == "compacted":
+            # 대화 압축: 기록에는 지난 대화를 다시 담지만(replacement_history) 채팅에는 한 줄 안내만
+            self._add("system", COMPACTED, ts)
+            return
         if kind != "response_item":
             return
         ptype = p.get("type")
         if ptype == "message" and p.get("role") == "user":
-            parsed = _user_text(_blocks_text(p.get("content")))
-            if parsed:
-                self._add(parsed[0], parsed[1], ts)
+            self._user(p.get("content"), ts)
         elif ptype == "message" and p.get("role") == "assistant":
             text = _blocks_text(p.get("content")).strip()
             if text:
@@ -615,19 +742,31 @@ _cache: "OrderedDict[str, _Log]" = OrderedDict()
 _lock = threading.Lock()
 
 
+def _cached_log(path: Path, agent: str) -> _Log:
+    """(_lock 안에서) 캐시된 기록을 최신으로 맞춰 돌려준다."""
+    key = str(path)
+    log = _cache.get(key)
+    if log is None or log.agent != agent:
+        log = _Log(path, agent)
+        _cache[key] = log
+    _cache.move_to_end(key)
+    while len(_cache) > CACHE_FILES:
+        _cache.popitem(last=False)
+    log.refresh()
+    return log
+
+
+def all_items(path: Path, agent: str) -> list[dict]:
+    """대화 전체 항목 (다른 에이전트로 대화를 넘길 때)."""
+    with _lock:
+        return [dict(item) for item in _cached_log(path, agent).items]
+
+
 def read(path: Path, agent: str, start: int | None, limit: int) -> dict:
     """items[start:start+limit]. start 가 None 이면 마지막 limit 개."""
     limit = max(1, min(int(limit), 300))
-    key = str(path)
     with _lock:
-        log = _cache.get(key)
-        if log is None or log.agent != agent:
-            log = _Log(path, agent)
-            _cache[key] = log
-        _cache.move_to_end(key)
-        while len(_cache) > CACHE_FILES:
-            _cache.popitem(last=False)
-        log.refresh()
+        log = _cached_log(path, agent)
         total = len(log.items)
         if start is None:
             start = max(0, total - limit)

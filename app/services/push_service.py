@@ -49,7 +49,8 @@ PUSH_HOSTS = (
 )
 
 _lock = threading.Lock()
-_focus: dict[int, str] = {}  # WebSocket 채널 → 지금 화면을 보고 있는 기기 ID
+# WebSocket 채널 → (기기 ID, 그 기기 화면에 지금 보이는 창 key 들, 지금 그 기기에서 대시보드를 쓰고 있는지)
+_focus: dict[int, tuple[str, frozenset[str], bool]] = {}
 _focus_lock = threading.Lock()
 
 
@@ -216,17 +217,28 @@ def is_subscribed(device: str) -> bool:
 
 
 # ── 포커스(지금 보고 있는 기기) ─────────────────────────────────────────
-def set_focus(channel: int, device: str | None) -> None:
+def set_focus(channel: int, device: str | None, keys=(), present: bool = False) -> None:
+    """이 채널(탭)의 기기 상태: 화면에 보이는 창 keys, 지금 그 기기에서 대시보드를 쓰고 있는지(present).
+
+    device 가 None 이면 (연결이 끊김) 지운다.
+    """
     with _focus_lock:
         if device and DEVICE_RE.match(device):
-            _focus[channel] = device
+            _focus[channel] = (device, frozenset(keys), bool(present))
         else:
             _focus.pop(channel, None)
 
 
-def focused_devices() -> set[str]:
+def watching_devices(key: str | None) -> set[str]:
+    """지금 그 창을 화면에 띄워 보고 있는 기기 (그 기기에는 푸시 대신 화면 안 알림만)."""
     with _focus_lock:
-        return set(_focus.values())
+        return {d for d, keys, _ in _focus.values() if key and key in keys}
+
+
+def present_devices() -> set[str]:
+    """지금 대시보드를 쓰고 있는 기기 — 하나라도 있으면 알림은 그 기기로만 간다."""
+    with _focus_lock:
+        return {d for d, _, present in _focus.values() if present}
 
 
 # ── 암호화 (RFC 8291) · VAPID (RFC 8292) ───────────────────────────────
@@ -332,10 +344,17 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 async def send(
     data: dict, devices: set[str] | None = None, skip_focused: bool = True
 ) -> list[int]:
-    """구독한 기기들에 알림을 보낸다. devices 를 주면 그 기기만, skip_focused 면 지금 보고 있는 기기는 뺀다."""
+    """구독한 기기들에 알림을 보낸다. devices 를 주면 그 기기만.
+
+    skip_focused 면: 대시보드를 쓰고 있는 기기가 있으면 그 기기로만 보내고(다른 기기는 조용히),
+    그 창을 화면에 띄워 보고 있는 기기는 뺀다 (화면 안 알림만).
+    """
     with _lock:
         subs = _load()
-    busy = focused_devices() if skip_focused else set()
+    busy = watching_devices(data.get("key")) if skip_focused else set()
+    using = present_devices() if skip_focused else set()
+    if using:
+        devices = using if devices is None else devices & using
     targets = [
         s
         for s in subs
@@ -343,10 +362,27 @@ async def send(
         and s.get("device") not in busy
     ]
     if not targets:
+        if using:
+            logger.info(
+                "웹 푸시 %s · 쓰고 있는 기기가 있어 다른 기기로는 보내지 않음",
+                data.get("title", ""),
+            )
         return []
-    return list(
+    if not targets:
+        return []
+    results = list(
         await asyncio.gather(*(asyncio.to_thread(_send_one, s, data) for s in targets))
     )
+    logger.info(
+        "웹 푸시 %s · %s",
+        data.get("title", ""),
+        ", ".join(
+            f"{s.get('label') or '기기'}={code}" for s, code in zip(targets, results)
+        )
+        + (f" · 보고 있어서 뺌 {len(busy)}대" if busy else "")
+        + (" · 쓰고 있는 기기로만" if using else ""),
+    )
+    return results
 
 
 # ── 에이전트 상태 감시 ─────────────────────────────────────────────────

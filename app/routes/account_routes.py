@@ -56,13 +56,21 @@ async def codex_switch(body: SwitchRequest):
 
 @router.post("/api/accounts/codex/apply", dependencies=api_auth)
 async def codex_apply():
-    """지금 로그인을 모든 Codex 창에 적용 (창 끄기 → 데몬 재시작 → 같은 대화로 다시 켜기)."""
+    """지금 로그인을 모든 Codex 창에 적용: 창 끄기 → codex update → 데몬 재시작 → 같은 대화로 다시 켜기.
+
+    작업 중인 Codex 창이 있으면 모두 끝난 뒤 자동으로 한다 (백그라운드). 진행은 GET 으로 확인한다.
+    """
     try:
         result = await asyncio.to_thread(codex_accounts.apply_to_sessions)
     except (KeyError, OSError, codex_accounts.AccountError) as error:
         _raise(error)
-    logger.info("Codex 계정 적용 · 다시 켠 창 %d개", len(result["relaunched"]))
+    logger.info("Codex 계정 적용 예약 · 상태 %s", result["state"])
     return result
+
+
+@router.get("/api/accounts/codex/apply", dependencies=api_auth)
+async def codex_apply_status():
+    return codex_accounts.apply_status()
 
 
 @router.delete("/api/accounts/codex/{account_id}", dependencies=api_auth)

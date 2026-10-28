@@ -54,7 +54,9 @@
 
   window.UnivDashTheme = {
     current: function () { return html.getAttribute('data-ui-theme-mode') === 'light' ? 'light' : 'dark'; },
+    toggle: function () { applyMode(currentMode() === 'dark' ? 'light' : 'dark', true); },
   };
+  if (window.UnivDashKeys) window.UnivDashKeys.register('app.toggleMode', function () { window.UnivDashTheme.toggle(); });
 
   function buildModal() {
     var overlay = document.createElement('div');

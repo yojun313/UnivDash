@@ -428,6 +428,38 @@ def send_prompt(
         _run(["send-keys", "-t", pane_id, "Enter"])
 
 
+MIN_COLS, MAX_COLS = 40, 400
+MIN_ROWS, MAX_ROWS = 10, 200
+
+
+def fit_window(pane_id: str, cols: int, rows: int) -> bool:
+    """대시보드에서 보는 화면 크기에 맞춰 그 pane 의 tmux 창 크기를 바꾼다.
+
+    붙어 있는 터미널(클라이언트)이 없는 세션은 tmux 기본 크기(80x24)에 머물러 작게 보이므로,
+    마지막으로 화면을 연 기기의 크기를 따른다. 실제 터미널이 붙어 있는 세션은 그 터미널 크기를 존중해 건드리지 않는다.
+    """
+    cols = max(MIN_COLS, min(MAX_COLS, int(cols)))
+    rows = max(MIN_ROWS, min(MAX_ROWS, int(rows)))
+    info = _run(
+        [
+            "display-message",
+            "-p",
+            "-t",
+            pane_id,
+            "#{window_width} #{window_height} #{session_attached}",
+        ]
+    ).split()
+    if len(info) != 3:
+        return False
+    width, height, attached = info
+    if attached not in {"", "0"}:
+        return False
+    if (width, height) == (str(cols), str(rows)):
+        return False
+    _run(["resize-window", "-t", pane_id, "-x", str(cols), "-y", str(rows)])
+    return True
+
+
 def create_session(name: str, path: str, command: str) -> str:
     if not SESSION_NAME.match(name or ""):
         raise ValueError("세션 이름은 글자, 숫자, -, _ 로 50자 이하여야 합니다.")
@@ -451,6 +483,10 @@ def create_session(name: str, path: str, command: str) -> str:
             name,
             "-c",
             str(directory),
+            "-x",
+            "160",
+            "-y",
+            "45",
         ]
     ).strip()
     if command and PANE_ID.match(pane_id):

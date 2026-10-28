@@ -322,36 +322,27 @@
   async function switchCodex(account) {
     const ok = await ui().confirmSheet({
       title: 'Codex 계정 바꾸기',
-      message: `${account.email} 로 바꿀까요?\n실행 중인 Codex 창은 잠깐 껐다가 새 계정으로 같은 대화를 이어서 다시 켜요 (Codex 공유 데몬도 다시 시작). 작업 중인 Codex 가 있으면 끝난 뒤에 바꿀 수 있어요. 지금 계정은 목록에 남아 언제든 다시 고를 수 있어요.`,
+      message: `${account.email} 로 바꿀까요?\n모든 Codex 창을 잠깐 껐다가 Codex 를 최신으로 업데이트하고, 새 계정으로 같은 대화를 이어서 다시 켜요 (공유 데몬도 다시 시작). 작업 중인 Codex 창이 있으면 모두 끝난 뒤 자동으로 해요. 지금 계정은 목록에 남아 언제든 다시 고를 수 있어요.`,
       confirmLabel: '바꾸기',
     });
     if (!ok) return;
     try {
-      toast('Codex 계정을 바꾸는 중… (Codex 창을 다시 켜는 데 몇 초 걸려요)', 'info');
       const result = await api('/api/accounts/codex/switch', { method: 'POST', body: { id: account.id } });
-      toast(`Codex 계정을 ${account.email} 로 바꿨어요.${appliedText(result.applied)}`, result.applied?.error ? 'warn' : 'success');
+      toast(`Codex 계정을 ${account.email} 로 바꿨어요.`, 'success');
       ui().codexAccountChanged(result.limits);
+      if (result.applied) window.UnivDash.followCodexApply(result.applied);
     } catch (error) { toast(error.message, 'error'); }
-  }
-  function appliedText(applied) {
-    if (!applied) return '';
-    if (applied.error) return ` 다만 Codex 창을 다시 켜지 못했어요: ${applied.error}`;
-    const parts = [];
-    if (applied.relaunched?.length) parts.push(`Codex 창 ${applied.relaunched.length}개를 같은 대화로 다시 켰어요`);
-    if (applied.skipped?.length) parts.push(`다시 켜지 못한 창: ${applied.skipped.join(', ')}`);
-    return parts.length ? ` ${parts.join(' · ')}.` : '';
   }
   async function applyCodexAccount() {
     const ok = await ui().confirmSheet({
       title: '모든 Codex 창에 지금 계정 적용',
-      message: "Codex 창을 모두 잠깐 껐다가 지금 로그인된 계정으로 같은 대화를 이어서 다시 켜요 (공유 데몬도 다시 시작).\n'다른 계정으로 로그인했다'는 토큰 오류가 날 때 쓰세요.",
+      message: "Codex 창을 모두 잠깐 껐다가 Codex 를 최신으로 업데이트하고, 지금 로그인된 계정으로 같은 대화를 이어서 다시 켜요 (공유 데몬도 다시 시작). 작업 중인 창이 있으면 끝난 뒤 자동으로 해요.\n'다른 계정으로 로그인했다'는 토큰 오류가 날 때 쓰세요.",
       confirmLabel: '적용',
     });
     if (!ok) return;
     try {
-      toast('Codex 창을 다시 켜는 중…', 'info');
       const result = await api('/api/accounts/codex/apply', { method: 'POST' });
-      toast(`적용했어요.${appliedText(result)}`, 'success');
+      window.UnivDash.followCodexApply(result);
     } catch (error) { toast(error.message, 'error'); }
   }
   function removeCodexMenu(others) {

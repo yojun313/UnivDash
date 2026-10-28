@@ -456,5 +456,43 @@
     return deviceIdCache;
   }
 
-  window.UnivDash = { deviceId, escapeHtml, api, toast, gitWorkflows, settings, uploadFile, formatNumber, relativeTime, duration, formatDate, chartColors, typingOrBusy, plainKey, haptic, busy, math: { extract: extractMath, render: renderMath } };
+  // Codex 새 계정 적용(창 끄기 → 업데이트 → 다시 켜기) 진행을 따라가며 알려 준다.
+  // 작업 중인 Codex 창이 있으면 서버가 끝날 때까지 기다렸다가 자동으로 한다 — 페이지를 떠나도 서버에서는 계속된다.
+  let applyWatch = 0;
+  function followCodexApply(first) {
+    const my = ++applyWatch;
+    const seq = first?.seq;
+    let shownWaiting = null;
+    let shownApplying = false;
+    const step = (status) => {
+      if (my !== applyWatch || !status || (seq != null && status.seq !== seq)) return;
+      if (status.state === 'waiting' || status.state === 'applying') {
+        const waiting = (status.waiting || []).join(', ');
+        if (status.state === 'waiting' && waiting && waiting !== shownWaiting) {
+          shownWaiting = waiting;
+          toast(`작업 중인 Codex 창(${waiting})이 끝나면 자동으로 업데이트하고 새 계정으로 다시 켜요.`, 'info', 7000);
+        } else if (status.state === 'applying' && !shownApplying) {
+          shownApplying = true;
+          toast('Codex 창을 끄고 업데이트한 뒤 같은 대화로 다시 켜는 중…', 'info', 5000);
+        }
+        setTimeout(() => request('/api/accounts/codex/apply').then(step, () => setTimeout(() => step(status), 4000)), status.state === 'waiting' ? 3000 : 1500);
+        return;
+      }
+      if (status.state === 'error') { toast(status.error || 'Codex 창에 적용하지 못했어요.', 'error', 9000); return; }
+      if (status.state === 'done') {
+        const r = status.result || {};
+        const after = r.after_stop || {};
+        const parts = [];
+        parts.push(r.relaunched?.length ? `Codex 창 ${r.relaunched.length}개를 같은 대화로 다시 켰어요` : '다시 켤 Codex 창이 없었어요');
+        if (after.updated === true) parts.push('Codex 를 최신으로 업데이트했어요');
+        else if (after.updated === false) parts.push('업데이트는 실패했어요 (기존 버전으로 켰어요)');
+        if (r.skipped?.length) parts.push(`직접 다시 켜야 하는 창: ${r.skipped.join(', ')}`);
+        toast(`${parts.join(' · ')}.`, r.skipped?.length || after.updated === false ? 'warn' : 'success', 8000);
+        window.dispatchEvent(new CustomEvent('univdash:codex-applied', { detail: status }));
+      }
+    };
+    step(first);
+  }
+
+  window.UnivDash = { deviceId, followCodexApply, escapeHtml, api, toast, gitWorkflows, settings, uploadFile, formatNumber, relativeTime, duration, formatDate, chartColors, typingOrBusy, plainKey, haptic, busy, math: { extract: extractMath, render: renderMath } };
 })();

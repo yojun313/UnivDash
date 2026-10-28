@@ -1637,7 +1637,7 @@
           <button type="button" data-act="autosave" class="exv-auto-btn hidden" title="자동 저장 켜기 / 끄기" aria-label="자동 저장"></button>
           <button type="button" data-act="save" class="exv-save-btn hidden" title="저장 (Ctrl/⌘+S)" aria-label="저장"><i class="fas fa-floppy-disk"></i><span>저장</span></button>
           <button type="button" data-act="md" class="exv-md-toggle hidden" title="미리보기 / 코드 전환" aria-label="미리보기 / 코드 전환"><i class="fas fa-code"></i><span>코드</span></button>
-          <button type="button" data-act="mdpdf" class="term-tool hidden" title="PDF 로 저장 · 다운로드 (보이는 모습 그대로)" aria-label="PDF 로 저장"><i class="fas fa-file-pdf text-xs"></i></button>
+          <button type="button" data-act="mdpdf" class="term-tool hidden" title="PDF 로 저장 · 다운로드 (보이는 모습 그대로 · 모아찍기)" aria-label="PDF 로 저장"><i class="fas fa-file-pdf text-xs"></i></button>
           <button type="button" data-act="wrap" class="term-tool" title="줄바꿈" aria-label="줄바꿈"><i class="fas fa-text-width text-xs"></i></button>
           ${options.onInsert ? '<button type="button" data-act="insert" class="term-tool" title="프롬프트에 경로 넣기" aria-label="프롬프트에 경로 넣기"><i class="fas fa-paper-plane text-xs"></i></button>' : ''}
           <button type="button" data-act="download" class="term-tool" title="다운로드" aria-label="다운로드"><i class="fas fa-download text-xs"></i></button>
@@ -1827,14 +1827,53 @@
     const isMarkdown = (entry) => MD_EXT.has((entry.ext || '').toLowerCase());
     // ── 마크다운 → PDF: 서버가 뷰어와 같은 렌더링으로 PDF 를 만들고, 쪽 그림으로 미리 보여 준다 ──
     const PDF_ZOOMS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.25, 1.5];
-    function mdPdfDialog(entry) {
+    // 모아찍기: 한 장에 1 · 2(가로 종이, 왼→오) · 4쪽(세로 종이 2×2). 4쪽은 배치 순서를 고른다.
+    const PDF_PER = [1, 2, 4];
+    const PDF_ORDERS = [
+      { id: 'z', label: '왼쪽에서 오른쪽, 위에서 아래 (Z)', cells: [[0, 0], [1, 0], [0, 1], [1, 1]] },
+      { id: 's', label: '오른쪽에서 왼쪽, 위에서 아래', cells: [[1, 0], [0, 0], [1, 1], [0, 1]] },
+      { id: 'n', label: '위에서 아래, 왼쪽 열부터', cells: [[0, 0], [0, 1], [1, 0], [1, 1]] },
+      { id: 'rn', label: '위에서 아래, 오른쪽 열부터', cells: [[1, 0], [1, 1], [0, 0], [0, 1]] },
+    ];
+    // 순서 아이콘: 2×2 칸 위로 1→4 순서대로 지나가는 화살표
+    const orderIcon = (cells) => {
+      const pts = cells.map(([c, r]) => [5.5 + c * 11, 5.5 + r * 11]);
+      const [x1, y1] = pts[2]; const [x2, y2] = pts[3];
+      const angle = Math.atan2(y2 - y1, x2 - x1);
+      const head = [angle + 2.6, angle - 2.6].map((a) => `${(x2 + 4 * Math.cos(a)).toFixed(1)},${(y2 + 4 * Math.sin(a)).toFixed(1)}`);
+      return `<svg viewBox="0 0 22 22" width="22" height="22" aria-hidden="true">
+        <g fill="none" stroke="currentColor" stroke-width="1" opacity=".35"><rect x=".5" y=".5" width="10" height="10" rx="1.5"/><rect x="11.5" y=".5" width="10" height="10" rx="1.5"/><rect x=".5" y="11.5" width="10" height="10" rx="1.5"/><rect x="11.5" y="11.5" width="10" height="10" rx="1.5"/></g>
+        <polyline points="${pts.map((p) => p.join(',')).join(' ')}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <polyline points="${head[0]} ${x2},${y2} ${head[1]}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    };
+    // 문서 → PDF (A4) 저장 · 다운로드. 배율은 글 파일(md · 코드 · 노트북 · 표)만, 모아찍기는 모든 문서.
+    // 원본이 PDF 면 모아찍기 결과만 저장한다 (이름-2up.pdf · 이름-4up.pdf).
+    function mdPdfDialog(entry, { zoomable = true } = {}) {
       const UI = window.UnivDashUI;
       let zoom = store.get('md-pdf-zoom', 1);
       if (!PDF_ZOOMS.includes(zoom)) zoom = 1;
+      let per = store.get('md-pdf-per', 1);
+      if (!PDF_PER.includes(per)) per = 1;
+      let theme = store.get('md-pdf-theme', 'light') === 'dark' ? 'dark' : 'light';   // 배경 (글 파일만)
+      let order = store.get('md-pdf-order', 'z');
+      if (!PDF_ORDERS.some((o) => o.id === order)) order = 'z';
+      const layout = () => (per === 4 ? `4${order}` : String(per));
+      let shown = '';   // 지금 미리보기에 보이는 레이아웃
       let job = null;
       let seq = 0;
       let timer = 0;
-      const base = entry.name.replace(/\.(md|markdown|mdx)$/i, '');
+      const base = entry.name.replace(/\.[^.]+$/, '') || entry.name;
+      const sourcePdf = (entry.ext || '').toLowerCase() === 'pdf';
+      const fileName = (want = shown || '1') => (sourcePdf ? `${base}-${want[0]}up.pdf` : `${base}.pdf`);
+      const syncActions = () => {
+        const el = box();
+        if (!el) return;
+        const ready = !!job && shown === layout();
+        el.querySelectorAll('[data-pdf-act]').forEach((b) => { b.disabled = !ready; });
+        const saveBtn = el.querySelector('[data-pdf-act="save"]');
+        if (sourcePdf && layout() === '1') saveBtn.disabled = true;   // 원본과 같다
+        saveBtn.querySelector('small').textContent = sourcePdf && layout() === '1' ? '(한 장에 2쪽 이상)' : `(${fileName(layout())})`;
+      };
       const box = () => document.querySelector('#sheetBody .mdpdf');
       const pagesEl = () => box()?.querySelector('.mdpdf-pages');
       async function build() {
@@ -1847,13 +1886,12 @@
         el.querySelector('.mdpdf-info').textContent = 'PDF 만드는 중…';
         pagesEl().classList.add('busy');
         try {
-          const result = await api('/api/fs/md-pdf', { method: 'POST', body: { path: entry.path, zoom } });
+          const result = await api('/api/fs/md-pdf', { method: 'POST', body: { path: entry.path, zoom, theme } });
           if (mine !== seq || !box()) return;
           job = result;
-          const width = Math.min(1600, Math.round((pagesEl().clientWidth - 24) * Math.min(window.devicePixelRatio || 1, 2)));
-          pagesEl().innerHTML = Array.from({ length: result.pages }, (_, i) => `<img class="mdpdf-page" alt="${i + 1}쪽" src="/api/fs/md-pdf/${result.token}/page/${i + 1}?w=${width}" loading="lazy">`).join('');
-          box().querySelector('.mdpdf-info').textContent = `${result.pages}쪽 · ${formatSize(result.size)}`;
-          box().querySelectorAll('[data-pdf-act]').forEach((b) => { b.disabled = false; });
+          shown = '';
+          if (!result.zoomable) box().querySelectorAll('.mdpdf-zoomctl').forEach((e) => e.classList.add('hidden'));
+          await showLayout(mine);
         } catch (error) {
           if (mine !== seq || !box()) return;
           pagesEl().innerHTML = `<p class="mdpdf-error"><i class="fas fa-triangle-exclamation"></i> ${escapeHtml(error.message)}</p>`;
@@ -1862,15 +1900,48 @@
           if (mine === seq) pagesEl()?.classList.remove('busy');
         }
       }
+      // 만든 PDF 에 모아찍기를 적용해 미리보기 (Chrome 을 다시 돌리지 않는다)
+      async function showLayout(mine = seq) {
+        if (!job || !box()) return;
+        const want = layout();
+        if (want === shown) return;
+        const el = box();
+        el.querySelectorAll('[data-pdf-act]').forEach((b) => { b.disabled = true; });
+        pagesEl().classList.add('busy');
+        try {
+          const info = want === '1' ? job : await api(`/api/fs/md-pdf/${job.token}/layout?layout=${want}`);
+          if (mine !== seq || want !== layout() || !box()) return;
+          shown = want;
+          const width = Math.min(1600, Math.round((pagesEl().clientWidth - 24) * Math.min(window.devicePixelRatio || 1, 2)));
+          pagesEl().innerHTML = Array.from({ length: info.pages }, (_, i) => `<img class="mdpdf-page${want === '2' ? ' landscape' : ''}" alt="${i + 1}장" src="/api/fs/md-pdf/${job.token}/page/${i + 1}?w=${width}&layout=${want}" loading="lazy">`).join('');
+          box().querySelector('.mdpdf-info').textContent = want === '1'
+            ? `${info.pages}쪽 · ${formatSize(info.size)}`
+            : `${job.pages}쪽 → 종이 ${info.pages}장 · ${formatSize(info.size)}`;
+          syncActions();
+        } catch (error) {
+          if (mine !== seq || !box()) return;
+          toast(error.message, 'error');
+        } finally {
+          if (mine === seq) pagesEl()?.classList.remove('busy');
+        }
+      }
+      function syncLayoutButtons() {
+        const el = box();
+        if (!el) return;
+        el.querySelectorAll('[data-per]').forEach((b) => b.classList.toggle('on', Number(b.dataset.per) === per));
+        el.querySelectorAll('[data-order]').forEach((b) => b.classList.toggle('on', b.dataset.order === order));
+        el.querySelectorAll('[data-theme-pick]').forEach((b) => b.classList.toggle('on', b.dataset.themePick === theme));
+        el.querySelector('.mdpdf-order').classList.toggle('hidden', per !== 4);
+      }
       async function save(overwrite = false) {
         if (!job) return;
         try {
-          const result = await api(`/api/fs/md-pdf/${job.token}/save`, { method: 'POST', body: { path: entry.path, overwrite } });
+          const result = await api(`/api/fs/md-pdf/${job.token}/save`, { method: 'POST', body: { path: entry.path, overwrite, layout: shown || '1' } });
           toast(`저장했어요: ${shortHome(result.path)}`, 'success');
           window.dispatchEvent(new CustomEvent('univdash:fs-changed', { detail: { dir: dirname(entry.path) } }));
         } catch (error) {
           if (!overwrite && /이미 있어요/.test(error.message)) {
-            if (confirm(`${base}.pdf 가 이미 있어요. 덮어쓸까요?`)) save(true);
+            if (confirm(`${fileName()} 가 이미 있어요. 덮어쓸까요?`)) save(true);
             return;
           }
           toast(error.message, 'error');
@@ -1878,26 +1949,68 @@
       }
       UI.infoSheet({
         title: 'PDF 로 저장',
-        subtitle: `${entry.name} — 화면에 보이는 모습 그대로 (A4). 배율을 정한 뒤 저장하거나 내려받으세요.`,
+        subtitle: `${entry.name} — ${sourcePdf ? '한 장에 여러 쪽씩 모아 A4 로 다시 배치해요.' : '화면에 보이는 모습 그대로 (A4).'} ${zoomable ? '배율 · ' : ''}한 장에 넣을 쪽 수를 정한 뒤 저장하거나 내려받으세요.`,
         bodyHtml: `<div class="mdpdf">
             <div class="mdpdf-bar">
-              <span class="mdpdf-label">배율</span>
-              <button type="button" data-zoom="-1" aria-label="작게"><i class="fas fa-minus"></i></button>
-              <span class="mdpdf-zoom">${Math.round(zoom * 100)}%</span>
-              <button type="button" data-zoom="1" aria-label="크게"><i class="fas fa-plus"></i></button>
+              <span class="mdpdf-zoomctl${zoomable ? '' : ' hidden'}">
+                <span class="mdpdf-label">배율</span>
+                <button type="button" data-zoom="-1" aria-label="작게"><i class="fas fa-minus"></i></button>
+                <span class="mdpdf-zoom">${Math.round(zoom * 100)}%</span>
+                <button type="button" data-zoom="1" aria-label="크게"><i class="fas fa-plus"></i></button>
+              </span>
+              <span class="mdpdf-zoomctl${zoomable ? '' : ' hidden'}">
+                <span class="mdpdf-label">배경</span>
+                <div class="mdpdf-seg" role="group" aria-label="배경">
+                  <button type="button" data-theme-pick="light" aria-label="흰 배경">흰색</button>
+                  <button type="button" data-theme-pick="dark" aria-label="검은 배경">검정</button>
+                </div>
+              </span>
               <span class="mdpdf-info"></span>
+            </div>
+            <div class="mdpdf-bar mdpdf-layout">
+              <span class="mdpdf-label">한 장에</span>
+              <div class="mdpdf-seg" role="group" aria-label="한 장에 넣을 쪽 수">
+                ${PDF_PER.map((n) => `<button type="button" data-per="${n}" aria-label="한 장에 ${n}쪽">${n}쪽</button>`).join('')}
+              </div>
+              <div class="mdpdf-order hidden">
+                <span class="mdpdf-label">레이아웃 방향</span>
+                <div class="mdpdf-seg icons" role="group" aria-label="레이아웃 방향">
+                  ${PDF_ORDERS.map((o) => `<button type="button" data-order="${o.id}" title="${o.label}" aria-label="${o.label}">${orderIcon(o.cells)}</button>`).join('')}
+                </div>
+              </div>
             </div>
             <div class="mdpdf-pages"></div>
             <div class="mdpdf-actions">
-              <button type="button" data-pdf-act="save" class="btn-glow" disabled><i class="fas fa-floppy-disk"></i> 서버에 저장 <small>(${escapeHtml(base)}.pdf)</small></button>
+              <button type="button" data-pdf-act="save" class="btn-glow" disabled><i class="fas fa-floppy-disk"></i> 서버에 저장 <small>(${escapeHtml(fileName(layout()))})</small></button>
               <button type="button" data-pdf-act="download" class="mdpdf-secondary" disabled><i class="fas fa-download"></i> 다운로드</button>
             </div>
           </div>`,
         onMount: (body) => {
           body.closest('.tdx-sheet')?.classList.add('wide');
+          syncLayoutButtons();
           body.addEventListener('click', (event) => {
+            const p = event.target.closest('[data-per]');
+            const o = event.target.closest('[data-order]');
+            if (p || o) {
+              if (p) { per = Number(p.dataset.per); store.set('md-pdf-per', per); }
+              if (o) { order = o.dataset.order; store.set('md-pdf-order', order); }
+              syncLayoutButtons();
+              syncActions();
+              showLayout();
+              return;
+            }
+            const t = event.target.closest('[data-theme-pick]');
+            if (t && zoomable) {
+              if (t.dataset.themePick === theme) return;
+              theme = t.dataset.themePick;
+              store.set('md-pdf-theme', theme);
+              syncLayoutButtons();
+              clearTimeout(timer);
+              build();
+              return;
+            }
             const z = event.target.closest('[data-zoom]');
-            if (z) {
+            if (z && zoomable) {
               const index = PDF_ZOOMS.indexOf(zoom) + Number(z.dataset.zoom);
               if (index < 0 || index >= PDF_ZOOMS.length) return;
               zoom = PDF_ZOOMS[index];
@@ -1911,8 +2024,8 @@
             if (act === 'save') save();
             else if (act === 'download' && job) {
               const a = document.createElement('a');
-              a.href = `/api/fs/md-pdf/${job.token}/download?name=${encodeURIComponent(`${base}.pdf`)}`;
-              a.download = `${base}.pdf`;
+              a.href = `/api/fs/md-pdf/${job.token}/download?name=${encodeURIComponent(fileName())}&layout=${shown || '1'}`;
+              a.download = fileName();
               document.body.appendChild(a); a.click(); a.remove();
             }
           });
@@ -1956,7 +2069,7 @@
       if (rendered) { sizeRich(); showZoom(); } else $('.exv-zoom').classList.add('hidden');
       const htmlHost = rendered && bodyEl.querySelector('.exv-htmldoc');
       if (htmlHost) mountHtmlDoc(htmlHost, file.content, entry.path, openLocal).then(() => find.refresh()).catch(() => { htmlHost.textContent = 'HTML 을 그리지 못했어요. 코드 보기로 확인하세요.'; });
-      $('[data-act="mdpdf"]').classList.toggle('hidden', !(rendered && isMarkdown(entry)));
+      $('[data-act="mdpdf"]').classList.remove('hidden');   // 글 파일은 모두 PDF 로 (md · 코드 · 노트북 · 표 · html)
     }
 
     // Jupyter 노트북: 마크다운 셀 · 코드 셀(강조) · 출력(텍스트 · 이미지 · 오류)
@@ -2031,6 +2144,7 @@
         if (seq !== renderSeq) return;
         const safe = window.DOMPurify ? window.DOMPurify.sanitize(data.html, { FORBID_TAGS: ['script', 'iframe', 'form', 'style', 'link'], ADD_DATA_URI_TAGS: ['img'] }) : escapeHtml(data.html);
         bodyEl.innerHTML = `${metaHtml(file, ' · 한글(hwpx) 미리보기')}<div class="hwp-doc">${safe}</div>`;
+        $('[data-act="mdpdf"]').classList.remove('hidden');
         fitHwp();
         showZoom();
       } else if (file.preview === 'archive') {
@@ -2815,6 +2929,7 @@
           const info = await api(`/api/fs/pdf/info?path=${encodeURIComponent(entry.path)}`);
           if (seq !== renderSeq) return;
           $('.exv-zoom').classList.remove('hidden');
+          $('[data-act="mdpdf"]').classList.remove('hidden');   // 모아찍기 · (오피스 문서는) PDF 로 저장
           renderPdf(entry, info);
         } else if (file.image) {
           $('[data-act="wrap"]').classList.add('hidden');
@@ -2916,7 +3031,7 @@
       else if (act === 'conflict-reload') { conflictPath = null; clearDraft(current.path); viewOf(current.path).edit = true; show(current); }
       else if (act === 'done') exitEdit();
       else if (act === 'revert') revert();
-      else if (act === 'mdpdf' && current) mdPdfDialog(current);
+      else if (act === 'mdpdf' && current) mdPdfDialog(current, { zoomable: !!lastFile && !isHtml(current) });
       else if (act === 'zoom-in') setZoom(1);
       else if (act === 'zoom-out') setZoom(-1);
       else if (act === 'md' && editing) {
@@ -3144,15 +3259,10 @@
   document.addEventListener('pointerdown', (event) => { lastViewer = viewerOf(event.target) || lastViewer; }, true);
   document.addEventListener('focusin', (event) => { lastViewer = viewerOf(event.target) || lastViewer; });
   const visible = (v) => v.container.isConnected && v.container.getClientRects().length > 0 && v.container.offsetParent !== null;
-  document.addEventListener('keydown', (event) => {
-    if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.repeat && event.key === '0') return;
-    const action = { '+': 1, '=': 1, '-': -1, _: -1, '0': 0 }[event.key]
-      ?? { NumpadAdd: 1, NumpadSubtract: -1, Numpad0: 0 }[event.code];
-    if (action === undefined || window.UnivDash.typingOrBusy(event)) return;
-    const target = [lastViewer, ...zoomViewers].find((v) => v && visible(v) && v.canZoom());
-    if (!target) return;
-    event.preventDefault();
-    if (action === 0) target.reset(); else target.step(action);
+  // 단축키 (keys.js · 기본: + / = 확대 · - 축소 · 0 원래 크기)
+  const zoomTarget = () => [lastViewer, ...zoomViewers].find((v) => v && visible(v) && v.canZoom());
+  [['view.zoomIn', (v) => v.step(1)], ['view.zoomOut', (v) => v.step(-1)], ['view.zoomReset', (v) => v.reset()]].forEach(([id, act]) => {
+    window.UnivDashKeys?.register(id, () => { const target = zoomTarget(); if (!target) return false; act(target); return true; }, () => !!zoomTarget());
   });
 
   window.UnivDashExplorer = { mountTree, mountViewer, copyText, loadPrefs, shared, renderMarkdownHtml };
@@ -3255,31 +3365,27 @@
     onOpen(entry) { openPanel(); viewer.open(entry); },
   });
   window.addEventListener('popstate', () => { if (isOpen()) closePanel(true); });
-  // 단축키 (입력 중이 아닐 때): w/ㅈ 지금 파일 탭 닫기 · 1~9 N번째 탭 · ←/→ 이전/다음 탭
-  document.addEventListener('keydown', (event) => {
-    const { plainKey, typingOrBusy } = window.UnivDash;
-    if (typingOrBusy(event)) return;
-    const tabs = viewer.tabs;
-    const index = tabs.findIndex((t) => t.path === viewer.activePath);
-    const go = (tab) => { if (tab && tab.path !== viewer.activePath) { openPanel(); viewer.open(tab); } };
-    if (plainKey(event, 'KeyW')) {
-      if (!viewer.current) return;
-      event.preventDefault();
-      viewer.closeTab(viewer.current.path);
-      return;
-    }
-    const digit = /^Digit([1-9])$/.exec(event.code);
-    if (digit && plainKey(event, event.code)) {
-      if (!tabs[Number(digit[1]) - 1]) return;
-      event.preventDefault();
-      go(tabs[Number(digit[1]) - 1]);
-      return;
-    }
-    if ((plainKey(event, 'ArrowLeft') || plainKey(event, 'ArrowRight')) && tabs.length > 1) {
-      event.preventDefault();
-      go(tabs[((index < 0 ? 0 : index + (event.code === 'ArrowRight' ? 1 : -1)) + tabs.length) % tabs.length]);
-    }
+  // 단축키 (keys.js · 기본: w 지금 파일 탭 닫기 · 1~9 N번째 탭 · ←/→ 이전/다음 탭)
+  const keys = window.UnivDashKeys;
+  const tabIndex = () => viewer.tabs.findIndex((t) => t.path === viewer.activePath);
+  const goTab = (tab) => { if (tab && tab.path !== viewer.activePath) { openPanel(); viewer.open(tab); } };
+  keys?.register('tab.close', () => {
+    if (!viewer.current) return false;
+    viewer.closeTab(viewer.current.path);
+    return true;
   });
+  [1, 2, 3, 4, 5, 6, 7, 8, 9].forEach((n) => keys?.register(`tab.${n}`, () => {
+    if (!viewer.tabs[n - 1]) return false;
+    goTab(viewer.tabs[n - 1]);
+    return true;
+  }));
+  [['tab.next', 1], ['tab.prev', -1]].forEach(([id, step]) => keys?.register(id, () => {
+    const tabs = viewer.tabs;
+    if (tabs.length < 2) return false;
+    const index = tabIndex();
+    goTab(tabs[((index < 0 ? 0 : index + step) + tabs.length) % tabs.length]);
+    return true;
+  }));
   openChip.addEventListener('click', () => { openPanel(); });
   desktop.addEventListener('change', () => { document.body.classList.toggle('panel-open', false); showViewerArea(viewer.count > 0); syncChip(); });
 

@@ -312,12 +312,13 @@ async def get_ecosystem():
             "error": str(error),
             "apps": [],
         }
-    running = {
-        proc["name"]: proc["pm2_env"]["status"]
-        for proc in await asyncio.to_thread(PM2Service.get_process_summaries)
-    }
+    processes = await asyncio.to_thread(PM2Service.get_process_summaries)
+    running = {proc["name"]: proc["pm2_env"]["status"] for proc in processes}
+    me = PM2Service.self_pm_id()
+    self_name = next((p["name"] for p in processes if p["pm_id"] == me), None)
     for app in apps:
         app["status"] = running.get(app.get("name"))
+        app["self"] = me is not None and app.get("name") == self_name
     return {"path": str(path), "exists": path.exists(), "apps": apps}
 
 
@@ -340,6 +341,94 @@ async def add_ecosystem_app(body: EcosystemAppRequest):
         except (ValueError, KeyError, EcosystemError) as error:
             ok, output = False, str(error)
         result.update(started=ok, output=output)
+    return result
+
+
+def _self_name() -> str | None:
+    """이 대시보드의 pm2 프로세스 이름 (pm2 로 실행 중이 아니면 None)."""
+    me = PM2Service.self_pm_id()
+    if me is None:
+        return None
+    return next(
+        (p["name"] for p in PM2Service.get_process_summaries() if p["pm_id"] == me),
+        None,
+    )
+
+
+def _check_name(name: str) -> None:
+    if not name or name.startswith("-") or len(name) > 200:
+        raise HTTPException(status_code=400, detail="잘못된 앱 이름입니다.")
+
+
+class EcosystemUpdateRequest(EcosystemAppRequest):
+    start: bool = False
+    apply: bool = True
+
+
+@router.get("/api/ecosystem/apps/{name}", dependencies=api_auth)
+async def get_ecosystem_app(name: str):
+    _check_name(name)
+    try:
+        app = await asyncio.to_thread(ecosystem_service.get_app, name)
+    except (KeyError, EcosystemError) as error:
+        _ecosystem_error(error)
+    app["self"] = name == await asyncio.to_thread(_self_name)
+    return app
+
+
+@router.put("/api/ecosystem/apps/{name}", dependencies=api_auth)
+async def update_ecosystem_app(name: str, body: EcosystemUpdateRequest):
+    """항목을 고친다. apply 면 돌고 있는 프로세스를 지우고 새 설정으로 다시 시작한다 (대시보드 자신은 제외)."""
+    _check_name(name)
+    self_name = await asyncio.to_thread(_self_name)
+    if body.name != name and name == self_name:
+        raise HTTPException(
+            status_code=400,
+            detail="이 대시보드 자신의 앱 이름은 여기서 바꿀 수 없습니다.",
+        )
+    try:
+        result = await asyncio.to_thread(
+            ecosystem_service.update_app, name, body.model_dump()
+        )
+    except (ValueError, KeyError, EcosystemError, OSError) as error:
+        _ecosystem_error(error)
+    logger.info("ecosystem 앱 수정 · %s → %s · %s", name, body.name, result["changed"])
+    result["applied"] = None
+    running = await asyncio.to_thread(PM2Service.process_exists, name)
+    if body.apply and result["changed"] and running:
+        if name == self_name:
+            result["applied"] = "self"
+        else:
+            # script · cwd · 인터프리터 변경은 restart 로는 반영되지 않아 지우고 새로 시작한다
+            await asyncio.to_thread(PM2Service.run_command, "delete", name)
+            try:
+                ok, output = await asyncio.to_thread(
+                    ecosystem_service.start_app, body.name
+                )
+            except (ValueError, KeyError, EcosystemError) as error:
+                ok, output = False, str(error)
+            result.update(applied=ok, output=output)
+    return result
+
+
+@router.delete("/api/ecosystem/apps/{name}", dependencies=api_auth)
+async def delete_ecosystem_app(name: str, pm2: bool = False):
+    """ecosystem 에서 항목을 지운다. pm2 면 돌고 있는 프로세스도 지운다. 대시보드 자신은 지울 수 없다."""
+    _check_name(name)
+    if name == await asyncio.to_thread(_self_name):
+        raise HTTPException(
+            status_code=400, detail="이 대시보드 자신은 여기서 지울 수 없습니다."
+        )
+    try:
+        result = await asyncio.to_thread(ecosystem_service.delete_app, name)
+    except (ValueError, KeyError, EcosystemError, OSError) as error:
+        _ecosystem_error(error)
+    logger.info("ecosystem 앱 삭제 · %s · pm2 삭제 %s", name, pm2)
+    result["pm2_deleted"] = None
+    if pm2 and await asyncio.to_thread(PM2Service.process_exists, name):
+        result["pm2_deleted"] = await asyncio.to_thread(
+            PM2Service.run_command, "delete", name
+        )
     return result
 
 

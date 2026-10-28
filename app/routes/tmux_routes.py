@@ -12,7 +12,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from app.routes.pages import render_page
@@ -189,19 +189,53 @@ async def api_agent_restart(body: AgentRestartRequest):
     return result
 
 
+class AgentUpdateAllRequest(BaseModel):
+    claude: bool = True
+    codex: bool = True
+
+
+@router.post("/api/agent/update-all", dependencies=api_auth)
+async def api_agent_update_all(body: AgentUpdateAllRequest):
+    """모든 에이전트 창을 업데이트하고 같은 대화로 다시 켠다 (백그라운드, 작업 중인 창은 끝난 뒤)."""
+    from app.services import agent_update_all
+
+    if not (body.claude or body.codex):
+        raise HTTPException(status_code=422, detail="업데이트할 에이전트를 고르세요.")
+    try:
+        result = await asyncio.to_thread(
+            agent_update_all.start, body.claude, body.codex
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    logger.info(
+        "모든 에이전트 업데이트 시작 · claude=%s · codex=%s", body.claude, body.codex
+    )
+    return result
+
+
+@router.get("/api/agent/update-all", dependencies=api_auth)
+async def api_agent_update_all_status():
+    from app.services import agent_update_all
+
+    return await asyncio.to_thread(agent_update_all.status)
+
+
 class AgentSwitchRequest(BaseModel):
     pane: str = Field(min_length=2, max_length=16)
     to: str = Field(pattern=r"^(claude|codex)$")
+    carry: bool = False
 
 
 @router.post("/api/agent/switch", dependencies=api_auth)
 async def api_agent_switch(body: AgentSwitchRequest):
-    """에이전트 바꾸기 (Claude ↔ Codex, 셸만 있는 창에서 켜기). 대화는 옮겨지지 않고 새로 시작한다."""
+    """에이전트 바꾸기 (Claude ↔ Codex, 셸만 있는 창에서 켜기). carry 면 지금 대화 기록을 넘겨 새 대화로 켠다."""
     from app.services import agent_restart
 
     try:
         pane = await asyncio.to_thread(tmux_service.require_pane, body.pane)
-        result = await asyncio.to_thread(agent_restart.switch_agent, pane, body.to)
+        result = await asyncio.to_thread(
+            agent_restart.switch_agent, pane, body.to, body.carry
+        )
     except RuntimeError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     except (TmuxError, KeyError, ValueError) as error:
@@ -231,6 +265,21 @@ async def api_transcript(pane: str, start: int | None = None, limit: int = 80):
         return {"available": False, "agent": agent, "total": 0, "start": 0, "items": []}
     data = await asyncio.to_thread(transcript_service.read, path, agent, start, limit)
     return {"available": True, "agent": agent, **data}
+
+
+@router.get("/api/transcript/image/{name}", dependencies=api_auth)
+async def api_transcript_image(name: str):
+    """채팅에 사용자가 첨부한 그림 (대화 기록에서 꺼내 둔 캐시 · 이름은 내용 해시)."""
+    path = transcript_service.image_path(name)
+    if path is None:
+        raise HTTPException(status_code=404, detail="그림을 찾을 수 없어요.")
+    ext = name.rsplit(".", 1)[-1]
+    media = {"jpg": "image/jpeg"}.get(ext, f"image/{ext}")
+    return FileResponse(
+        path,
+        media_type=media,
+        headers={"Cache-Control": "private, max-age=31536000, immutable"},
+    )
 
 
 @router.get("/api/transcript/sub", dependencies=api_auth)
@@ -467,10 +516,20 @@ async def _handle(channel: _Channel, message: dict) -> None:
         await channel.send({"t": "pong"})
         return
     if kind == "focus":
-        # 이 기기에서 지금 대시보드를 보고 있으면 웹 푸시를 보내지 않는다
+        # 기기 상태: 화면에 띄운 창(그 창 알림은 푸시 대신 화면 안 알림), 지금 쓰고 있는지(그러면 그 기기로만 푸시)
         device = message.get("device")
-        on = message.get("on") is True and isinstance(device, str)
-        push_service.set_focus(id(channel), device if on else None)
+        keys = message.get("keys")
+        keys = (
+            [k for k in keys[:50] if isinstance(k, str) and len(k) <= 200]
+            if isinstance(keys, list)
+            else []
+        )
+        push_service.set_focus(
+            id(channel),
+            device if isinstance(device, str) else None,
+            keys,
+            message.get("present") is True,
+        )
         return
 
     pane = await asyncio.to_thread(tmux_service.require_pane, message.get("pane"))
@@ -518,6 +577,13 @@ async def _handle(channel: _Channel, message: dict) -> None:
         if not isinstance(keys, list) or not all(isinstance(k, str) for k in keys):
             raise ValueError("잘못된 키 입력입니다.")
         await asyncio.to_thread(tmux_service.send_keys, pane, keys)
+    elif kind == "size":
+        cols, rows = message.get("cols"), message.get("rows")
+        if not isinstance(cols, int) or not isinstance(rows, int):
+            raise ValueError("잘못된 크기입니다.")
+        if not await asyncio.to_thread(tmux_service.fit_window, pane, cols, rows):
+            return
+        tmux_service.invalidate_cache()
     elif kind == "select":
         await asyncio.to_thread(tmux_service.select_pane, pane)
         tmux_service.invalidate_cache()

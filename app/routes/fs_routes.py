@@ -282,6 +282,18 @@ async def search(
         _fail(error)
 
 
+@router.get("/api/fs/search-dirs", dependencies=api_auth)
+async def search_dirs(
+    root: str = Query(..., max_length=4096),
+    q: str = Query(..., max_length=200),
+    hidden: bool = False,
+):
+    try:
+        return await asyncio.to_thread(fs_service.search_dirs, root, q, hidden)
+    except (FsError, OSError) as error:
+        _fail(error)
+
+
 class FsWrite(BaseModel):
     path: str = Field(min_length=1, max_length=4096)
     content: str = Field(max_length=fs_service.MAX_WRITE)
@@ -339,32 +351,58 @@ async def git_clone(body: CloneRequest):
 class MdPdfRequest(BaseModel):
     path: str = Field(min_length=1, max_length=4096)
     zoom: float = Field(default=1.0, ge=0.4, le=2.0)
+    theme: str = Field(default="light", pattern=r"^(light|dark)$")
 
 
 class MdPdfSaveRequest(BaseModel):
     path: str = Field(min_length=1, max_length=4096)
     overwrite: bool = False
+    layout: str = Field(default="1", pattern=r"^(1|2|4(z|s|rn|n))$")
 
 
 @router.post("/api/fs/md-pdf", dependencies=api_auth)
 async def md_pdf(body: MdPdfRequest):
-    """마크다운을 뷰어에 보이는 모습 그대로 PDF 로 (미리보기용 임시 파일, 30분 보관)."""
+    """문서(md · 코드 · 노트북 · 표 · html · hwpx · 오피스 · pdf)를 뷰어에 보이는 모습 그대로 PDF 로
+    (미리보기용 임시 파일, 30분 보관)."""
     from app.services import md_pdf_service
 
     try:
-        return await asyncio.to_thread(md_pdf_service.render, body.path, body.zoom)
+        converted = None
+        if await asyncio.to_thread(md_pdf_service.needs_office, body.path):
+            converted = await preview_service.office_pdf(body.path)
+        return await asyncio.to_thread(
+            md_pdf_service.render, body.path, body.zoom, converted, body.theme
+        )
     except md_pdf_service.MdPdfError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
     except (FsError, OSError) as error:
         _fail(error)
 
 
-@router.get("/api/fs/md-pdf/{token}/page/{number}", dependencies=api_auth)
-async def md_pdf_page(token: str, number: int, w: int = Query(900, ge=200, le=2000)):
+@router.get("/api/fs/md-pdf/{token}/layout", dependencies=api_auth)
+async def md_pdf_layout(
+    token: str, layout: str = Query("1", pattern=r"^(1|2|4(z|s|rn|n))$")
+):
+    """모아찍기(한 장에 2 · 4쪽) 적용 결과의 장 수 · 크기."""
     from app.services import md_pdf_service
 
     try:
-        png = await asyncio.to_thread(md_pdf_service.page_png, token, number, w)
+        return await asyncio.to_thread(md_pdf_service.layout_info, token, layout)
+    except (FsError, OSError) as error:
+        _fail(error)
+
+
+@router.get("/api/fs/md-pdf/{token}/page/{number}", dependencies=api_auth)
+async def md_pdf_page(
+    token: str,
+    number: int,
+    w: int = Query(900, ge=200, le=2000),
+    layout: str = Query("1", pattern=r"^(1|2|4(z|s|rn|n))$"),
+):
+    from app.services import md_pdf_service
+
+    try:
+        png = await asyncio.to_thread(md_pdf_service.page_png, token, number, w, layout)
     except (FsError, OSError) as error:
         _fail(error)
     return FileResponse(
@@ -374,12 +412,14 @@ async def md_pdf_page(token: str, number: int, w: int = Query(900, ge=200, le=20
 
 @router.get("/api/fs/md-pdf/{token}/download", dependencies=api_auth)
 async def md_pdf_download(
-    token: str, name: str = Query("document.pdf", max_length=255)
+    token: str,
+    name: str = Query("document.pdf", max_length=255),
+    layout: str = Query("1", pattern=r"^(1|2|4(z|s|rn|n))$"),
 ):
     from app.services import md_pdf_service
 
     try:
-        pdf = md_pdf_service.pdf_file(token)
+        pdf = await asyncio.to_thread(md_pdf_service.pdf_file, token, layout)
     except (FsError, OSError) as error:
         _fail(error)
     safe = (
@@ -392,12 +432,12 @@ async def md_pdf_download(
 
 @router.post("/api/fs/md-pdf/{token}/save", dependencies=api_auth)
 async def md_pdf_save(token: str, body: MdPdfSaveRequest):
-    """md 파일 옆에 같은 이름의 .pdf 로 저장 (이미 있으면 409 → 덮어쓸지 물어본 뒤 overwrite)."""
+    """원본 옆에 같은 이름의 .pdf 로 저장 (이미 있으면 409 → 덮어쓸지 물어본 뒤 overwrite)."""
     from app.services import md_pdf_service
 
     try:
         saved = await asyncio.to_thread(
-            md_pdf_service.save_next_to, token, body.path, body.overwrite
+            md_pdf_service.save_next_to, token, body.path, body.overwrite, body.layout
         )
     except FileExistsError as error:
         raise HTTPException(
@@ -405,7 +445,7 @@ async def md_pdf_save(token: str, body: MdPdfSaveRequest):
         ) from error
     except (FsError, OSError) as error:
         _fail(error)
-    logger.info("마크다운 PDF 저장 · %s", saved)
+    logger.info("PDF 저장 · %s", saved)
     return {"path": saved}
 
 

@@ -8,27 +8,31 @@
   const fromEvent = (event) => viewers.find((v) => event.composedPath().includes(v.container));
   document.addEventListener('pointerdown', (e) => { last = fromEvent(e) || last; }, true);
   document.addEventListener('focusin', (e) => { last = fromEvent(e) || last; }, true);
+  // 찾기 · 바꾸기 · 다음/이전 찾기는 단축키 설정(keys.js)을 따른다. 기본: Ctrl/⌘+F · Ctrl+H(⌘⌥F) · F3 / Shift+F3
+  const targetOf = (event) => [event && fromEvent(event), last, ...viewers].find((v) => v && visible(v) && v.hasFile());
+  const keys = window.UnivDashKeys;
+  keys?.register('find.open', (event) => {
+    const target = targetOf(event);
+    if (!target) return false;
+    last = target; target.open();
+    return true;
+  });
+  keys?.register('find.replace', (event) => {
+    const target = targetOf(event);
+    if (!target?.canReplace()) return false;
+    last = target; target.open({ replace: true });
+    return true;
+  });
+  [['find.next', 1], ['find.prev', -1]].forEach(([id, step]) => keys?.register(id, (event) => {
+    const target = targetOf(event);
+    if (!target?.isOpen()) return false;
+    target.next(step);
+    return true;
+  }));
   document.addEventListener('keydown', (event) => {
-    if (event.isComposing) return;
-    const mod = event.ctrlKey || event.metaKey;
-    const isF = event.code === 'KeyF' || event.key.toLowerCase() === 'f';
-    // VS Code 처럼: Ctrl/⌘+F 찾기, Ctrl+H · ⌘+⌥+F 바꾸기
-    const replace = (event.ctrlKey && !event.metaKey && !event.altKey && event.code === 'KeyH') || (event.metaKey && event.altKey && event.code === 'KeyF');
-    const find = mod && !event.altKey && isF;
-    if (event.altKey && !replace) return;
-    const target = [fromEvent(event), last, ...viewers].find((v) => v && visible(v) && v.hasFile());
-    if (!target) return;
-    if (replace && target.canReplace()) {
-      event.preventDefault(); event.stopImmediatePropagation();
-      last = target; target.open({ replace: true });
-    } else if (find) {
-      event.preventDefault(); event.stopImmediatePropagation();
-      last = target; target.open();
-    } else if (event.key === 'Escape' && target.isOpen()) {
-      event.preventDefault(); event.stopImmediatePropagation(); target.close();
-    } else if (event.key === 'F3' && target.isOpen()) {
-      event.preventDefault(); event.stopImmediatePropagation(); target.next(event.shiftKey ? -1 : 1);
-    }
+    if (event.isComposing || event.key !== 'Escape') return;
+    const target = targetOf(event);
+    if (target?.isOpen()) { event.preventDefault(); event.stopImmediatePropagation(); target.close(); }
   }, true);
 
   function mount(container, body, getState) {

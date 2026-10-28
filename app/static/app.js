@@ -114,6 +114,8 @@
   const sidebarOverlay = $('#sidebarOverlay');
   const sidebarMenuButton = $('#sidebarMenuButton');
   const mdQuery = window.matchMedia('(min-width: 768px)');
+  // 입력창 안내 문구: 넓은 화면에서는 창 이름을 함께, 모바일에서는 짧게
+  const promptPlaceholder = (w) => (w && mdQuery.matches ? `${displayName(w)} · 프롬프트 입력` : '프롬프트 입력');
 
   function setSidebarOpen(isOpen) {
     sidebar.classList.toggle('-translate-x-full', !isOpen);
@@ -130,6 +132,11 @@
     requestAnimationFrame(() => terminal?.refit());
   });
   $('#closeSidebarBtn').addEventListener('click', () => setSidebarOpen(false));
+  // 단축키: 데스크톱은 접기 / 펼치기, 휴대폰은 서랍 열기 / 닫기
+  window.UnivDashKeys?.register('app.sidebar', () => {
+    if (mdQuery.matches) $('#sidebarCollapseBtn')?.click();
+    else setSidebarOpen(sidebarMenuButton.getAttribute('aria-expanded') !== 'true');
+  });
   document.querySelector('.logout-all')?.addEventListener('click', async (event) => {
     event.preventDefault();
     const button = event.currentTarget;
@@ -210,12 +217,16 @@
 
   // ── 시트(하단 시트 / 모달) ────────────────────────────────────────────
   const sheetOverlay = $('#sheetOverlay');
-  const sheetBody = $('#sheetBody');
+  let sheetBody = $('#sheetBody');
   let sheetOnClose = null;
 
   let sheetReturnFocus = null;
   function openSheet(html, onMount, onClose) {
     if (sheetOverlay.hidden) sheetReturnFocus = document.activeElement;   // 닫으면 원래 자리로 초점을 돌려준다 (단축키가 이어지게)
+    // 시트마다 새 요소로 바꾼다 — onMount 가 body 에 단 리스너가 다음 시트까지 남아 한 번 눌러도 여러 번 실행되지 않게
+    const fresh = sheetBody.cloneNode(false);
+    sheetBody.replaceWith(fresh);
+    sheetBody = fresh;
     sheetBody.innerHTML = html;
     sheetOverlay.hidden = false;
     sheetOnClose = onClose || null;
@@ -292,16 +303,22 @@
     });
   }
 
-  function confirmSheet({ title, message, confirmLabel = '확인', danger = false }) {
+  // check: {label, desc, checked} 를 주면 체크박스 한 줄을 보여 주고, 확인할 때 고른 값을 check.checked 에 적는다
+  function confirmSheet({ title, message, confirmLabel = '확인', danger = false, check = null }) {
     return new Promise((resolve) => {
       let answered = false;
       let keyHandler = null;
-      openSheet(`${sheetHead(title, message)}<div class="sheet-buttons">
+      const checkHtml = check ? `<div class="sheet-form sheet-check"><label class="check-row"><input type="checkbox" data-check${check.checked ? ' checked' : ''}>
+          <span>${escapeHtml(check.label)}${check.desc ? `<small>${escapeHtml(check.desc)}</small>` : ''}</span></label></div>` : '';
+      openSheet(`${sheetHead(title, message)}${checkHtml}<div class="sheet-buttons">
           <button type="button" class="sheet-cancel" data-no>취소</button>
           <button type="button" class="${danger ? 'sheet-danger' : 'btn-glow'}" data-yes>${escapeHtml(confirmLabel)}</button></div>`, (body) => {
         const yes = body.querySelector('[data-yes]');
         body.querySelector('[data-no]').addEventListener('click', () => closeSheet());
-        yes.addEventListener('click', () => { answered = true; closeSheet(); resolve(true); });
+        yes.addEventListener('click', () => {
+          if (check) check.checked = body.querySelector('[data-check]').checked;
+          answered = true; closeSheet(); resolve(true);
+        });
         // Enter = 확인 · Esc = 취소 (확인 버튼에 초점을 두어 키보드로 바로 누를 수 있게)
         keyHandler = (event) => {
           if (event.isComposing || event.repeat) return;
@@ -626,8 +643,10 @@
   }
 
   // ── 에이전트 바꾸기 (Claude ↔ Codex) · 셸만 있는 창에서 켜기 ──
-  // 서버가 지금 에이전트를 Ctrl+C 로 끄고 같은 셸에서 다른 에이전트를 새 대화로 켠다 (대화는 옮겨지지 않는다).
+  // 서버가 지금 에이전트를 Ctrl+C 로 끄고 같은 셸에서 다른 에이전트를 켠다.
+  // '대화 넘기기'를 고르면 지금 대화 기록을 파일로 만들어 새 에이전트가 첫 지시로 읽고 이어 간다.
   const AGENT_NAMES = { claude: 'Claude', codex: 'Codex' };
+  const CARRY_KEY = 'univdash-agent-carry';
   const agentPaneOf = (w) => (w.panes.find((p) => w.agent && p.command === w.agent) || w.panes.find((p) => p.active) || w.panes[0])?.id;
   function agentSwitchActions(w) {
     if (w.status === 'dead') return [];
@@ -636,24 +655,34 @@
       return ['claude', 'codex'].map((to) => ({ icon: 'fa-robot', label: `${AGENT_NAMES[to]} 켜기`, desc: '이 창의 셸에서 새 대화로 시작', onClick: () => switchAgent(w, to) }));
     }
     const to = w.agent === 'codex' ? 'claude' : 'codex';
-    return [{ icon: 'fa-shuffle', label: `${AGENT_NAMES[to]}로 바꾸기`, desc: `${AGENT_NAMES[w.agent] || w.agent} 를 끄고 ${AGENT_NAMES[to]} 새 대화로 (대화는 옮겨지지 않아요)`, onClick: () => switchAgent(w, to) }];
+    return [{ icon: 'fa-shuffle', label: `${AGENT_NAMES[to]}로 바꾸기`, desc: `${AGENT_NAMES[w.agent] || w.agent} 를 끄고 ${AGENT_NAMES[to]} 켜기 (지금 대화를 넘겨줄 수도 있어요)`, onClick: () => switchAgent(w, to) }];
   }
   async function switchAgent(w, to) {
     const from = w.agent ? (AGENT_NAMES[w.agent] || w.agent) : null;
     if (w.status === 'busy') { toast(`${from} 가 작업 중이에요. 끝난 뒤에 바꿀 수 있어요.`, 'warn'); return; }
+    // 대화 넘기기: 마지막으로 고른 값을 기억한다
+    const check = from ? {
+      label: `지금 ${from} 대화를 ${AGENT_NAMES[to]} 에게 넘기기`,
+      desc: `지금까지의 대화 전체를 기록으로 만들어 ${AGENT_NAMES[to]} 가 새 대화에서 읽고 이어 가요.`,
+      checked: false,
+    } : null;
     if (from) {
+      try { check.checked = localStorage.getItem(CARRY_KEY) === '1'; } catch (e) { /* 저장 불가 */ }
       const ok = await confirmSheet({
         title: `${AGENT_NAMES[to]}로 바꾸기`,
-        message: `${displayName(w)} 창의 ${from} 를 끄고 ${AGENT_NAMES[to]} 를 켭니다.\n이 창에서 ${AGENT_NAMES[to]} 로 하던 대화가 있으면 그 대화를(없으면 이 폴더의 최근 대화를) 이어서 켜요. 지금 ${from} 대화도 기억해 두어, 다시 ${from} 로 바꾸면 이어집니다.`,
+        message: `${displayName(w)} 창의 ${from} 를 끄고 ${AGENT_NAMES[to]} 를 켭니다.\n넘기지 않으면 이 창에서 ${AGENT_NAMES[to]} 로 하던 대화를(없으면 이 폴더의 최근 대화를) 이어서 켜요. 지금 ${from} 대화도 기억해 두어, 다시 ${from} 로 바꾸면 이어집니다.`,
         confirmLabel: '바꾸기',
+        check,
       });
       if (!ok) return;
+      try { localStorage.setItem(CARRY_KEY, check.checked ? '1' : '0'); } catch (e) { /* 저장 불가 */ }
     }
+    const carry = !!check?.checked;
     const pane = agentPaneOf(w);
     try {
       toast(`${AGENT_NAMES[to]} 를 켜는 중…`, 'info', null, 2000);
-      const result = await api('POST', '/api/agent/switch', { pane, to });
-      const how = { window: '이 창에서 하던 대화를 이어서', folder: '이 폴더의 최근 대화를 이어서', new: '새 대화로' }[result.resumed] || '';
+      const result = await api('POST', '/api/agent/switch', { pane, to, carry });
+      const how = { window: '이 창에서 하던 대화를 이어서', folder: '이 폴더의 최근 대화를 이어서', new: '새 대화로', carried: `${from} 대화를 넘겨받은 새 대화로` }[result.resumed] || '';
       toast(`${displayName(w)} · ${AGENT_NAMES[to]} 로 바꿨어요 (${how} 켰어요).${result.resumed === 'new' ? ' 켜지면 모델 선택이 채팅 아래에 떠요.' : ''}`, 'ok', null, 5000);
       window.dispatchEvent(new CustomEvent('univdash:agent-switched', { detail: { pane, to } }));
     } catch (error) { toast(error.message, 'error'); }
@@ -706,7 +735,7 @@
       subtitle: '분리(detached) 세션을 만들고 시작 명령을 실행합니다.',
       fields: [
         { name: 'name', label: '세션 이름', placeholder: '예: my-project', maxlength: 50 },
-        { name: 'path', label: '작업 폴더', value: typeof startPath === 'string' ? startPath : store.get('new-session-path', '~'), placeholder: '~/project', maxlength: 1024 },
+        { name: 'path', label: '작업 폴더', value: typeof startPath === 'string' ? startPath : '~', placeholder: '~/project', maxlength: 1024 },
       ],
       extraHtml: `<div class="fp">
           <div class="fp-actions">
@@ -720,6 +749,8 @@
               <span class="fp-where">~</span>
               <button type="button" class="fp-btn" data-fp-dot title="숨김 폴더 보기" aria-label="숨김 폴더 보기"><i class="fas fa-eye-slash"></i></button>
             </div>
+            <div class="fp-search"><i class="fas fa-magnifying-glass"></i><input type="search" data-fp-q placeholder="홈 폴더 아래에서 폴더 찾기 (예: csed/week)" maxlength="200" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
+              <button type="button" class="fp-btn hidden" data-fp-clear title="검색 지우기" aria-label="검색 지우기"><i class="fas fa-xmark"></i></button></div>
             <div class="fp-list"></div>
             <button type="button" class="fp-pick" data-fp-pick><i class="fas fa-check"></i> <span>이 폴더로</span></button>
           </div>
@@ -741,7 +772,7 @@
         name.addEventListener('input', () => { name.dataset.touched = '1'; });
         if (typeof startPath === 'string') path.dispatchEvent(new Event('input'));
 
-        // ── 작업 폴더 고르기 (홈에서부터 폴더를 눌러 들어가며 고르기) ──
+        // ── 작업 폴더 고르기 (항상 홈에서 시작 — 폴더를 눌러 들어가거나, 이름으로 찾기) ──
         const panel = body.querySelector('.fp-panel');
         const listEl = body.querySelector('.fp-list');
         let home = '';
@@ -749,7 +780,51 @@
         let showDot = store.get('fp-dot', false);
         const tilde = (p) => (home && (p === home || p.startsWith(`${home}/`)) ? `~${p.slice(home.length)}` : p);
         const setPath = (p) => { path.value = tilde(p); path.dispatchEvent(new Event('input')); };
+        const qInput = body.querySelector('[data-fp-q]');
+        const clearBtn = body.querySelector('[data-fp-clear]');
+        let searchSeq = 0;
+        let searchTimer = 0;
+        const folderRow = (e, sub = '') => `<div class="fp-row" data-fp-dir="${escapeHtml(e.path)}">
+            <i class="fas fa-folder"></i><span class="fp-name">${escapeHtml(e.name)}${sub ? `<small class="fp-sub">${escapeHtml(sub)}</small>` : ''}</span>
+            <button type="button" class="fp-use" data-fp-use="${escapeHtml(e.path)}" title="이 폴더 선택" aria-label="${escapeHtml(e.name)} 선택"><i class="fas fa-check"></i></button>
+            <i class="fas fa-chevron-right fp-go"></i></div>`;
+        async function search(query) {
+          const mine = ++searchSeq;
+          listEl.innerHTML = '<div class="fp-note"><i class="fas fa-circle-notch fa-spin"></i> 찾는 중…</div>';
+          try {
+            const data = await api('GET', `/api/fs/search-dirs?root=${encodeURIComponent(home || '~')}&q=${encodeURIComponent(query)}&hidden=${showDot ? 'true' : 'false'}`);
+            if (mine !== searchSeq) return;
+            const parentOf = (p) => tilde(p.replace(/\/[^/]+$/, '')) || '/';
+            listEl.innerHTML = data.results.length
+              ? data.results.map((e) => folderRow(e, parentOf(e.path))).join('') + (data.truncated ? '<div class="fp-note">결과가 많아 일부만 보여요. 더 자세히 입력해 보세요.</div>' : '')
+              : `<div class="fp-note">'${escapeHtml(query)}' 폴더를 찾지 못했어요.</div>`;
+          } catch (error) {
+            if (mine === searchSeq) listEl.innerHTML = `<div class="fp-note error">${escapeHtml(error.message)}</div>`;
+          }
+        }
+        function clearSearch() {
+          searchSeq += 1;
+          clearTimeout(searchTimer);
+          qInput.value = '';
+          clearBtn.classList.add('hidden');
+        }
+        qInput.addEventListener('input', () => {
+          const query = qInput.value.trim();
+          clearBtn.classList.toggle('hidden', !qInput.value);
+          clearTimeout(searchTimer);
+          if (!query.replace(/\//g, '')) { searchSeq += 1; if (current) browse(current.path); return; }
+          searchTimer = setTimeout(() => search(query), 250);
+        });
+        // 폼 안이라 Enter 가 '만들기' 를 누르지 않게 — 결과가 하나면 바로 그 폴더로 들어간다
+        qInput.addEventListener('keydown', (event) => {
+          if (event.key !== 'Enter' || event.isComposing) return;
+          event.preventDefault();
+          const rows = listEl.querySelectorAll('[data-fp-dir]');
+          if (rows.length === 1) rows[0].click();
+        });
+        clearBtn.addEventListener('click', () => { clearSearch(); if (current) browse(current.path); qInput.focus(); });
         async function browse(dir) {
+          clearSearch();
           listEl.innerHTML = '<div class="fp-note"><i class="fas fa-circle-notch fa-spin"></i> 불러오는 중…</div>';
           try {
             const data = await api('GET', `/api/fs/list?path=${encodeURIComponent(dir)}`);
@@ -761,10 +836,7 @@
             body.querySelector('.fp-pick span').textContent = `이 폴더로: ${tilde(data.path)}`;
             const dirs = data.entries.filter((e) => e.type === 'dir' && (showDot || !e.name.startsWith('.')))
               .sort((a, b) => a.name.localeCompare(b.name, 'ko', { numeric: true, sensitivity: 'base' }));
-            listEl.innerHTML = dirs.length ? dirs.map((e) => `<div class="fp-row" data-fp-dir="${escapeHtml(e.path)}">
-                <i class="fas fa-folder"></i><span class="fp-name">${escapeHtml(e.name)}</span>
-                <button type="button" class="fp-use" data-fp-use="${escapeHtml(e.path)}" title="이 폴더 선택" aria-label="${escapeHtml(e.name)} 선택"><i class="fas fa-check"></i></button>
-                <i class="fas fa-chevron-right fp-go"></i></div>`).join('')
+            listEl.innerHTML = dirs.length ? dirs.map((e) => folderRow(e)).join('')
               : '<div class="fp-note">하위 폴더가 없습니다.</div>';
           } catch (error) {
             listEl.innerHTML = `<div class="fp-note error">${escapeHtml(error.message)}</div>`;
@@ -773,13 +845,18 @@
         body.querySelector('[data-fp-toggle]').addEventListener('click', async () => {
           const open = panel.classList.toggle('hidden') === false;
           if (!open) return;
-          if (!home) { try { home = (await api('GET', '/api/fs/list?path=~')).path; } catch (e) { /* noop */ } }
-          const typed = path.value.trim();
-          browse(typed ? typed.replace(/^~(?=\/|$)/, home || '~') : '~');   // 지금 적힌 폴더에서 시작 (없으면 홈)
+          await browse('~');   // 항상 홈에서 시작
+          if (!coarsePointer) qInput.focus();
         });
         body.querySelector('[data-fp-up]').addEventListener('click', () => { if (current?.parent) browse(current.parent); });
         body.querySelector('[data-fp-home]').addEventListener('click', () => browse('~'));
-        body.querySelector('[data-fp-dot]').addEventListener('click', () => { showDot = !showDot; store.set('fp-dot', showDot); if (current) browse(current.path); });
+        body.querySelector('[data-fp-dot]').addEventListener('click', () => {
+          showDot = !showDot;
+          store.set('fp-dot', showDot);
+          body.querySelector('[data-fp-dot]').classList.toggle('on', showDot);
+          if (qInput.value.trim()) search(qInput.value.trim());
+          else if (current) browse(current.path);
+        });
         body.querySelector('[data-fp-pick]').addEventListener('click', () => { if (current) { setPath(current.path); panel.classList.add('hidden'); } });
         listEl.addEventListener('click', (event) => {
           const use = event.target.closest('[data-fp-use]');
@@ -825,26 +902,13 @@
   }
   $$('[data-new-session]').forEach((button) => button.addEventListener('click', () => { if (!mdQuery.matches) setSidebarOpen(false); newChooser(); }));
 
-  // 단축키 (입력 중이 아닐 때, 모든 페이지): t/ㅅ 한 번 → 새 Terminal · tt/ㅅㅅ 빠르게 두 번 → 새 tmux 세션 설정
-  // 한 번 누른 것인지 확인하려고 0.35초 기다린 뒤 연다.
-  const DOUBLE_TAP_MS = 350;
-  let tTimer = null;
+  // 단축키 (keys.js · 기본: t 새 Terminal · t t 새 tmux 세션)
   function openTerminalShortcut() {
     if (window.UnivDashWs?.newTerminal) window.UnivDashWs.newTerminal();
     else location.href = '/?newterm=1';
   }
-  document.addEventListener('keydown', (event) => {
-    const { plainKey, typingOrBusy } = window.UnivDash;
-    if (!plainKey(event, 'KeyT') || typingOrBusy(event)) return;
-    event.preventDefault();
-    if (tTimer) {
-      clearTimeout(tTimer);
-      tTimer = null;
-      newSessionForm();
-      return;
-    }
-    tTimer = setTimeout(() => { tTimer = null; openTerminalShortcut(); }, DOUBLE_TAP_MS);
-  });
+  window.UnivDashKeys?.register('app.newTerminal', openTerminalShortcut);
+  window.UnivDashKeys?.register('app.newSession', () => newSessionForm());
   window.UnivDashUI.newSession = newSessionForm;
 
   // ── 실시간 연결 ──────────────────────────────────────────────────────
@@ -1264,6 +1328,23 @@
   }
 
   const plainText = (raw) => raw.replace(OTHER_ESCAPES, '').replace(SGR, '');
+  // 화면에 들어가는 터미널 칸 수 (tmux 창 크기를 보고 있는 화면에 맞추기 위해).
+  // 글자 폭은 실제 터미널 요소 안에서 잰다 (글꼴 대체 · 확대 배율까지 반영). 패딩: 좌우 12px · 위 12px · 아래 16px
+  function termGrid(scrollEl, screenEl, font) {
+    const width = scrollEl.clientWidth - 24;
+    const height = scrollEl.clientHeight - 28;
+    if (width < 100 || height < 80) return null;   // 숨겨져 있거나 너무 작으면 바꾸지 않는다
+    const probe = document.createElement('span');
+    probe.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font-size:${font}px;line-height:1.38`;
+    probe.textContent = 'M'.repeat(100);
+    screenEl.appendChild(probe);
+    const box = probe.getBoundingClientRect();
+    probe.remove();
+    const charWidth = box.width / 100;
+    const lineHeight = box.height || font * 1.38;
+    if (!charWidth) return null;
+    return { cols: Math.floor(width / charWidth) - 1, rows: Math.floor(height / lineHeight) };
+  }
 
   // ════════════════════════════════════════════════════════════════════
   // Workspace
@@ -1439,6 +1520,16 @@
       if (item && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); if (!window.UnivDashWs?.openFromList?.(item.dataset.key)) select(item.dataset.key); }
     });
     attachLongPress(list, '.win-item', (item) => { const w = byKey().get(item.dataset.key); if (w) windowMenu(w); });
+    // 단축키 (keys.js · 기본: j 다음 창 · k 이전 창) — 목록에 보이는 순서대로
+    [['ws.nextWindow', 1], ['ws.prevWindow', -1]].forEach(([id, step]) => window.UnivDashKeys?.register(id, () => {
+      const items = [...list.querySelectorAll('.win-item')].filter((item) => item.getClientRects().length);
+      if (!items.length) return false;
+      const index = items.findIndex((item) => item.classList.contains('selected'));
+      const next = items[index < 0 ? (step > 0 ? 0 : items.length - 1) : (index + step + items.length) % items.length];
+      next.scrollIntoView({ block: 'nearest' });
+      next.click();
+      return true;
+    }, () => !!list.querySelector('.win-item')));
     attachLongPress(list, '[data-folder]', (head) => { const folder = state.prefs.folders.find((f) => f.id === head.dataset.folder); if (folder) folderMenu(folder); });
 
     $('#windowSearch').addEventListener('input', (event) => { state.search = event.target.value; renderAll(); });
@@ -1625,8 +1716,8 @@
     function restartAgent({ pane, agent, busy, window: win }) {
       if (!pane || !agent) return;
       const name = agent === 'codex' ? 'Codex' : 'Claude Code';
-      if (busy) { toast(`${name} 가 작업 중이에요. 끝난 뒤에 다시 눌러 주세요.`, 'warn'); return; }
       const run = async (update) => {
+        if (busy) { toast(`${name} 가 작업 중이에요. 끝난 뒤에 다시 눌러 주세요.`, 'warn'); return; }
         toast(update ? `${name} 업데이트 후 같은 대화로 다시 켜는 중…` : `${name} 를 같은 대화로 다시 켜는 중…`, 'info');
         try {
           const result = await api('POST', '/api/agent/restart', { pane, update });
@@ -1639,9 +1730,57 @@
         actions: [
           { icon: 'fa-arrow-rotate-right', label: '업데이트하고 다시 켜기', desc: `${agent} update 후 같은 대화로`, onClick: () => run(true) },
           { icon: 'fa-power-off', label: '다시 켜기만', desc: '업데이트 없이 같은 대화로 재시작', onClick: () => run(false) },
+          'sep',
+          { icon: 'fa-layer-group', label: '모든 에이전트 창 업데이트', desc: 'Claude · Codex 모두 업데이트 후 창마다 같은 대화로 다시 켜기', onClick: () => updateAllAgents() },
           ...(win ? ['sep', ...agentSwitchActions(win)] : []),
         ],
       });
+    }
+    // 모든 에이전트 창: 서버가 claude update · codex update 후, 쉬고 있는 창만 같은 대화로 다시 켠다.
+    // 에이전트가 돌아가고 있는 창(작업 중 · 답을 기다리는 중)은 빼고 건드리지 않는다.
+    async function updateAllAgents() {
+      const agents = state.windows.filter((w) => w.agent === 'claude' || w.agent === 'codex');
+      const idle = agents.filter((w) => w.status === 'idle');
+      const count = (agent) => idle.filter((w) => w.agent === agent).length;
+      const running = agents.length - idle.length;
+      const confirmed = await confirmSheet({
+        title: '모든 에이전트 창 업데이트',
+        message: `Claude Code · Codex 를 최신 버전으로 업데이트하고, 쉬고 있는 창(Claude ${count('claude')}개 · Codex ${count('codex')}개)을 잠깐 껐다가 같은 대화로 다시 켭니다. 입력창에 쓰던 글은 사라져요.`
+          + (running ? ` 에이전트가 돌아가고 있는 창 ${running}개는 빼고 그대로 둬요.` : ''),
+        confirmLabel: '모두 업데이트',
+      });
+      if (!confirmed) return;
+      let first;
+      try { first = await api('POST', '/api/agent/update-all', { claude: true, codex: true }); }
+      catch (error) { toast(error.message, 'error'); return; }
+      toast('Claude Code · Codex 를 업데이트하고 다시 켜는 중…', 'info', null, 6000);
+      followUpdateAll(first);
+    }
+    function followUpdateAll(first) {
+      const seq = first.seq;
+      const step = (status) => {
+        if (!status || status.seq !== seq) return;
+        if (status.state === 'running') {
+          setTimeout(() => api('GET', '/api/agent/update-all').then(step, () => setTimeout(() => step(status), 4000)), 2000);
+          return;
+        }
+        if (status.state === 'error') { toast(status.error || '업데이트하지 못했어요.', 'error', null, 9000); return; }
+        const parts = [];
+        let warn = false;
+        const running = [];
+        const failed = [];
+        for (const [name, r] of [['Claude', status.claude], ['Codex', status.codex]]) {
+          if (!r) continue;
+          parts.push(`${name} 창 ${r.restarted.length}개 다시 켬`);
+          if (r.updated === false) { parts.push(`${name} 업데이트 실패 (기존 버전으로 켬)`); warn = true; }
+          for (const s of r.skipped) (s.running ? running : failed).push(s);
+        }
+        if (status.codex?.daemon === 'kept') parts.push('Codex 데몬은 돌아가는 창 때문에 그대로 둠');
+        if (running.length) parts.push(`돌아가고 있어 뺀 창: ${running.map((s) => s.window).join(', ')}`);
+        if (failed.length) { parts.push(`다시 켜지 못한 창: ${failed.map((s) => `${s.window} (${s.reason})`).join(', ')}`); warn = true; }
+        toast(`${parts.join(' · ')}.`, warn ? 'warn' : 'ok', null, 10000);
+      };
+      step(first);
     }
     // 슬래시 명령 보내기: Codex 는 붙여넣기 직후의 Enter 를 줄바꿈으로 받으므로 글자로 치고 잠시 뒤 Enter
     async function sendSlash(pane, agent, text, sendFn) {
@@ -1689,17 +1828,15 @@
     async function switchCodexAccount(account) {
       const confirmed = await confirmSheet({
         title: 'Codex 계정 변경',
-        message: `${account.email} 계정으로 바꿀까요? 실행 중인 Codex 창은 잠깐 종료한 뒤 같은 대화를 이어서 다시 켭니다. 작업 중인 창이 있으면 전환할 수 없어요.`,
+        message: `${account.email} 계정으로 바꿀까요? 모든 Codex 창을 잠깐 종료하고 Codex 를 최신으로 업데이트한 뒤, 같은 대화를 이어서 다시 켭니다. 작업 중인 창이 있으면 모두 끝난 뒤 자동으로 해요.`,
         confirmLabel: '계정 변경',
       });
       if (!confirmed) return;
       try {
-        toast('Codex 계정을 변경하는 중…', 'info');
         const result = await api('POST', '/api/accounts/codex/switch', { id: account.id });
-        if (result.applied?.error) toast(`계정은 변경됐지만 Codex 창을 다시 켜지 못했어요: ${result.applied.error}`, 'warn', null, 7000);
-        else toast(`Codex 계정을 ${result.email}로 변경했어요.`, 'ok');
+        toast(`Codex 계정을 ${result.email}로 변경했어요.`, 'ok');
         codexAccountChanged(result.limits);
-        if (result.changed && !result.applied?.error) window.dispatchEvent(new CustomEvent('univdash:agent-switched', { detail: { pane: state.paneId } }));
+        if (result.applied) window.UnivDash.followCodexApply(result.applied);
       } catch (error) { toast(error.message, 'error'); }
     }
     $('#codexAccountBtn')?.addEventListener('click', openCodexAccounts);
@@ -1793,7 +1930,7 @@
       // 창 상태(응답 필요 등)가 바뀌면 화면이 그대로여도 채팅 아래 카드를 다시 판단한다 (Codex 선택 창은 화면이 안 바뀜)
       if (lastScreen && lastScreen.pane === state.paneId) updateChatStatus(lastScreen);
       $('#termTitle').textContent = displayName(w);
-      $('#promptInput').placeholder = `${displayName(w)} · 프롬프트 입력`;
+      $('#promptInput').placeholder = promptPlaceholder(w);
       $('#termSubtitle').textContent = [STATUS[w.status]?.label, w.title, w.path].filter(Boolean).join(' · ');
       $('#termStatusDot').className = `status-dot flex-shrink-0 ${w.status}`;
       const pill = $('#termAgent');
@@ -1851,6 +1988,7 @@
     function renderScreen(screen) {
       const firstForPane = !lastScreen || lastScreen.pane !== screen.pane;
       lastScreen = screen;
+      if (firstForPane) fitTmux(true);
       const stick = firstForPane || stickBottom || atBottom();
       const lines = screen.content.split('\n');
       const visibleStart = Math.max(0, lines.length - screen.height);
@@ -1918,6 +2056,27 @@
     });
     window.addEventListener('resize', () => requestAnimationFrame(refit));
 
+    // tmux 창 크기를 이 화면에 맞춘다 — 대시보드에서 만든 세션은 붙은 터미널이 없어 80x24 로 남아 작게 보이므로.
+    // 화면(터미널) 보기일 때만, 창을 열거나 · 크기가 바뀌거나 · 이 기기로 돌아왔을 때 보낸다 (마지막으로 본 기기 크기를 따른다)
+    let sizeTimer = 0;
+    let sentSize = '';
+    function fitTmux(force = false) {
+      clearTimeout(sizeTimer);
+      sizeTimer = setTimeout(() => {
+        if (!state.paneId || modeFor(currentWindow()) !== 'screen' || document.visibilityState !== 'visible') return;
+        const grid = termGrid(scroll, screenEl, view.font);
+        if (!grid) return;
+        const signature = `${state.paneId} ${grid.cols}x${grid.rows}`;
+        if (!force && signature === sentSize) return;
+        if (lastScreen?.pane === state.paneId && lastScreen.width === grid.cols && lastScreen.height === grid.rows) { sentSize = signature; return; }
+        sentSize = signature;
+        socket.send({ t: 'size', pane: state.paneId, cols: grid.cols, rows: grid.rows });
+      }, 250);
+    }
+    new ResizeObserver(() => fitTmux()).observe(scroll);
+    document.addEventListener('visibilitychange', () => fitTmux(true));
+    window.addEventListener('focus', () => fitTmux(true));
+
     socket.on('screen', (screen) => {
       if (screen.pane !== state.paneId) return;
       screenCache.delete(screen.pane);
@@ -1956,13 +2115,13 @@
         };
         sync();
         body.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => {
-          view.mode = b.dataset.mode; store.set('view', view); applyView(); if (lastScreen) renderScreen(lastScreen); sync();
+          view.mode = b.dataset.mode; store.set('view', view); applyView(); if (lastScreen) renderScreen(lastScreen); sync(); fitTmux(true);
         }));
         body.querySelectorAll('[data-font]').forEach((b) => b.addEventListener('click', () => {
           const delta = Number(b.dataset.font);
           view.font = delta === 0 ? (coarsePointer ? 11.5 : 12.5) : Math.max(8, Math.min(20, view.font + delta));
           if (view.mode === 'fit') view.mode = 'wrap';
-          store.set('view', view); applyView(); if (lastScreen) renderScreen(lastScreen); sync();
+          store.set('view', view); applyView(); if (lastScreen) renderScreen(lastScreen); sync(); fitTmux(true);
         }));
         body.querySelector('[data-close]').addEventListener('click', closeSheet);
       });
@@ -2415,6 +2574,7 @@
         log.timer = setInterval(() => { if (document.visibilityState === 'visible' && !socket.open) pollLog(); }, 6000);
       } else {
         socket.send({ t: 'logunsub' });
+        fitTmux(true);
       }
     }
     // 서버가 세션 로그 파일이 바뀌는 즉시(0.4초 주기) 새 항목을 보내 준다
@@ -2512,7 +2672,10 @@
     function logItemHtml(item) {
       const agentName = { claude: 'Claude', codex: 'Codex' }[log.agent] || 'Agent';
       if (item.kind === 'user') {
-        return `<div class="msg msg-user"><div class="msg-meta">나 · ${escapeHtml(logTime(item.ts))}</div><div class="msg-body">${escapeHtml(item.text)}</div></div>`;
+        // 첨부한 그림 (서버가 대화 기록에서 꺼내 둔 캐시 · 이름은 내용 해시라 그대로 오래 캐시된다)
+        const images = (item.images || []).filter((name) => /^[0-9a-f]{32}\.(png|jpg|gif|webp)$/.test(name))
+          .map((name) => `<a class="msg-img" href="/api/transcript/image/${name}" target="_blank" rel="noopener" title="원본 크기로 보기"><img src="/api/transcript/image/${name}" alt="첨부한 그림" loading="lazy" decoding="async"></a>`).join('');
+        return `<div class="msg msg-user"><div class="msg-meta">나 · ${escapeHtml(logTime(item.ts))}</div>${images ? `<div class="msg-imgs">${images}</div>` : ''}${item.text ? `<div class="msg-body">${escapeHtml(item.text)}</div>` : ''}</div>`;
       }
       if (item.kind === 'assistant') {
         return `<div class="msg msg-ai"><div class="msg-meta">${agentName} · ${escapeHtml(logTime(item.ts))}<button type="button" class="copy-btn" data-copy="${item.id}" aria-label="복사"><i class="far fa-copy"></i></button></div><div class="msg-body">${mdLite(item.text)}</div></div>`;
@@ -3390,37 +3553,34 @@
       }
     }
     window.UnivDashWs = { ...(window.UnivDashWs || {}), newTerminal };
-    // 단축키 (입력 중이 아닐 때): w/ㅈ 지금 탭 닫기 · 1~9 N번째 탭 · ←/→ 이전/다음 탭
-    document.addEventListener('keydown', (event) => {
-      const { plainKey, typingOrBusy } = window.UnivDash;
-      if (typingOrBusy(event)) return;
-      // 분할 중이면 마지막으로 누른 그룹에 적용
+    // 단축키 (keys.js · 기본: w 지금 탭 닫기 · 1~9 N번째 탭 · ←/→ 이전/다음 탭)
+    // 분할 중이면 마지막으로 누른 그룹에 적용
+    function tabContext() {
       const g = focusGroup !== 'main' && isSplit() ? groups[focusGroup] : null;
-      const side = !!g;
       const tabs = g ? tabsOf(g) : mainTabs();
       const id = g ? g.active : activeId();
       const go = (tab) => { if (tab && tab.id !== id) { if (g) showIn(g, tab.id); else activate(tab); } };
-      const index = tabs.findIndex((t) => t.id === id);
-      if (plainKey(event, 'KeyW')) {
-        if (index < 0) return;
-        event.preventDefault();
-        if (side) closeTabIn(g, id); else closeTab(id);
-        return;
-      }
-      const digit = /^Digit([1-9])$/.exec(event.code);
-      if (digit && plainKey(event, event.code)) {
-        const tab = tabs[Number(digit[1]) - 1];
-        if (!tab) return;
-        event.preventDefault();
-        go(tab);
-        return;
-      }
-      if ((plainKey(event, 'ArrowLeft') || plainKey(event, 'ArrowRight')) && tabs.length > 1) {
-        event.preventDefault();
-        const step = event.code === 'ArrowRight' ? 1 : -1;
-        go(tabs[((index < 0 ? 0 : index + step) + tabs.length) % tabs.length]);
-      }
+      return { g, tabs, id, go, index: tabs.findIndex((t) => t.id === id) };
+    }
+    const keys = window.UnivDashKeys;
+    keys?.register('tab.close', () => {
+      const { g, id, index } = tabContext();
+      if (index < 0) return false;
+      if (g) closeTabIn(g, id); else closeTab(id);
+      return true;
     });
+    [1, 2, 3, 4, 5, 6, 7, 8, 9].forEach((n) => keys?.register(`tab.${n}`, () => {
+      const { tabs, go } = tabContext();
+      if (!tabs[n - 1]) return false;
+      go(tabs[n - 1]);
+      return true;
+    }));
+    [['tab.next', 1], ['tab.prev', -1]].forEach(([id, step]) => keys?.register(id, () => {
+      const { tabs, go, index } = tabContext();
+      if (tabs.length < 2) return false;
+      go(tabs[((index < 0 ? 0 : index + step) + tabs.length) % tabs.length]);
+      return true;
+    }));
 
     // ════════════════════════════════════════════════════════════════
     // 분할 화면 (최대 2×2 · 4개, VS Code 처럼): 탭을 끌어 어떤 그룹의 가장자리에 놓으면 그 그룹 영역을 반으로 나눈다.
@@ -4236,7 +4396,7 @@
           let message;
           try { message = JSON.parse(event.data); } catch (e) { return; }
           if (message.pane !== pane) return;
-          if (message.t === 'screen') { lastScreen = message; if (modeOf() === 'screen') renderScreen(); else renderStatus(); }
+          if (message.t === 'screen') { const first = !lastScreen; lastScreen = message; if (first) fitTmux(true); if (modeOf() === 'screen') renderScreen(); else renderStatus(); }
           else if (message.t === 'log') applyLog(message);
         };
         ws.onclose = () => { if (pane && !disposed) setTimeout(() => { if (pane && !disposed && (!ws || ws.readyState === WebSocket.CLOSED)) connect(); }, 1500); };
@@ -4257,6 +4417,25 @@
         if (stick) screenEl.scrollTop = screenEl.scrollHeight;
       }
       screenEl.addEventListener('scroll', () => { stick = screenEl.scrollHeight - screenEl.scrollTop - screenEl.clientHeight < 40; }, { passive: true });
+      // tmux 창 크기를 이 칸에 맞춘다 (메인 화면과 같은 규칙)
+      let fitTimer = 0;
+      let fitSent = '';
+      function fitTmux(force = false) {
+        clearTimeout(fitTimer);
+        fitTimer = setTimeout(() => {
+          if (disposed || !pane || modeOf() !== 'screen' || document.visibilityState !== 'visible') return;
+          const grid = termGrid(screenEl, innerEl, 12);
+          if (!grid) return;
+          const signature = `${pane} ${grid.cols}x${grid.rows}`;
+          if (!force && signature === fitSent) return;
+          fitSent = signature;
+          if (lastScreen?.pane === pane && lastScreen.width === grid.cols && lastScreen.height === grid.rows) return;
+          send({ t: 'size', pane, cols: grid.cols, rows: grid.rows });
+        }, 250);
+      }
+      new ResizeObserver(() => fitTmux()).observe(screenEl);
+      document.addEventListener('visibilitychange', () => fitTmux(true));
+      window.addEventListener('focus', () => fitTmux(true));
       // 채팅 (세션 로그)
       // 방금 보낸 프롬프트: 로그에 새 사용자 메시지가 생길 때마다 오래된 것부터 하나씩 지운다 (메인과 같은 규칙)
       const sent = [];
@@ -4355,7 +4534,7 @@
         if (mode === 'log' && direct) setDirect(false);
         $$in('[data-tp-direct]').classList.toggle('hidden', mode === 'log');   // 채팅 모드에서는 ⌨ 숨김
         if (mode === 'log') { if (!chat.items.size && pane) loadChat(); else send({ t: 'logsub', pane, since: chat.total }); renderStatus(); }
-        else { send({ t: 'logunsub' }); renderScreen(); }
+        else { send({ t: 'logunsub' }); renderScreen(); fitTmux(true); }
       }
       root.querySelectorAll('[data-tpmode]').forEach((b) => b.addEventListener('click', () => {
         if (!w) return;
@@ -4475,7 +4654,7 @@
       });
       // 직접 입력 모드: 누르는 키를 바로 터미널로
       const DIRECT_KEYS = { Enter: 'Enter', Backspace: 'BSpace', Tab: 'Tab', Escape: 'Escape', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right', Delete: 'DC', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown' };
-      const promptHint = () => (w ? `${displayName(w)} · 프롬프트 입력` : '프롬프트 입력');
+      const promptHint = () => promptPlaceholder(w);
       function setDirect(on) {
         direct = on;
         $$in('[data-tp-direct]').setAttribute('aria-pressed', String(on));
@@ -4790,12 +4969,34 @@
     onWindows(message.windows);
     workspace?.onWindowsChanged();
   });
-  // 이 기기에서 지금 대시보드를 보고 있는지 서버에 알린다 → 보고 있으면 웹 푸시 대신 화면 안 알림만 (push.js)
-  const reportFocus = () => socket.send({ t: 'focus', device: window.UnivDash.deviceId(), on: document.visibilityState === 'visible' && document.hasFocus() });
-  socket.on('open', reportFocus);
-  window.addEventListener('focus', reportFocus);
-  window.addEventListener('blur', reportFocus);
-  document.addEventListener('visibilitychange', reportFocus);
+  // 이 기기 상태를 서버에 알린다 (push.js 의 웹 푸시 대상 고르기):
+  //  - keys: 지금 화면에 띄워 보고 있는 창 → 그 창 알림은 푸시 대신 화면 안 알림만
+  //  - present: 이 기기에서 대시보드를 쓰고 있음 → 알림은 이 기기로만 가고 다른 기기(폰 등)는 조용히
+  //    창이 앞에 있거나, 대시보드가 보이는 상태에서 PRESENT_MS 안에 만졌으면 쓰고 있는 것으로 본다.
+  const PRESENT_MS = 30 * 60 * 1000;
+  let lastFocus = '';
+  let lastInput = Date.now();
+  const reportFocus = (force = false) => {
+    const visible = document.visibilityState === 'visible';
+    const on = visible && document.hasFocus();
+    const keys = on ? state.windows.filter((w) => isWindowVisible(w.key)).map((w) => w.key) : [];
+    const present = on || (visible && Date.now() - lastInput < PRESENT_MS);
+    const signature = JSON.stringify([keys, present]);
+    if (!force && signature === lastFocus) return;
+    lastFocus = signature;
+    socket.send({ t: 'focus', device: window.UnivDash.deviceId(), keys, present });
+  };
+  const touched = () => { lastInput = Date.now(); };
+  ['pointerdown', 'keydown', 'wheel', 'touchstart'].forEach((type) => document.addEventListener(type, touched, { capture: true, passive: true }));
+  socket.on('open', () => reportFocus(true));
+  window.addEventListener('focus', () => { touched(); reportFocus(); });
+  window.addEventListener('blur', () => reportFocus());
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') touched(); reportFocus(); });
+  setInterval(() => reportFocus(), 1000);  // 보는 창 · 쓰는 중 여부가 바뀐 것도 반영
+  // Codex 새 계정 적용으로 창들이 다시 켜지면 보고 있던 채팅 · 모델 표시를 새로 읽는다
+  window.addEventListener('univdash:codex-applied', () => {
+    if (state.paneId) window.dispatchEvent(new CustomEvent('univdash:agent-switched', { detail: { pane: state.paneId } }));
+  });
   // 푸시 알림을 눌렀을 때 그 창 열기
   window.addEventListener('univdash:open-window', (event) => {
     const key = event.detail?.key;
