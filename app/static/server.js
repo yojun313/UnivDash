@@ -362,6 +362,91 @@ function openLogModal(name) {
     };
 }
 
+const procBusy = new Set();
+
+function showOutput(title, text, cls = '') {
+    const modal = document.getElementById('logModal');
+    const container = document.getElementById('logContainer');
+    if (logSocket) { logSocket.close(); logSocket = null; }
+    modal.classList.remove('hidden');
+    document.getElementById('logTitle').innerText = title;
+    container.innerHTML = '';
+    String(text || '(출력 없음)').split('\n').forEach((t) => {
+        const line = document.createElement('div');
+        line.className = `terminal-line pl-3 py-0.5 whitespace-pre-wrap break-all ${cls}`;
+        line.innerText = t;
+        container.appendChild(line);
+    });
+    container.scrollTop = container.scrollHeight;
+}
+
+// 버튼 아이콘을 스피너로 바꾸고, 같은 앱에서 같은 작업이 겹치지 않게 한다
+async function procTask(key, button, icon, run) {
+    if (procBusy.has(key)) return;
+    procBusy.add(key);
+    const i = button?.querySelector('i');
+    i?.classList.replace(icon, 'fa-spinner');
+    i?.classList.add('fa-spin');
+    if (button) button.disabled = true;
+    try { await run(); } finally {
+        procBusy.delete(key);
+        i?.classList.remove('fa-spin');
+        i?.classList.replace('fa-spinner', icon);
+        if (button) button.disabled = false;
+    }
+}
+
+async function restartAfter(name, what) {
+    if (!confirm(`${name} ${what} 완료. 지금 재시작할까요? (--update-env)`)) return;
+    const res = await fetch(`/control/restart/${encodeURIComponent(name)}`, { method: 'POST' });
+    UnivDash.toast(res.ok ? `${name} 재시작됨` : '재시작 실패', res.ok ? 'success' : 'error');
+    updateStats();
+}
+
+// 성공하면 true. then 이 false 면 재시작을 묻지 않는다 (git pull 에서 이어 부를 때)
+async function uvSync(name, button, { ask = true, then = true } = {}) {
+    if (ask && !confirm(`${name} 작업 폴더에서 uv sync 를 실행할까요?\n(uv.lock 이 있는 폴더 기준 · 끝나면 재시작 여부를 묻습니다)`)) return false;
+    button = button || document.querySelector(`[data-proc-action="uv-sync"][data-name="${CSS.escape(name)}"]`);
+    let ok = false;
+    await procTask(`uv:${name}`, button, 'fa-box-open', async () => {
+        showOutput(`UV SYNC: ${name}`, 'uv sync 실행 중...', 'terminal-muted italic');
+        try {
+            const data = await UnivDash.api(`/uv-sync/${encodeURIComponent(name)}`, { method: 'POST' });
+            showOutput(`UV SYNC: ${name}`, data.output, data.ok ? '' : 'text-red-400');
+            ok = data.ok;
+            UnivDash.toast(`${name} uv sync ${ok ? '완료' : '실패'}`, ok ? 'success' : 'error');
+        } catch (error) {
+            showOutput(`UV SYNC: ${name}`, error.message || 'uv sync 요청 실패', 'text-red-400');
+            UnivDash.toast(error.message || 'uv sync 실패', 'error');
+        }
+    });
+    if (ok && then) await restartAfter(name, 'uv sync');
+    return ok;
+}
+
+async function gitPull(name, button) {
+    if (!confirm(`${name} 저장소에서 git pull 할까요?\n(--ff-only · 로컬 커밋과 갈라져 있으면 실패하고 아무것도 바꾸지 않습니다)`)) return;
+    let data = null;
+    await procTask(`git:${name}`, button, 'fa-code-pull-request', async () => {
+        showOutput(`GIT PULL: ${name}`, 'git pull 실행 중...', 'terminal-muted italic');
+        try {
+            data = await UnivDash.api(`/git-pull/${encodeURIComponent(name)}`, { method: 'POST' });
+            const files = data.changed.length ? `\n\n바뀐 파일 ${data.changed.length}개:\n${data.changed.join('\n')}` : '';
+            showOutput(`GIT PULL: ${name}${data.branch ? ` (${data.branch})` : ''}`, data.output + files, data.ok ? '' : 'text-red-400');
+            UnivDash.toast(!data.ok ? `${name} git pull 실패` : data.updated ? `${name} 업데이트됨` : `${name} 이미 최신`, data.ok ? 'success' : 'error');
+        } catch (error) {
+            showOutput(`GIT PULL: ${name}`, error.message || 'git pull 요청 실패', 'text-red-400');
+            UnivDash.toast(error.message || 'git pull 실패', 'error');
+        }
+    });
+    if (!data?.ok || !data.updated) return;
+    const uvButton = document.querySelector(`[data-proc-action="uv-sync"][data-name="${CSS.escape(name)}"]`);
+    if (data.deps_changed && uvButton && confirm(`${name} 의존성(uv.lock / pyproject.toml)이 바뀌었습니다. uv sync 를 실행할까요?`)) {
+        if (!await uvSync(name, uvButton, { ask: false, then: false })) return;
+    }
+    await restartAfter(name, 'git pull');
+}
+
 function closeLogModal() {
     if (logSocket) {
         logSocket.close();
@@ -386,6 +471,8 @@ if (document.getElementById('pm2-list-body')) {
         if (action === 'chart') toggleChart(name);
         else if (action === 'watch') toggleWatch(name);
         else if (action === 'logs') openLogModal(name);
+        else if (action === 'uv-sync') uvSync(name, button);
+        else if (action === 'git-pull') gitPull(name, button);
         else controlPM2(action, name);
     });
     document.getElementById('procSearch')?.addEventListener('input', filterProcesses);

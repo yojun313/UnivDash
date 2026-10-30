@@ -72,6 +72,35 @@ async def control_process(action: str, name: str):
     return {"status": "success"}
 
 
+@router.post("/uv-sync/{name}", dependencies=api_auth)
+async def uv_sync_process(name: str):
+    """uv 로 구성된 pm2 앱의 작업 폴더에서 `uv sync`. 재시작은 하지 않는다."""
+    _check_name(name)
+    try:
+        ok, output = await asyncio.to_thread(PM2Service.uv_sync, name)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=error.args[0]) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return {"ok": ok, "output": output}
+
+
+@router.post("/git-pull/{name}", dependencies=api_auth)
+async def git_pull_process(name: str):
+    """pm2 앱이 들어 있는 저장소에서 `git pull --ff-only`. 재시작은 하지 않는다."""
+    _check_name(name)
+    try:
+        return await asyncio.to_thread(PM2Service.git_pull, name)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=error.args[0]) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
 @router.get("/status", dependencies=api_auth)
 async def get_pm2_status_api():
     return await asyncio.to_thread(PM2Service.get_process_summaries)

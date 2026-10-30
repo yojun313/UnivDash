@@ -788,6 +788,9 @@ def _send_model_command(pane_id: str, agent: str) -> None:
     tmux_service.send_keys(pane_id, ["Enter"])
 
 
+STARTUP_GRACE = 8.0  # 입력창이 뜬 뒤에도 이어 불러온 대화를 그리는 동안은 조용히
+
+
 def watch_startup(
     pane_id: str,
     timeout: float = 30.0,
@@ -799,10 +802,18 @@ def watch_startup(
     켜기 전부터 화면에 있던 내용(예: 방금 끈 에이전트의 아래 안내 줄)에는 반응하지 않는다.
     그 에이전트의 입력창이 뜨면 멈추고, ask_model 이면 그때 /model 을 보내 모델을 고르게 한다.
     """
+    # 켜지는 동안(대화 다시 불러오기 등)의 '작업 중 → 끝' 은 알리지 않는다
+    tmux_service.mark_starting(pane_id, timeout + STARTUP_GRACE)
     initial = "\n".join(_screen_lines(pane_id))
     initial_bottom = _bottom(_screen_lines(pane_id))
 
     def run() -> None:
+        try:
+            watch()
+        finally:
+            tmux_service.settle_starting(pane_id, STARTUP_GRACE)
+
+    def watch() -> None:
         deadline = time.monotonic() + timeout
         actions = 0
         answered = False

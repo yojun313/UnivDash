@@ -377,7 +377,10 @@ class _Channel:
         self.log_path = None
         self.log_agent: str | None = None
         self.log_since = 0
-        self.log_size = -1
+        self.log_size: object = (
+            -1
+        )  # 로그 크기 (+ 프롬프트를 기다리는 중이면 Codex 입력 기록 표시)
+        self.log_awaiting = False
         self.log_resolved_at = 0.0
 
     async def send(self, payload: dict) -> None:
@@ -438,9 +441,12 @@ async def push_log(channel: _Channel, loop) -> None:
     except OSError:
         channel.log_path = None
         return
-    if size == channel.log_size:
+    signature = (
+        (size, transcript_service.history_mark()) if channel.log_awaiting else size
+    )
+    if signature == channel.log_size:
         return
-    channel.log_size = size
+    channel.log_size = signature
     data = await asyncio.to_thread(
         transcript_service.read,
         channel.log_path,
@@ -454,6 +460,9 @@ async def push_log(channel: _Channel, loop) -> None:
             transcript_service.read, channel.log_path, channel.log_agent, None, 300
         )
     channel.log_since = data["total"]
+    if data.pop("awaiting", False) != channel.log_awaiting:
+        channel.log_awaiting = not channel.log_awaiting
+        channel.log_size = -1 if channel.log_awaiting else size
     await channel.send({"t": "log", "pane": pane, **data})
 
 

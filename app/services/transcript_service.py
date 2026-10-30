@@ -17,6 +17,7 @@ import re
 import secrets
 import threading
 from collections import OrderedDict
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -456,6 +457,10 @@ class _Log:
         self.agent_names: dict[str, str] = {}  # Claude 서브에이전트 ID → 설명(이름)
         # Codex 서브에이전트 경로(/root/ground) → spawn_agent 도구 항목
         self.subagents: dict[str, dict] = {}
+        # Codex: 사용자가 보내 시작된 턴인데 아직 그 프롬프트가 기록되지 않았다 (보내자마자 대화 압축을
+        # 하면 압축이 끝날 때까지 기록되지 않는다) → 그 턴이 시작된 시각 (epoch 초)
+        self.thread_id = ""
+        self.awaiting: float | None = None
 
     def _add(self, kind: str, text: str = "", ts: str = "", **extra) -> dict:
         item = {
@@ -468,7 +473,7 @@ class _Log:
         self.items.append(item)
         return item
 
-    def _user(self, content: Any, ts: str) -> None:
+    def _user(self, content: Any, ts: str) -> str | None:
         """사용자 메시지 (첨부한 그림이 있으면 images 로)."""
         text = _blocks_text(content)
         images = _blocks_images(content)
@@ -480,9 +485,10 @@ class _Log:
         else:
             parsed = _user_text(text)
         if not parsed:
-            return
+            return None
         extra = {"images": images} if images and parsed[0] == "user" else {}
         self._add(parsed[0], parsed[1], ts, **extra)
+        return parsed[0]
 
     def _tool(self, call_id: str, name: str, data: Any, ts: str) -> None:
         summary = _tool_summary(name, data)
@@ -668,11 +674,23 @@ class _Log:
             # 대화 압축: 기록에는 지난 대화를 다시 담지만(replacement_history) 채팅에는 한 줄 안내만
             self._add("system", COMPACTED, ts)
             return
+        if kind == "session_meta" and not self.thread_id:
+            self.thread_id = str(p.get("id") or p.get("session_id") or "")
+            return
+        if kind == "event_msg":
+            event = p.get("type")
+            if event == "task_started":
+                trigger = (p.get("turn_attribution") or {}).get("turn_trigger")
+                self.awaiting = _epoch(ts) if trigger == "user" else None
+            elif event in {"task_complete", "turn_aborted"}:
+                self.awaiting = None
+            return
         if kind != "response_item":
             return
         ptype = p.get("type")
         if ptype == "message" and p.get("role") == "user":
-            self._user(p.get("content"), ts)
+            if self._user(p.get("content"), ts) == "user":
+                self.awaiting = None
         elif ptype == "message" and p.get("role") == "assistant":
             text = _blocks_text(p.get("content")).strip()
             if text:
@@ -738,6 +756,54 @@ class _Log:
                 (self._claude if self.agent == "claude" else self._codex)(record)
 
 
+def _epoch(ts: str) -> float | None:
+    try:
+        return datetime.fromisoformat(ts).timestamp()
+    except ValueError:
+        return None
+
+
+HISTORY_TAIL = 256 * 1024
+
+
+def _codex_history() -> Path:
+    return _data_root("CODEX_DATA_DIR", ".codex") / "history.jsonl"
+
+
+def history_mark() -> float:
+    """Codex 입력 기록 파일이 바뀌었는지 보는 표시 (실시간 구독이 프롬프트를 늦게 받지 않게)."""
+    try:
+        return _codex_history().stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _codex_submitted(thread_id: str, since: float) -> str | None:
+    """Codex 가 입력하자마자 적어 두는 ~/.codex/history.jsonl 에서, 그 턴을 시작한 프롬프트를 찾는다."""
+    try:
+        with _codex_history().open("rb") as handle:
+            handle.seek(max(0, handle.seek(0, os.SEEK_END) - HISTORY_TAIL))
+            lines = handle.read().splitlines()
+    except OSError:
+        return None
+    # 그 턴을 시작한 입력 = 턴 시작 이후 첫 입력 (뒤의 것은 작업 중에 더 보낸 것)
+    found = None
+    for raw in reversed(lines):
+        try:
+            entry = json.loads(raw)
+        except ValueError:
+            continue
+        if not isinstance(entry, dict) or entry.get("session_id") != thread_id:
+            continue
+        ts = entry.get("ts")
+        if not isinstance(ts, (int, float)) or ts < since - 2:  # 기록은 초 단위(버림)
+            break
+        text = entry.get("text")
+        if isinstance(text, str) and text.strip():
+            found = text
+    return found
+
+
 _cache: "OrderedDict[str, _Log]" = OrderedDict()
 _lock = threading.Lock()
 
@@ -779,19 +845,30 @@ def read(path: Path, agent: str, start: int | None, limit: int) -> dict:
             if isinstance(item.get("ref"), int) and item["ref"] < start
         }
         related = [dict(log.items[i]) for i in sorted(refs) if i < total]
-        return {
-            "related": related,
-            "total": total,
-            "start": start,
-            "items": items,
-            "title": log.title,
-            "file": path.name,
-            "queued": [
-                _clip(text, MAX_TEXT)
-                for text in log.queue
-                if not text.lstrip().startswith(_NOTIFY)
-            ],
-        }
+        title, queue = log.title, list(log.queue)
+        awaiting, thread_id = log.awaiting, log.thread_id
+    # 보낸 프롬프트가 아직 기록되지 않은 턴 (예: 대화 압축 중)
+    submitted = (
+        _codex_submitted(thread_id, awaiting)
+        if agent == "codex" and awaiting is not None and thread_id
+        else None
+    )
+    return {
+        "related": related,
+        "total": total,
+        "start": start,
+        "items": items,
+        "title": title,
+        "file": path.name,
+        "queued": [
+            _clip(text, MAX_TEXT)
+            for text in queue
+            if not text.lstrip().startswith(_NOTIFY)
+        ],
+        "submitted": [_clip(submitted, MAX_TEXT)] if submitted else [],
+        # 프롬프트를 아직 못 찾았다: 입력 기록 파일이 바뀌면 다시 읽어야 한다
+        "awaiting": awaiting is not None and not submitted and agent == "codex",
+    }
 
 
 # Claude 의 /model 결과 줄 (버전에 따라 모양이 다르다)

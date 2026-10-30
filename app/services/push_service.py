@@ -407,7 +407,12 @@ def _events(previous: dict[str, str], windows, prefs) -> list[dict]:
     events = []
     for window in windows:
         before = previous.get(window.key)
-        if not before or before == window.status or window.key in prefs.hidden:
+        if (
+            not before
+            or before == window.status
+            or window.key in prefs.hidden
+            or window.starting
+        ):
             continue
         if window.status == "waiting":
             what = "응답이 필요해요"

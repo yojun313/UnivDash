@@ -135,6 +135,7 @@ class Window:
     title: str = ""
     path: str = ""
     status: str = "idle"  # idle | busy | waiting | shell | dead
+    starting: bool = False  # 대시보드가 막 (다시) 켠 에이전트 — 켜지는 동안의 상태 변화는 알리지 않는다
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -194,6 +195,32 @@ def detect_status(window: Window, tail: str) -> str:
     return "idle"
 
 
+# 대시보드가 (다시) 켠 에이전트 창: pane id → 이 시각까지 상태 변화 알림을 하지 않는다.
+# 계정 변경 · 재시작으로 대화를 다시 불러올 때 잠깐 '작업 중'이 되었다가 끝나는 것을 '작업 완료'로 알리지 않게.
+_starting_lock = threading.Lock()
+_starting: dict[str, float] = {}
+
+
+def mark_starting(pane_id: str, seconds: float) -> None:
+    with _starting_lock:
+        _starting[pane_id] = time.monotonic() + seconds
+
+
+def settle_starting(pane_id: str, grace: float) -> None:
+    """켜기가 끝났다: 화면이 자리 잡을 grace 초 뒤에 알림을 다시 켠다."""
+    with _starting_lock:
+        if pane_id in _starting:
+            _starting[pane_id] = min(_starting[pane_id], time.monotonic() + grace)
+
+
+def _starting_panes() -> set[str]:
+    now = time.monotonic()
+    with _starting_lock:
+        for pane_id in [p for p, until in _starting.items() if until <= now]:
+            del _starting[pane_id]
+        return set(_starting)
+
+
 def list_windows(with_status: bool = True) -> list[Window]:
     raw = _run(["list-panes", "-a", "-F", _PANE_FORMAT])
     windows: dict[str, Window] = {}
@@ -233,7 +260,9 @@ def list_windows(with_status: bool = True) -> list[Window]:
         )
 
     result = sorted(windows.values(), key=lambda w: (w.session, w.index))
+    starting = _starting_panes()
     for window in result:
+        window.starting = any(p.id in starting for p in window.panes)
         active = next((p for p in window.panes if p.active), window.panes[0])
         agent_pane = next((p for p in window.panes if p.command in AGENTS), None)
         window.agent = agent_pane.command if agent_pane else None

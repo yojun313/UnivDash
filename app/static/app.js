@@ -1006,7 +1006,7 @@
         if (before === 'waiting' && w.status !== 'waiting' && w.key === state.selectedKey && isWindowVisible(w.key)) {
           workspace?.watchCurrentModel(w.key);
         }
-        if (!before || before === w.status || isHidden(w.key)) return;
+        if (!before || before === w.status || isHidden(w.key) || w.starting) return;
         const watching = w.key === state.selectedKey && isTermVisible() && document.visibilityState === 'visible';
         if (watching || !window.UnivDash.settings.get('notify-agents')) return;
         const open = page === 'workspace' ? { label: '열기', onClick: () => workspace.select(w.key) } : null;
@@ -1385,7 +1385,8 @@
     }
 
     function itemHtml(w) {
-      const selected = w.key === state.selectedKey;
+      // Workspace 는 지금 보고 있는 탭 기준 (파일 탭을 보고 있으면 아무 창도 선택 표시하지 않는다)
+      const selected = state.listCurrent === undefined ? w.key === state.selectedKey : w.key === state.listCurrent;
       const unread = !isWindowVisible(w.key) && unreadActivity(w) > (state.seen[w.key] || 0);
       const status = STATUS[w.status] || STATUS.idle;
       const meta = [status.label, w.path, timeAgo(w.activity)].filter(Boolean).join(' · ');
@@ -2595,22 +2596,79 @@
       return date.toLocaleString('ko-KR', today ? { hour: '2-digit', minute: '2-digit' } : { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     }
     // 답변 속 파일 · 폴더 경로 → 누르면 여는 링크. 절대경로(/… ~/…), ./ ../ 로 시작하는 경로,
-    // 확장자가 있는 파일 경로(app/static/app.js, …:123)만 — "and/or" · "1/2" · 웹 주소는 건드리지 않는다.
-    const PATH_RE = /(?<![\w/.:~@-])((?:~|\.{1,2})?(?:\/[\w.@+\-가-힣]+)+\/?|[\w.@+\-가-힣]+(?:\/[\w.@+\-가-힣]+)+\/?)(:\d+(?::\d+)?)?/g;
+    // 확장자가 있는 파일 경로(app/static/app.js, …:123, …#L12)만 — "and/or" · "1/2" · 웹 주소는 건드리지 않는다.
+    // 모두 escapeHtml 을 거친 글자 위에서 동작한다 (경로 속 & " 는 &amp; &quot; 로 들어온다).
+    const PATH_CHAR = String.raw`(?:[\p{L}\p{N}\p{M}_.@+\-]|&amp;)`;
+    const LINE_SUFFIX = String.raw`(?::\d+(?:[:-]\d+)?|#L\d+(?:-L?\d+)?)`;
+    const PATH_RE = new RegExp(String.raw`(?<![\p{L}\p{N}_/.:~@-])((?:~|\.{1,2})?(?:\/${PATH_CHAR}+)+\/?|${PATH_CHAR}+(?:\/${PATH_CHAR}+)+\/?)(${LINE_SUFFIX})?`, 'gu');
+    // 경로 바로 뒤에 붙은 조사 ("app.js에서", "/home/yojun/univDash에") 는 링크에서 뺀다
+    const FILE_THEN_HANGUL = /^(.*\.[A-Za-z0-9]{1,8})(\p{Script=Hangul}+)$/u;
+    const DIR_THEN_PARTICLE = /^(.*[A-Za-z0-9_)\]-])(에서는|에서|에는|에도|으로|에|의|을|를|은|는|이|가|로|와|과|도|만|까지|부터)$/;
+    const unescapeHtml = (html) => html.replace(/&(amp|lt|gt|quot|#39);/g, (m, name) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" })[name]);
+    function lineOf(suffix) {
+      const m = String(suffix || '').match(/^(?::|#L)(\d+)/);
+      return m ? m[1] : '';
+    }
+    function pathAnchor(path, suffix, label) {
+      const lineNo = lineOf(suffix);
+      return `<a class="path-link" role="link" tabindex="0" data-open-path="${path}"${lineNo ? ` data-line="${lineNo}"` : ''} title="눌러서 열기">${label}</a>`;
+    }
+    // 경로처럼 보이나: 절대 · ~ · ./ 이거나, 마지막 조각에 확장자가 있거나, / 로 끝나는 폴더
+    function looksLikePath(path) {
+      if (!path.includes('/') || /^\d+(\/\d+)+$/.test(path)) return false;
+      if (/^(~|\/|\.{1,2}\/)/.test(path)) return true;
+      const last = path.replace(/\/$/, '').split('/').pop();
+      return /\.[A-Za-z0-9]{1,8}$/.test(last) || path.endsWith('/');
+    }
+    // 링크 주소 → { path, suffix } (file:// · %20 같은 인코딩 · <…> 감싸기 정리). escape 된 글자로 받아 escape 된 글자로 돌려준다.
+    function splitTarget(target) {
+      let raw = unescapeHtml(target).trim().replace(/^file:\/\//i, '');
+      if (/%[0-9A-Fa-f]{2}/.test(raw)) { try { raw = decodeURI(raw); } catch (e) { /* 그대로 */ } }
+      const m = raw.match(new RegExp(`^(.*?)(${LINE_SUFFIX})?$`, 'u'));
+      return { path: escapeHtml(m[1]), suffix: m[2] || '' };
+    }
+    // 마크다운 링크 [이름](주소) · [이름](<공백 있는 주소>): 웹 주소는 새 탭, 파일 경로는 여는 링크
+    const MD_LINK = /\[([^\[\]\n]+)\]\((?:&lt;([^\n]+?)&gt;|((?:[^\s()]|\([^\s()]*\))+))\)/g;
+    function mdLinks(html) {
+      return html.replace(MD_LINK, (whole, label, angled, plain) => {
+        const target = angled || plain;
+        if (/^https?:\/\//i.test(unescapeHtml(target))) return `<a class="md-link" href="${target}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+        if (/^[a-z][a-z0-9+.-]*:/i.test(target) && !/^file:/i.test(target)) return whole;  // mailto: 등 다른 주소는 그대로
+        const { path, suffix } = splitTarget(target);
+        if (!path || /^#/.test(path)) return whole;
+        return pathAnchor(path, suffix, label);
+      });
+    }
+    // `코드` 안이 통째로 경로면(공백이 있어도) 그 전체를 링크로
+    function codePath(content) {
+      const m = content.match(new RegExp(`^(.*?)(${LINE_SUFFIX})?$`, 'u'));
+      const path = m[1];
+      if (!/ /.test(path) || /^\s|\s$|\s{2}|[`<>]|&quot;|&#39;/.test(path) || !looksLikePath(path)) return null;
+      return pathAnchor(path, m[2] || '', content);
+    }
     function linkPaths(html) {
-      // 태그 안(속성)은 건드리지 않고 글자 부분에만
-      return html.split(/(<[^>]+>)/).map((part) => (part.startsWith('<') ? part : part.replace(PATH_RE, (whole, raw, line = '') => {
-        let path = raw;
-        let tail = '';
-        while (/[.,;:!?)]$/.test(path)) { tail = path.slice(-1) + tail; path = path.slice(0, -1); }
-        if (!path.includes('/')) return whole;
-        const absolute = /^(~|\/|\.{1,2}\/)/.test(path);
-        const last = path.replace(/\/$/, '').split('/').pop();
-        if (!absolute && !/\.[A-Za-z0-9]{1,8}$/.test(last) && !path.endsWith('/')) return whole;
-        if (/^\d+(\/\d+)+$/.test(path)) return whole;
-        const lineNo = line ? line.slice(1).split(':')[0] : '';
-        return `<a class="path-link" role="link" tabindex="0" data-open-path="${path}"${lineNo ? ` data-line="${lineNo}"` : ''} title="눌러서 열기">${path}${line}</a>${tail}`;
-      }))).join('');
+      // 태그 안(속성)과 이미 링크인 부분(<a>…</a>)은 건드리지 않고 글자 부분에만
+      let inLink = 0;
+      return html.split(/(<[^>]+>)/).map((part) => {
+        if (part.startsWith('<')) {
+          if (/^<a[\s>]/i.test(part)) inLink += 1;
+          else if (/^<\/a>/i.test(part)) inLink = Math.max(0, inLink - 1);
+          return part;
+        }
+        if (inLink) return part;
+        return part.replace(PATH_RE, (whole, raw, suffix = '') => {
+          let path = raw;
+          let tail = '';
+          while (/[.,;:!?)]$/.test(path)) { tail = path.slice(-1) + tail; path = path.slice(0, -1); }
+          if (tail) suffix = '';  // "app.js.:12" 같은 모양은 줄 번호로 보지 않는다
+          const segments = path.split('/');
+          const last = segments.pop();
+          const cut = last.match(FILE_THEN_HANGUL) || (/^(~|\/)/.test(path) && !suffix ? last.match(DIR_THEN_PARTICLE) : null);
+          if (cut) { path = [...segments, cut[1]].join('/'); tail = cut[2] + suffix + tail; suffix = ''; }
+          if (!looksLikePath(path)) return whole;
+          return pathAnchor(path, suffix, path + suffix) + tail;
+        });
+      }).join('');
     }
     // 에이전트 답변: 간단한 마크다운 + 수식($…$ · $$…$$ · \(…\) · \[…\] → KaTeX, common.js) + 경로 링크
     function mdLite(text) {
@@ -2622,8 +2680,8 @@
         return window.UnivDash.math.render(linkPaths(mdTables(tidy)), math);
       }).join('');
     }
-    const mdInline = (text) => escapeHtml(text)
-      .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+    const mdInline = (text) => mdLinks(escapeHtml(text)
+      .replace(/`([^`\n]+)`/g, (m, code) => `<code>${codePath(code) || code}</code>`))
       .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
       .replace(/^(#{1,6}) (.+)$/gm, '<span class="md-h">$2</span>');
     // GFM 표: 머리 줄 + 구분 줄(|---|:--:|) + 본문 줄들. 나머지는 줄 단위 그대로 (pre-wrap)
@@ -2822,6 +2880,7 @@
     function showLatestLog(data) {
       log.rendered.clear();
       log.queued = [];
+      log.submitted = [];
       chatPending.innerHTML = '';
       log.available = data.available;
       log.agent = data.agent;
@@ -2833,6 +2892,7 @@
       log.start = data.start;
       log.total = data.total;
       log.queued = data.queued || [];
+      log.submitted = data.submitted || [];
       renderPending();
       if (!data.items.length) logList.innerHTML = '<div class="log-empty">아직 대화가 없습니다.</div>';
       upsertLogItems(data.items);
@@ -2862,6 +2922,7 @@
         // 캐시와 같으면 다시 그리지 않는다 (깜빡임 · 스크롤 튐 방지)
         const same = cached && cached.available === data.available && cached.start === data.start && cached.total === data.total
           && JSON.stringify(cached.queued || []) === JSON.stringify(data.queued || [])
+          && JSON.stringify(cached.submitted || []) === JSON.stringify(data.submitted || [])
           && JSON.stringify(cached.items?.at(-1) ?? null) === JSON.stringify(data.items?.at(-1) ?? null);
         if (!same) showLatestLog(data);
         if (data.available) subscribeLog();
@@ -2909,6 +2970,7 @@
     const chatStatus = $('#chatStatus');
     const SENT_KEEP_MS = 10 * 60 * 1000;
     log.queued = [];
+    log.submitted = [];   // 보냈지만 아직 기록되지 않은 프롬프트 (Codex 가 대화를 압축하는 중 등 · 서버가 알려 준다)
     log.sent = [];
     function addSent(text) {
       if (modeFor(currentWindow()) !== 'log' || !text.trim() || /^\/\S/.test(text.trim())) return null;   // 슬래시 명령은 로그에 일반 메시지로 남지 않는다
@@ -2937,7 +2999,11 @@
       }
       const queuedBubble = (text) => `<div class="msg msg-user pending"><div class="msg-meta"><i class="fas fa-hourglass-half"></i> 대기 중 · 지금 작업이 끝나면 전달돼요</div><div class="msg-body">${escapeHtml(text)}</div></div>`;
       const sentBubble = (e) => `<div class="msg msg-user"><div class="msg-meta">나 · ${escapeHtml(logTime(e.at))}</div><div class="msg-body">${escapeHtml(e.text)}</div></div>`;
-      chatPending.innerHTML = [...log.queued.map(queuedBubble), ...log.sent.filter((e) => e.pane === state.paneId).map(sentBubble)].join('');
+      const sentHere = log.sent.filter((e) => e.pane === state.paneId);
+      // 이 화면에서 보낸 말풍선이 이미 있으면 서버가 알려 준 것은 겹치니 빼고 보여 준다
+      const submittedBubble = (text) => `<div class="msg msg-user"><div class="msg-meta">나 · 전달됨</div><div class="msg-body">${escapeHtml(text)}</div></div>`;
+      const submitted = sentHere.length || log.pane !== state.paneId ? [] : log.submitted.map(submittedBubble);
+      chatPending.innerHTML = [...log.queued.map(queuedBubble), ...submitted, ...sentHere.map(sentBubble)].join('');
     }
 
     // ── 에이전트 상태 카드: 터미널 화면에서 상태 줄 / 선택 질문을 읽어 채팅 하단에 보여준다 ──
@@ -3101,6 +3167,7 @@
     function applyLogData(data) {
       if (log.pane !== state.paneId || log.loading) return;
       if (Array.isArray(data.queued)) { log.queued = data.queued; }
+      log.submitted = Array.isArray(data.submitted) ? data.submitted : [];
       const stick = logAtBottom();
       if (data.total < log.total) { loadLatestLog(); return; }  // 세션이 바뀜 (/clear 등)
       // 그사이 기록이 너무 많이 쌓여 중간이 빠졌으면(백그라운드 · 재연결) 최신부터 다시 — 이전 것은 '더 보기'로
@@ -3284,8 +3351,33 @@
 
     function ensureTree() {
       if (tree || !window.UnivDashExplorer) return tree;
-      tree = window.UnivDashExplorer.mountTree($('#wsExplorer'), { onOpen: openFile, onInsert: insertPath });
+      tree = window.UnivDashExplorer.mountTree($('#wsExplorer'), {
+        onOpen: openFile, onInsert: insertPath,
+        onReady: () => { lastSidebar = null; syncSidebar(); },
+      });
       return tree;
+    }
+    // ── 왼쪽 파일 트리 · 창 목록의 선택 = 지금 보고 있는 탭 (분할 화면이면 마지막으로 누른 칸의 탭) ──
+    let lastSidebar = null;
+    function focusedTab() {
+      const g = focusGroup !== 'main' && isSplit() ? groups[focusGroup] : null;
+      if (g) return tabsOf(g).find((t) => t?.id === g.active) || null;
+      const id = activeId();
+      return id ? currentTabs().find((t) => t.id === id) || null : null;
+    }
+    function syncSidebar() {
+      const tab = focusedTab();
+      const signature = tab ? `${tab.id}` : '';
+      if (signature === lastSidebar) return;
+      lastSidebar = signature;
+      tree?.follow(tab?.type === 'file' ? tab.path : null);
+      const key = tab?.type === 'term' ? tab.key : null;
+      state.listCurrent = key;
+      $$('.win-item[data-key]').forEach((el) => {
+        const on = el.dataset.key === key;
+        el.classList.toggle('selected', on);
+        el.setAttribute('aria-current', String(on));
+      });
     }
     function setMode(mode, { save = true } = {}) {
       if (!modes[mode]) mode = 'windows';
@@ -3370,6 +3462,7 @@
       if (SOLO) soloSync(tabs, active);
       lastActive = active;
       bar.querySelector('.wt.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      syncSidebar();
     }
     function tabHtml(t, on) {
       {
@@ -3666,7 +3759,7 @@
       });
       g.bar.addEventListener('contextmenu', (event) => tabMenu(event, id));
       el.querySelector('[data-g-close]').addEventListener('click', () => closeGroup(id));
-      el.addEventListener('pointerdown', () => { focusGroup = id; }, true);
+      el.addEventListener('pointerdown', () => { focusGroup = id; setTimeout(syncSidebar); }, true);
       if (window.Sortable) sortableFor(g.bar, id);
       return g;
     }
@@ -3777,6 +3870,7 @@
       }
       g.bar.querySelectorAll('.wt').forEach((el) => el.classList.toggle('active', el.dataset.id === id));
       focusGroup = g.id;
+      syncSidebar();
     }
 
     // ── 탭 옮기기: from/to 는 'main' 또는 그룹 id ──
@@ -3886,7 +3980,7 @@
       renderGroups();
       renderBar();
     }
-    $('#termPane')?.addEventListener('pointerdown', () => { focusGroup = 'main'; }, true);
+    $('#termPane')?.addEventListener('pointerdown', () => { focusGroup = 'main'; setTimeout(syncSidebar); }, true);
     desktopQuery.addEventListener('change', () => { renderBar(); renderGroups(); });
 
     // ── 탭 오른쪽 클릭: 분할 · 옮기기 ──
@@ -4382,7 +4476,7 @@
       let lastScreen = null;
       let stick = true;
       let logStick = true;
-      const chat = { items: new Map(), total: 0, available: false, agent: null };
+      const chat = { items: new Map(), total: 0, available: false, agent: null, submitted: [] };
       const model = { id: null };
       let modelRequest = 0;
       const modes = store.get('tp-modes', {});
@@ -4445,7 +4539,9 @@
           let arrived = items.filter((item) => item.kind === 'user' && item.id > sent[0].afterId).length;
           while (sent.length && (arrived > 0 || Date.now() - sent[0].at > 10 * 60 * 1000)) { if (arrived > 0) arrived -= 1; sent.shift(); }
         }
-        const pending = sent.map((e) => `<div class="msg msg-user"><div class="msg-meta">나 · ${escapeHtml(new Date(e.at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }))}</div><div class="msg-body">${escapeHtml(e.text)}</div></div>`).join('');
+        const pending = sent.length
+          ? sent.map((e) => `<div class="msg msg-user"><div class="msg-meta">나 · ${escapeHtml(new Date(e.at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }))}</div><div class="msg-body">${escapeHtml(e.text)}</div></div>`).join('')
+          : chat.submitted.map((text) => `<div class="msg msg-user"><div class="msg-meta">나 · 전달됨</div><div class="msg-body">${escapeHtml(text)}</div></div>`).join('');
         // 다시 그려도 펼쳐 둔 항목(서브에이전트 등)은 펼친 채로
         const opened = new Set([...listEl.querySelectorAll(':scope > details[open][data-item]')].map((el) => el.dataset.item));
         listEl.dataset.pane = pane || '';
@@ -4476,6 +4572,7 @@
           if (!data.available) { listEl.innerHTML = '<div class="log-empty">이 창의 채팅(에이전트 세션 로그)을 찾지 못했습니다.</div>'; return; }
           data.items.forEach((item) => chat.items.set(item.id, item));
           chat.total = data.total;
+          chat.submitted = data.submitted || [];
           logStick = true;
           renderChat();
           send({ t: 'logsub', pane, since: chat.total });
@@ -4486,6 +4583,7 @@
         if (data.total < chat.total) { loadChat(); return; }
         if (data.items.length && (data.items[0].id > chat.total || data.items.at(-1).id + 1 < data.total)) { loadChat(); return; }
         data.items.forEach((item) => chat.items.set(item.id, item));
+        chat.submitted = data.submitted || [];
         (data.related || []).forEach((item) => { if (chat.items.has(item.id)) chat.items.set(item.id, item); });
         chat.total = Math.max(chat.total, data.total);
         renderChat();
@@ -4840,20 +4938,17 @@
       const cwd = pane?.path || w?.path || '~';
       const path = /^(~|\/)/.test(raw) ? raw : `${cwd.replace(/\/$/, '')}/${raw}`;
       let info;
-      try { info = await api('GET', `/api/fs/stat?path=${encodeURIComponent(path)}`); } catch (error) { toast(`열 수 없어요: ${raw} (${error.message})`, 'warn'); return; }
+      try { info = await api('GET', `/api/fs/stat?path=${encodeURIComponent(path)}`); } catch (error) {
+        // 한글 폴더 이름 뒤에 조사가 붙어 링크가 된 경우("…/02_세이프덱에"): 끝 글자를 하나씩 빼 보며 다시 찾는다
+        for (let cut = 1; !info && cut <= 3 && /\p{Script=Hangul}{2,}$/u.test(path.slice(0, path.length - cut + 1)); cut += 1) {
+          try { info = await api('GET', `/api/fs/stat?path=${encodeURIComponent(path.slice(0, -cut))}`); } catch (e) { /* 다음 */ }
+        }
+        if (!info) { toast(`열 수 없어요: ${raw} (${error.message})`, 'warn'); return; }
+      }
       if (info.type === 'dir') { reveal(info.path); return; }
       const name = info.path.split('/').pop();
       const dot = name.lastIndexOf('.');
-      openFile({ path: info.path, name, ext: dot > 0 ? name.slice(dot + 1).toLowerCase() : '', type: 'file' });
-      const line = Number(link.dataset.line || 0);
-      if (line > 1) scrollToLine(line);
-    }
-    function scrollToLine(line, tries = 0) {
-      const code = document.querySelector('#fileView .exv-pre, #fileView .exv-textarea');
-      const box = code?.closest('.exv-body');
-      if (!code || !box) { if (tries < 20) setTimeout(() => scrollToLine(line, tries + 1), 100); return; }
-      const height = parseFloat(getComputedStyle(code).lineHeight) || 18;
-      box.scrollTop = Math.max(0, code.offsetTop + (line - 1) * height - box.clientHeight / 3);
+      openFile({ path: info.path, name, ext: dot > 0 ? name.slice(dot + 1).toLowerCase() : '', type: 'file', line: Number(link.dataset.line || 0) });
     }
     document.addEventListener('click', (event) => {
       const link = event.target.closest?.('.path-link[data-open-path]');

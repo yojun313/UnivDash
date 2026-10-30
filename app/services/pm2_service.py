@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import os
@@ -10,6 +11,7 @@ from pathlib import Path
 from dotenv import dotenv_values
 
 from app.services.ecosystem_service import child_env
+from app.services.git_service import GitService
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +86,56 @@ def update_env() -> dict[str, str]:
     return {k: v for k, v in env.items() if k not in project and k not in PM2_APP_KEYS}
 
 
+UV_SYNC_TIMEOUT_SECONDS = 600
+_uv_sync_running: set[str] = set()
+_uv_sync_lock = threading.Lock()
+
+
+def _uv_project(cwd: str | None) -> Path | None:
+    """uv 프로젝트 폴더 (pyproject.toml + uv.lock). 작업 폴더부터 위로 찾는다 (uv 워크스페이스 루트).
+
+    git 저장소 루트나 홈 폴더 밖으로는 올라가지 않는다.
+    """
+    if not cwd:
+        return None
+    path = Path(cwd)
+    for folder in (path, *path.parents):
+        if (folder / "pyproject.toml").is_file() and (folder / "uv.lock").is_file():
+            return folder
+        if (folder / ".git").exists() or folder == Path.home():
+            return None
+    return None
+
+
+def _git_root(cwd: str | None) -> Path | None:
+    """앱 작업 폴더가 들어 있는 git 저장소 폴더 (.git 이 있는 가장 가까운 상위)."""
+    if not cwd:
+        return None
+    path = Path(cwd)
+    for folder in (path, *path.parents):
+        if (folder / ".git").exists():
+            return folder
+    return None
+
+
+def _app_cwd(name: str) -> str | None:
+    proc = next((p for p in PM2Service.get_processes() if p.get("name") == name), None)
+    if proc is None:
+        raise KeyError("프로세스를 찾을 수 없습니다.")
+    return (proc.get("pm2_env") or {}).get("pm_cwd")
+
+
+def _uv_binary() -> str | None:
+    # pm2 로 뜬 서버는 PATH 에 ~/.local/bin 이 없을 수 있다
+    found = shutil.which("uv")
+    if found:
+        return found
+    for candidate in (Path.home() / ".local/bin/uv", Path.home() / ".cargo/bin/uv"):
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
+
+
 class PM2Service:
     @staticmethod
     def _run(
@@ -130,6 +182,8 @@ class PM2Service:
                         "cpu": monit.get("cpu", 0),
                         "memory": monit.get("memory", 0),
                     },
+                    "uv": _uv_project(env.get("pm_cwd")) is not None,
+                    "git": _git_root(env.get("pm_cwd")) is not None,
                     "pm2_env": {
                         "status": env.get("status"),
                         "pm_uptime": env.get("pm_uptime"),
@@ -180,6 +234,107 @@ class PM2Service:
             PM2Service.run_command("restart", str(pm_id), ["--update-env"])
 
         threading.Thread(target=run, daemon=True).start()
+
+    @staticmethod
+    def uv_sync(name: str) -> tuple[bool, str]:
+        """pm2 앱의 작업 폴더에서 `uv sync` 를 실행한다. 반환: (성공 여부, 출력)."""
+        project = _uv_project(_app_cwd(name))
+        if project is None:
+            raise ValueError("uv 프로젝트(pyproject.toml + uv.lock)가 아닙니다.")
+        uv = _uv_binary()
+        if not uv:
+            raise RuntimeError("uv 를 찾을 수 없습니다.")
+        key = str(project)
+        with _uv_sync_lock:
+            if key in _uv_sync_running:
+                raise RuntimeError("이미 uv sync 가 실행 중입니다.")
+            _uv_sync_running.add(key)
+        # 이 대시보드의 비밀값 · 가상환경이 섞이지 않게 pm2 데몬 환경을 쓴다
+        env = update_env()
+        for k in ("VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT", "PYTHONPATH", "PYTHONHOME"):
+            env.pop(k, None)
+        env["NO_COLOR"] = "1"
+        try:
+            result = subprocess.run(
+                [uv, "sync"],
+                check=False,
+                cwd=project,
+                capture_output=True,
+                text=True,
+                timeout=UV_SYNC_TIMEOUT_SECONDS,
+                env=env,
+                stdin=subprocess.DEVNULL,
+            )
+        except subprocess.TimeoutExpired:
+            return False, f"{UV_SYNC_TIMEOUT_SECONDS}초 안에 끝나지 않았습니다."
+        except OSError as error:
+            return False, str(error)
+        finally:
+            with _uv_sync_lock:
+                _uv_sync_running.discard(key)
+        output = (result.stdout + result.stderr).strip()
+        logger.info("uv sync · %s · 종료 코드 %s", name, result.returncode)
+        return result.returncode == 0, f"$ cd {project} && uv sync\n{output}"[-20000:]
+
+    @staticmethod
+    def git_pull(name: str) -> dict:
+        """pm2 앱이 들어 있는 저장소에서 `git pull --ff-only`. 서버에서 머지 커밋은 만들지 않는다.
+
+        Git 페이지와 같은 저장소 잠금을 써서 두 곳에서 동시에 Git 작업이 돌지 않게 한다.
+        """
+        cwd = _app_cwd(name)
+        if _git_root(cwd) is None:
+            raise ValueError("git 저장소가 아닙니다.")
+        top = GitService._run(Path(cwd), "rev-parse", "--show-toplevel", timeout=10)
+        if top.returncode != 0:
+            raise ValueError("git 저장소가 아닙니다.")
+        repo = Path(top.stdout.strip()).resolve()
+        repo_id = hashlib.sha256(str(repo).encode("utf-8")).hexdigest()[:16]
+        lock = GitService._lock_for(repo_id)
+        if not lock.acquire(blocking=False):
+            raise RuntimeError("이 저장소에서 다른 Git 작업이 실행 중입니다.")
+        try:
+            before = GitService._text(repo, "rev-parse", "HEAD")
+            branch = GitService._text(repo, "branch", "--show-current")
+            try:
+                result = GitService._run(repo, "pull", "--ff-only")
+            except subprocess.TimeoutExpired:
+                return {
+                    "ok": False,
+                    "output": "시간 안에 끝나지 않아 중단했습니다.",
+                    "changed": [],
+                }
+            after = GitService._text(repo, "rev-parse", "HEAD")
+            changed = []
+            if result.returncode == 0 and before and after and before != after:
+                diff = GitService._text(
+                    repo, "diff", "--name-only", "-z", before, after
+                )
+                changed = [f for f in diff.split("\0") if f]
+        finally:
+            lock.release()
+        output = "\n".join(
+            part for part in (result.stdout.strip(), result.stderr.strip()) if part
+        )
+        logger.info("git pull · %s · %s · 종료 코드 %s", name, repo, result.returncode)
+        project = _uv_project(cwd)
+        deps = set()
+        if project is not None:
+            rel = project.resolve().relative_to(repo)
+            deps = {
+                f if str(rel) == "." else str(rel / f)
+                for f in ("uv.lock", "pyproject.toml")
+            }
+        return {
+            "ok": result.returncode == 0,
+            "repo": str(repo),
+            "branch": branch,
+            "updated": before != after,
+            "changed": changed[:500],
+            # 워크스페이스 멤버의 pyproject.toml 이 바뀌어도 uv.lock 이 같이 바뀐다
+            "deps_changed": bool(deps & set(changed)),
+            "output": GitService._mask(output)[-20000:] or "(출력 없음)",
+        }
 
     @staticmethod
     def save_processes():

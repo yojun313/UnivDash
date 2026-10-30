@@ -405,9 +405,41 @@
       if (entry?.type === 'dir' || !parts.length) { expanded.add(path); await load(path); }
       saveExpanded();
       selected = path;
+      picked = new Set([path]);
+      store.set('selected', path);
       clearSearch();
       render();
       requestAnimationFrame(() => container.querySelector(`.ex-row[data-path="${CSS.escape(path)}"]`)?.scrollIntoView({ block: 'center' }));
+    }
+    // 지금 보고 있는 탭 따라가기 (VS Code 처럼): 파일 탭이면 그 파일을 펼쳐 보여 주고 선택,
+    // 파일이 아닌 탭(tmux · Terminal)이면 파일 선택만 푼다 (업로드 대상으로 고른 폴더 선택은 그대로).
+    // 루트 밖의 파일이면 루트는 바꾸지 않고 선택만 푼다.
+    let followSeq = 0;
+    async function follow(path) {
+      const seq = ++followSeq;
+      path = path ? expandHome(path) : null;
+      if (!path || !root || !path.startsWith(`${root}/`)) {
+        const files = [...picked].filter((p) => entryAt(p)?.type !== 'dir');
+        if (files.length && !(path && picked.size === 1 && picked.has(path))) select(null);
+        return;
+      }
+      if (picked.size === 1 && picked.has(path) && container.querySelector(`.ex-row[data-path="${CSS.escape(path)}"]`)) return;
+      let current = root;
+      let opened = false;
+      for (const part of path.slice(root.length).split('/').filter(Boolean).slice(0, -1)) {
+        current = `${current}/${part}`;
+        if (!expanded.has(current)) { expanded.add(current); opened = true; }
+        await load(current);
+        if (seq !== followSeq) return;   // 그사이 다른 탭으로 바뀜
+      }
+      if (opened) { saveExpanded(); render(); }
+      select(path);
+      const row = container.querySelector(`.ex-row[data-path="${CSS.escape(path)}"]`);
+      if (row) {
+        const box = body.getBoundingClientRect();
+        const rect = row.getBoundingClientRect();
+        if (rect.top < box.top || rect.bottom > box.bottom) row.scrollIntoView({ block: 'center' });
+      }
     }
     const relative = (path) => (path === root ? '.' : path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path);
 
@@ -1277,9 +1309,10 @@
       if (!root || !shared.roots.some((r) => root === r || root.startsWith(`${r}/`))) root = candidates[0] || shared.home;
       await setRoot(root);
       if (options.initialReveal) reveal(options.initialReveal);
+      options.onReady?.();
     }).catch((error) => { treeEl.innerHTML = `<div class="ex-note error">${escapeHtml(error.message)}</div>`; });
 
-    return { reveal, refresh: () => refresh(), get root() { return root; } };
+    return { reveal, follow, refresh: () => refresh(), get root() { return root; } };
   }
 
   // ════════════════════════════════════════════════════════════════════════
@@ -1296,11 +1329,32 @@
   const MAX_TABS = 30;
   function loadTabState(key = TAB_KEY) {
     const saved = store.get(key, null);
-    const tabs = Array.isArray(saved?.tabs) ? saved.tabs.filter((t) => t && typeof t.path === 'string').slice(0, MAX_TABS) : [];
-    const active = tabs.some((t) => t.path === saved?.active) ? saved.active : tabs[0]?.path || null;
+    // 예전에 "파일:58" 그대로 열린 탭은 줄 번호를 떼어 진짜 파일 탭으로
+    const fixed = (t) => {
+      const ref = splitLineRef(t.path);
+      if (!ref.line) return t;
+      const name = basename(ref.path);
+      const dot = name.lastIndexOf('.');
+      return { ...t, path: ref.path, name, ext: dot > 0 ? name.slice(dot + 1).toLowerCase() : '' };
+    };
+    const tabs = (Array.isArray(saved?.tabs) ? saved.tabs.filter((t) => t && typeof t.path === 'string').map(fixed) : [])
+      .filter((t, i, all) => all.findIndex((o) => o.path === t.path) === i).slice(0, MAX_TABS);
+    const savedActive = typeof saved?.active === 'string' ? splitLineRef(saved.active).path : null;
+    const active = tabs.some((t) => t.path === savedActive) ? savedActive : tabs[0]?.path || null;
     return { tabs, active, view: saved?.view && typeof saved.view === 'object' ? saved.view : {} };
   }
 
+  // "파일:58" · "파일:58:3" · "파일:58-60" · "파일#L58" → { path, line } (줄 번호가 없으면 line 0)
+  const LINE_REF = /^(.*?[^/:])(?::(\d+)(?:[:-]\d+)?|#L(\d+)(?:-L?\d+)?)$/;
+  function splitLineRef(path) {
+    const m = String(path || '').match(LINE_REF);
+    return m ? { path: m[1], line: Number(m[2] || m[3]) } : { path, line: 0 };
+  }
+  // 문서 속 링크의 #L58 은 경로 해석에서 떨어져 나가므로 ":58" 로 붙여 둔다
+  const withHashLine = (path, href) => {
+    const line = path && String(href).match(/#L(\d+)/)?.[1];
+    return line ? `${path}:${line}` : path;
+  };
   // 상대 경로(그림 · 링크) → md 파일 기준 절대 경로
   function resolveRelPath(base, href) {
     let clean;
@@ -1469,7 +1523,7 @@
       const href = a.getAttribute('href');
       if (href.startsWith('#')) { a.dataset.anchor = href.slice(1); a.removeAttribute('href'); return; }
       if (/^(https?:|mailto:|tel:)/i.test(href)) { a.target = '_blank'; a.rel = 'noopener noreferrer'; return; }
-      const path = htmlLocalPath(href, docPath);
+      const path = withHashLine(htmlLocalPath(href, docPath), href);
       a.removeAttribute('href');
       if (path) { a.dataset.exOpen = path; a.title = shortHome(path); a.setAttribute('role', 'link'); a.tabIndex = 0; }
     });
@@ -1595,7 +1649,7 @@
       if (options.pdf) { if (!/^(https?:|mailto:)/i.test(href)) a.removeAttribute('href'); return; }
       if (href.startsWith('#')) { a.dataset.anchor = href.slice(1); return; }
       if (/^(https?:|mailto:)/i.test(href)) { a.target = '_blank'; a.rel = 'noopener noreferrer'; return; }
-      const path = resolveRelPath(mdPath, href);
+      const path = withHashLine(resolveRelPath(mdPath, href), href);
       if (path) { a.dataset.exOpen = path; a.title = shortHome(path); }
       a.removeAttribute('href');
       a.setAttribute('role', 'link');
@@ -2961,13 +3015,24 @@
         }
         setEditButtons();
         restoreScroll(entry);
+        jumpPending(entry);
       } catch (error) {
         if (seq === renderSeq) bodyEl.innerHTML = `<div class="exv-empty"><i class="fas fa-triangle-exclamation text-2xl text-amber-400"></i><p>${escapeHtml(error.message)}</p></div>`;
       }
     }
 
     // 새 파일 열기: 이미 열린 탭이면 그 탭으로, 아니면 지금 탭 오른쪽에 새 탭
+    // entry.line (또는 경로 끝의 :58 · #L58) 이 있으면 그 줄로 이동해 잠깐 강조한다
+    let pendingLine = null;
     function open(entry) {
+      const ref = splitLineRef(entry.path);
+      if (ref.line) {
+        const name = basename(ref.path);
+        const dot = name.lastIndexOf('.');
+        entry = { ...entry, path: ref.path, name, ext: dot > 0 ? name.slice(dot + 1).toLowerCase() : '' };
+      }
+      const line = Number(entry.line) || ref.line;
+      pendingLine = line > 0 ? { path: entry.path, line } : null;
       const tab = { path: entry.path, name: entry.name || basename(entry.path), ext: entry.ext || '' };
       if (!tabState.tabs.some((t) => t.path === tab.path)) {
         const at = tabState.tabs.findIndex((t) => t.path === tabState.active);
@@ -2983,6 +3048,63 @@
       saveTabs();
       renderTabs();
       if (!same) show(tabState.tabs.find((t) => t.path === tab.path));
+      else jumpPending(tab);
+    }
+    function jumpPending(entry) {
+      if (!pendingLine || pendingLine.path !== entry.path) return false;
+      const { line } = pendingLine;
+      pendingLine = null;
+      requestAnimationFrame(() => gotoLine(line));
+      return true;
+    }
+    // 코드 보기 · 편집기에서 line 번째 줄을 화면 위쪽 1/3 에 오게 하고 잠깐 강조
+    function gotoLine(line) {
+      if (editorEl) {
+        const text = editorEl.value;
+        let start = 0;
+        for (let i = 1; i < line; i += 1) {
+          const next = text.indexOf('\n', start);
+          if (next < 0) { start = text.length; break; }
+          start = next + 1;
+        }
+        const end = text.indexOf('\n', start);
+        editorEl.setSelectionRange(start, end < 0 ? text.length : end);
+        const height = parseFloat(getComputedStyle(editorEl).lineHeight) || 18;
+        editorEl.scrollTop = Math.max(0, (line - 1) * height - editorEl.clientHeight / 3);
+        if (!coarse) editorEl.focus({ preventScroll: true });
+        return;
+      }
+      const code = bodyEl.querySelector('.exv-pre code');
+      if (!code) return;
+      // 줄 시작 글자의 위치 (줄바꿈 보기에서도 맞게 실제 글자 위치로 잰다)
+      const walker = document.createTreeWalker(code, NodeFilter.SHOW_TEXT);
+      let remaining = line - 1;
+      let node = null;
+      let offset = 0;
+      while (remaining > 0 && (node = walker.nextNode())) {
+        let at = -1;
+        while (remaining > 0 && (at = node.data.indexOf('\n', at + 1)) >= 0) remaining -= 1;
+        if (!remaining) offset = at + 1;
+      }
+      if (remaining > 0) return;   // 파일보다 큰 줄 번호
+      if (!node || offset >= node.length) { node = walker.nextNode() || node || code; offset = 0; }
+      const range = document.createRange();
+      try { range.setStart(node, Math.min(offset, node.length ?? 0)); range.collapse(true); } catch (e) { return; }
+      const rect = range.getClientRects()[0] || range.getBoundingClientRect();
+      const box = bodyEl.getBoundingClientRect();
+      const height = parseFloat(getComputedStyle(code).lineHeight) || 18;
+      const top = rect.top - box.top + bodyEl.scrollTop;
+      const holder = code.closest('.exv-code');
+      const inHolder = holder ? rect.top - holder.getBoundingClientRect().top : 0;   // 스크롤하기 전에 잰다
+      bodyEl.scrollTop = Math.max(0, top - bodyEl.clientHeight / 3);
+      if (!holder) return;
+      holder.querySelector('.exv-line-flash')?.remove();
+      const flash = document.createElement('div');
+      flash.className = 'exv-line-flash';
+      flash.style.top = `${inHolder}px`;
+      flash.style.height = `${height}px`;
+      holder.appendChild(flash);
+      setTimeout(() => flash.remove(), 2600);
     }
     // 저장된 탭 복원 (열린 탭이 있으면 true)
     function restore() {
@@ -3307,7 +3429,7 @@
   }
   const viewer = mountViewer(viewerMount, {
     onClose: () => closePanel(),
-    onTabsChange: () => { if (!viewer?.count) showViewerArea(false); syncChip(); },
+    onTabsChange: () => { if (!viewer?.count) showViewerArea(false); syncChip(); tree?.follow(viewer?.activePath || null); },
   });
   const explorerTreePane = document.getElementById('explorerTreePane');
   const explorerResize = document.querySelector('[data-explorer-resize]');
@@ -3358,7 +3480,9 @@
     event.preventDefault();
     applyExplorerWidth(explorerTreePane.getBoundingClientRect().width + (event.key === 'ArrowRight' ? 16 : -16), true);
   });
-  mountTree(document.getElementById('explorerTree'), {
+  // 폴더 트리 선택은 지금 보고 있는 파일 탭을 따라간다
+  const tree = mountTree(document.getElementById('explorerTree'), {
+    onReady: () => { if (viewer.activePath) tree?.follow(viewer.activePath); },
     initialReveal: new URLSearchParams(location.search).get('path'),
     showWidthReset: true,
     onWidthReset() { applyExplorerWidth(explorerDefaultWidth(), true); },
