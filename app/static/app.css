@@ -449,6 +449,13 @@ html[data-ui-theme-mode="light"] .mode-switch button.on { background: rgba(59,13
 .log-older button { font-weight: 700; color: #93c5fd; }
 .log-empty { padding: 40px 16px; text-align: center; color: #64748b; font-size: 13px; line-height: 1.6; }
 .msg { max-width: 100%; min-width: 0; }
+/* 채팅 목록은 가로로 밀리지 않는다 (iOS Safari 에서 넓은 요소 하나 때문에 대화 전체가 옆으로 밀려 나가던 문제).
+   긴 코드 블록 · 표는 그 상자 안에서만 가로로 스크롤된다. :where 는 .msg-user 의 88% 폭을 덮어쓰지 않게 */
+#logScroll, .tp-log { overflow-x: hidden; }
+.chat-list { overflow-x: clip; }   /* 넘치는 요소가 있어도 스크롤 폭이 화면을 넘지 않게 (hidden 은 프로그램 스크롤까지 막지 못함) */
+:where(.chat-list > *), .msg-body, .msg-tool { min-width: 0; max-width: 100%; }
+.msg-tool { overflow: hidden; }
+.msg-body code { overflow-wrap: anywhere; }
 .msg-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 10.5px; font-weight: 700; color: #64748b; }
 .msg-body { font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 .msg-user { align-self: flex-end; max-width: 88%; }
