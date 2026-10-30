@@ -141,7 +141,32 @@ class Window:
         return asdict(self)
 
 
+# 새 세션(tmux 서버가 없으면 서버까지)을 만들 때 넘길 환경 변수. tmux 서버와 그 안의 모든 셸은
+# 서버를 띄운 프로세스의 환경을 물려받는다. 대시보드 환경을 그대로 넘기면 .env 의 ADMIN_PASS ·
+# SECRET_KEY 등이 모든 세션에 들어가므로 이 목록만 넘긴다 (PATH 등은 로그인 셸이 다시 설정한다).
+_SESSION_ENV = {
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "PATH",
+    "LANG",
+    "LANGUAGE",
+    "TZ",
+    "TMUX_TMPDIR",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+}
+
+
+def session_env() -> dict[str, str]:
+    return {
+        k: v for k, v in os.environ.items() if k in _SESSION_ENV or k.startswith("LC_")
+    }
+
+
 def _run(args: list[str], *, input_text: str | None = None, timeout: float = 5) -> str:
+    base = session_env() if args[:1] == ["new-session"] else os.environ
     try:
         result = subprocess.run(
             [TMUX, *args],
@@ -150,7 +175,7 @@ def _run(args: list[str], *, input_text: str | None = None, timeout: float = 5) 
             text=True,
             timeout=timeout,
             check=False,
-            env={**os.environ, "LC_ALL": os.environ.get("LC_ALL") or "C.UTF-8"},
+            env={**base, "LC_ALL": os.environ.get("LC_ALL") or "C.UTF-8"},
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         raise TmuxError("tmux 를 실행하지 못했습니다.") from error

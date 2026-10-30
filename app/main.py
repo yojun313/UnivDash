@@ -25,11 +25,13 @@ from app.routes import (
 )
 from app.security import SecurityMiddleware, env_flag, resolve_secret_key
 from app.services.auth_service import SESSION_MAX_AGE
-from app.services import push_service, upload_service
+from app.services import push_service, session_restore, upload_service
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 재부팅 뒤 tmux 세션 복원 + 세션 구성 스냅숏 (백그라운드 스레드)
+    session_restore.start()
     tasks = [
         asyncio.create_task(upload_service.cleanup_loop()),
         asyncio.create_task(push_service.watch_loop()),
