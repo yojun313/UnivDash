@@ -18,16 +18,15 @@ from urllib.parse import quote
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.auth_service import (
-    MIN_PASSWORD_LENGTH,
     hash_password,
     totp_code,
 )
 
 
 def cmd_hash_password() -> None:
-    password = getpass.getpass(f"새 비밀번호 ({MIN_PASSWORD_LENGTH}자 이상): ")
-    if len(password) < MIN_PASSWORD_LENGTH:
-        sys.exit(f"비밀번호는 {MIN_PASSWORD_LENGTH}자 이상이어야 합니다.")
+    password = getpass.getpass("새 비밀번호: ")
+    if not password:
+        sys.exit("비밀번호가 비어 있습니다.")
     if getpass.getpass("한 번 더: ") != password:
         sys.exit("두 비밀번호가 다릅니다.")
     print("\n.env 에 아래 줄을 넣고, ADMIN_PASS 줄은 지우세요:\n")

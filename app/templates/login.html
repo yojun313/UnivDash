@@ -51,13 +51,13 @@
             </div>
             <div>
                 <label for="password" class="block text-xs font-medium mb-1.5 text-white/60">Password</label>
-                <input id="password" type="password" name="password" required maxlength="256" autocomplete="current-password"
+                <input id="password" type="password" name="password" required maxlength="256" autocomplete="current-password" enterkeyhint="go"
                     class="w-full px-4 py-2.5 rounded-xl glass-input text-white text-base sm:text-sm placeholder-white/30" placeholder="••••••••">
             </div>
             {% if totp %}
             <div>
                 <label for="otp" class="block text-xs font-medium mb-1.5 text-white/60">인증 코드 (2단계)</label>
-                <input id="otp" type="text" name="otp" required inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code"
+                <input id="otp" type="text" name="otp" required inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" enterkeyhint="go"
                     class="w-full px-4 py-2.5 rounded-xl glass-input text-white text-base sm:text-sm tracking-[0.4em] font-mono placeholder-white/30" placeholder="000000">
             </div>
             {% endif %}

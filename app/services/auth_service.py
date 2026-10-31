@@ -1,6 +1,6 @@
 """로그인 · 세션.
 
-- 비밀번호: ADMIN_PASS(평문, 12자 이상) 또는 ADMIN_PASS_HASH(PBKDF2, tools/security.py hash-password)
+- 비밀번호: ADMIN_PASS(평문) 또는 ADMIN_PASS_HASH(PBKDF2, tools/security.py hash-password)
 - 2단계 인증: ADMIN_TOTP_SECRET 이 있으면 인증 앱의 6자리 코드도 요구한다 (RFC 6238, 같은 코드 재사용 불가)
 - 세션: 쿠키에는 임의 세션 ID 만 있고, 서버의 세션 목록(data/sessions.json)에 있어야 유효하다.
   → 로그아웃 · 전체 로그아웃이 서버 재시작 후에도 유지되고, 유휴/최대 시간이 지나거나
@@ -27,7 +27,6 @@ from app.paths import data_dir
 
 logger = logging.getLogger(__name__)
 
-MIN_PASSWORD_LENGTH = 12
 WEAK_PASSWORDS = {
     "changeme",
     "admin",
@@ -103,8 +102,8 @@ def config_problem() -> str | None:
         password = _plain_password()
         if not password:
             return "서버 .env 에 ADMIN_PASS(또는 ADMIN_PASS_HASH)를 설정하세요."
-        if len(password) < MIN_PASSWORD_LENGTH or password.lower() in WEAK_PASSWORDS:
-            return f"ADMIN_PASS 가 너무 약합니다. {MIN_PASSWORD_LENGTH}자 이상으로 바꾸세요."
+        if password.lower() in WEAK_PASSWORDS:
+            return "ADMIN_PASS 가 너무 흔한 비밀번호입니다. 다른 값으로 바꾸세요."
     secret = _totp_secret()
     if secret:
         try:
