@@ -247,7 +247,7 @@ class SessionRegistry:
             }
             self._save()
 
-    def validate(self, sid: str) -> dict | None:
+    def validate(self, sid: str, ip: str = "") -> dict | None:
         now = time.time()
         fingerprint = self.fingerprint()
         with self.lock:
@@ -268,6 +268,8 @@ class SessionRegistry:
                 logger.info("세션 만료 · %s", reason)
                 return None
             entry["seen"] = now
+            if ip and entry.get("last_ip", entry.get("ip")) != ip:
+                entry["last_ip"] = ip
             if not self.dirty_since:
                 self.dirty_since = now
             elif now - self.dirty_since > self.FLUSH_INTERVAL:
@@ -279,6 +281,57 @@ class SessionRegistry:
             self._load()
             if self.data["sessions"].pop(self._key(sid), None) is not None:
                 self._save()
+
+    def _public_id(self, key: str) -> str:
+        """화면에 보여 줄 세션 ID. 저장된 키(쿠키 세션 ID 의 해시)는 밖으로 내보내지 않는다."""
+        return hashlib.sha256((self.data["salt"] + "\0" + key).encode()).hexdigest()[
+            :20
+        ]
+
+    def active(self, current_sid: str = "") -> list[dict]:
+        """유효한 세션 목록 (최근 사용 순). 만료됐거나 계정 정보가 바뀐 세션은 뺀다."""
+        now = time.time()
+        fingerprint = self.fingerprint()
+        current = self._key(current_sid) if current_sid else ""
+        with self.lock:
+            self._load()
+            rows = [
+                {
+                    "id": self._public_id(key),
+                    "created": entry.get("created", 0),
+                    "seen": entry.get("seen", 0),
+                    "ip": entry.get("ip", ""),
+                    "last_ip": entry.get("last_ip", entry.get("ip", "")),
+                    "ua": entry.get("ua", ""),
+                    "current": key == current,
+                }
+                for key, entry in self.data["sessions"].items()
+                if entry.get("fp") == fingerprint
+                and now - entry.get("created", 0) <= SESSION_MAX_AGE
+                and now - entry.get("seen", 0) <= SESSION_IDLE
+            ]
+        return sorted(rows, key=lambda row: (not row["current"], -row["seen"]))
+
+    def revoke_id(self, public_id: str) -> bool:
+        with self.lock:
+            self._load()
+            for key in list(self.data["sessions"]):
+                if hmac.compare_digest(self._public_id(key), public_id):
+                    self.data["sessions"].pop(key)
+                    self._save()
+                    return True
+        return False
+
+    def revoke_others(self, current_sid: str) -> int:
+        current = self._key(current_sid)
+        with self.lock:
+            self._load()
+            others = [key for key in self.data["sessions"] if key != current]
+            for key in others:
+                self.data["sessions"].pop(key)
+            if others:
+                self._save()
+            return len(others)
 
     def revoke_all(self) -> int:
         with self.lock:
@@ -356,7 +409,8 @@ class AuthService:
             return None
         if not hmac.compare_digest(user.encode(), _username().encode()):
             return None
-        if sessions.validate(sid) is None:
+        ip = conn.client.host if conn.client else ""
+        if sessions.validate(sid, ip) is None:
             return None
         return user
 

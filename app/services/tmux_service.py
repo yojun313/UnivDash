@@ -578,6 +578,10 @@ def rename_session(session_id: str, name: str) -> tuple[str, str]:
     return old, name
 
 
+def window_session(window_id: str) -> str:
+    return _run(["display-message", "-p", "-t", window_id, "#{session_name}"]).strip()
+
+
 def kill_window(window_id: str) -> None:
     _run(["kill-window", "-t", window_id])
     invalidate_cache()

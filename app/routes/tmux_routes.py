@@ -19,6 +19,7 @@ from app.routes.pages import render_page
 from app.services import (
     push_service,
     seen_service,
+    session_restore,
     tmux_service,
     transcript_service,
     upload_service,
@@ -323,6 +324,7 @@ async def api_rename_session(body: RenameSessionRequest):
             PreferencesStore.save, rename_session_keys(prefs, old, new)
         )
         seen_service.rename_session(old, new)
+        await asyncio.to_thread(session_restore.note_closed, old)
         logger.info("세션 이름 변경 · %s → %s", old, new)
     return {"old": old, "name": new, "preferences": prefs.model_dump()}
 
@@ -335,11 +337,46 @@ class WindowRequest(BaseModel):
 async def api_kill_window(body: WindowRequest):
     try:
         window = await asyncio.to_thread(tmux_service.require_window, body.window)
+        session = await asyncio.to_thread(tmux_service.window_session, window)
         await asyncio.to_thread(tmux_service.kill_window, window)
     except (TmuxError, KeyError) as error:
         _raise_for(error)
+    # 마지막 창이라 세션까지 닫혔으면 '일부러 닫음'으로 적어 둔다 (복구 알림에서 뺌)
+    if session and session not in await asyncio.to_thread(
+        session_restore._current_names
+    ):
+        await asyncio.to_thread(session_restore.note_closed, session)
     logger.info("창 종료 · %s", body.window)
     return {"ok": True}
+
+
+# ── 세션 복구 (tmux 가 통째로 죽었을 때 등) ─────────────────────────────────
+
+
+@router.get("/api/tmux/snapshots", dependencies=api_auth)
+async def api_tmux_snapshots():
+    return await asyncio.to_thread(session_restore.history)
+
+
+class RestoreRequest(BaseModel):
+    id: str = Field(pattern=r"^[0-9]{1,16}$")
+    sessions: list[str] | None = Field(default=None, max_length=200)
+
+
+@router.post("/api/tmux/snapshots/restore", dependencies=api_auth)
+async def api_tmux_restore(body: RestoreRequest):
+    try:
+        names = await asyncio.to_thread(
+            session_restore.restore_from_history, body.id, body.sessions
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error.args[0])) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    logger.warning("세션 복구 시작 · %d개 · %s", len(names), ", ".join(names)[:300])
+    return {"started": names}
 
 
 # ── 실시간 채널 ───────────────────────────────────────────────────────────────
@@ -418,6 +455,9 @@ class _Channel:
 
 
 LOG_RESOLVE_INTERVAL = 5  # /clear 등으로 세션 로그 파일이 바뀌는 것을 따라가는 주기(초)
+LOG_SEARCH_INTERVAL = (
+    1  # 로그를 아직 못 찾았을 때(새 세션 · 첫 프롬프트 전) 다시 찾는 주기(초)
+)
 
 
 async def push_log(channel: _Channel, loop) -> None:
@@ -426,7 +466,8 @@ async def push_log(channel: _Channel, loop) -> None:
     if not pane:
         return
     now = loop.time()
-    if channel.log_path is None or now - channel.log_resolved_at > LOG_RESOLVE_INTERVAL:
+    every = LOG_SEARCH_INTERVAL if channel.log_path is None else LOG_RESOLVE_INTERVAL
+    if now - channel.log_resolved_at > every:
         try:
             path, agent = await _resolve_log(pane)
         except (TmuxError, KeyError):
@@ -546,6 +587,7 @@ async def _handle(channel: _Channel, message: dict) -> None:
         since = message.get("since", 0)
         channel.log_pane = pane
         channel.log_path = None
+        channel.log_resolved_at = 0.0
         channel.log_since = since if isinstance(since, int) and since >= 0 else 0
         channel.log_size = -1
         channel.wake.set()

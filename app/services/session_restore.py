@@ -7,6 +7,10 @@
   (claude --resume <ID> · codex resume <ID>). 세션 이름이 같아서 폴더 · 순서 · 별칭 설정도 그대로 맞는다.
 - 에이전트가 아닌 pane 은 그 폴더의 셸만 연다 (예전에 돌던 임의 명령은 다시 실행하지 않는다).
 - 부팅 구분은 /proc/sys/kernel/random/boot_id 로 한다. 대시보드만 재시작했을 때는 복원하지 않는다.
+- 기록: 세션 목록(이름)이 바뀔 때마다 data/tmux-history.json 에 최근 HISTORY_LIMIT 개를 남긴다.
+  tmux 서버가 통째로 죽어 세션이 하나도 없을 때는 기록하지 않으므로 죽기 직전 구성이 남는다.
+  화면의 '세션 복구'에서 기록 하나를 골라 지금 없는 세션만 다시 만든다 (restore_from_history).
+- 대시보드에서 직접 닫은 세션은 '닫힘'으로 적어 두고 복구 알림에서 뺀다.
 """
 
 import json
@@ -27,6 +31,8 @@ logger = logging.getLogger(__name__)
 
 SNAPSHOT_INTERVAL = 20.0
 VERSION = 1
+HISTORY_LIMIT = 40
+ALERT_WINDOW = 12 * 3600  # 이보다 오래된 기록은 '세션이 사라졌어요' 알림에 쓰지 않는다
 _FIELDS = [
     "#{session_name}",
     "#{session_active}",
@@ -43,6 +49,9 @@ _FIELDS = [
 ]
 _started = False
 _start_lock = threading.Lock()
+_history_lock = threading.Lock()
+_job_lock = threading.Lock()
+_job: dict = {"running": False, "result": None, "at": 0.0}
 
 
 def _snapshot_file() -> Path:
@@ -51,6 +60,10 @@ def _snapshot_file() -> Path:
 
 def _marker_file() -> Path:
     return data_dir() / "tmux-restored.json"
+
+
+def _history_file() -> Path:
+    return data_dir() / "tmux-history.json"
 
 
 def boot_id() -> str:
@@ -169,12 +182,58 @@ def _pending_restore(current: str) -> bool:
     )
 
 
+def _names(sessions: list) -> list[str]:
+    return [s.get("name") for s in sessions if isinstance(s, dict) and s.get("name")]
+
+
+def _record_history(sessions: list[dict], current_boot: str) -> None:
+    """세션 이름 목록이 바뀌면 새 기록을 더하고, 같으면 가장 최근 기록을 지금 구성으로 갱신한다."""
+    now = time.time()
+    with _history_lock:
+        data = _read(_history_file())
+        history = [h for h in data.get("snapshots") or [] if isinstance(h, dict)]
+        entry = {"at": now, "boot": current_boot, "sessions": sessions}
+        if history and sorted(_names(history[-1].get("sessions") or [])) == sorted(
+            _names(sessions)
+        ):
+            if history[-1].get("sessions") == sessions:
+                return
+            entry["since"] = history[-1].get("since", history[-1].get("at", now))
+            history[-1] = entry
+        else:
+            entry["since"] = now
+            history.append(entry)
+        data["snapshots"] = history[-HISTORY_LIMIT:]
+        _write(_history_file(), data)
+
+
+def note_closed(name: str) -> None:
+    """대시보드에서 일부러 닫은(또는 이름을 바꾼) 세션: 복구 알림에서 뺀다."""
+    if not name:
+        return
+    with _history_lock:
+        data = _read(_history_file())
+        closed = data.get("closed") if isinstance(data.get("closed"), dict) else {}
+        closed[name] = time.time()
+        # 오래된 표시는 정리 (알림 대상 기간보다 넉넉히)
+        data["closed"] = {
+            k: v
+            for k, v in closed.items()
+            if isinstance(v, (int, float)) and time.time() - v < 7 * 86400
+        }
+        _write(_history_file(), data)
+
+
 def save_snapshot() -> bool:
     """구성이 바뀌었으면 저장한다. 저장했으면 True."""
     current = boot_id()
     if _pending_restore(current):
         return False
     sessions = capture()
+    # tmux 서버가 없거나(통째로 죽음) 세션이 하나도 없으면 직전 구성을 덮어쓰지 않는다
+    if not sessions:
+        return False
+    _record_history(sessions, current)
     previous = _read(_snapshot_file())
     if previous.get("boot") == current and previous.get("sessions") == sessions:
         return False
@@ -319,9 +378,7 @@ def _restore_session(session: dict, launches: list) -> None:
 
 def restore(snapshot: dict) -> dict:
     """스냅숏에서 지금 없는 세션만 다시 만든다."""
-    existing = set(
-        tmux_service._run(["list-sessions", "-F", "#{session_name}"]).split("\n")
-    )
+    existing = _current_names()
     restored, skipped, failed = [], [], []
     launches: list[tuple[str, str, str]] = []
     for session in snapshot.get("sessions") or []:
@@ -353,6 +410,124 @@ def restore(snapshot: dict) -> dict:
         "failed": failed,
         "agents": len(launches),
     }
+
+
+# ── 화면에서 고르는 복구 ─────────────────────────────────────────────────────
+
+
+def _snapshot_id(entry: dict) -> str:
+    return str(int(float(entry.get("at", 0)) * 1000))
+
+
+def _current_names() -> set[str]:
+    try:
+        out = tmux_service._run(["list-sessions", "-F", "#{session_name}"])
+    except tmux_service.TmuxError:
+        return set()  # tmux 서버가 없음 = 세션 없음
+    return {line for line in out.split("\n") if line}
+
+
+def _missing(entry: dict, current: set[str], closed: dict) -> list[dict]:
+    at = float(entry.get("at", 0))
+    return [
+        s
+        for s in entry.get("sessions") or []
+        if isinstance(s, dict)
+        and s.get("name")
+        and s["name"] not in current
+        and not (float(closed.get(s["name"], 0) or 0) > at)
+    ]
+
+
+def _agents(sessions: list[dict]) -> int:
+    return sum(
+        1
+        for s in sessions
+        for w in s.get("windows") or []
+        for p in w.get("panes") or []
+        if p.get("agent") in tmux_service.AGENTS
+    )
+
+
+def history() -> dict:
+    """복구 화면용: 기록 목록(최근 순) · 지금 없는 세션 · 알림을 띄울 기록 · 진행 중인 복구."""
+    data = _read(_history_file())
+    closed = data.get("closed") if isinstance(data.get("closed"), dict) else {}
+    current = _current_names()
+    now = time.time()
+    rows, alert = [], None
+    for entry in reversed(
+        [h for h in data.get("snapshots") or [] if isinstance(h, dict)]
+    ):
+        sessions = [s for s in entry.get("sessions") or [] if isinstance(s, dict)]
+        missing = _missing(entry, current, closed)
+        row = {
+            "id": _snapshot_id(entry),
+            "at": entry.get("at"),
+            "since": entry.get("since", entry.get("at")),
+            "count": len(sessions),
+            "names": _names(sessions),
+            "agents": _agents(sessions),
+            "missing": _names(missing),
+            "missing_agents": _agents(missing),
+        }
+        rows.append(row)
+        # 세션이 전부 사라졌거나, 한꺼번에 두 개 이상 사라졌을 때만 알린다 (하나씩 닫는 건 보통 일부러)
+        if (
+            alert is None
+            and now - float(entry.get("at", 0)) < ALERT_WINDOW
+            and missing
+            and (not current or len(missing) >= 2)
+        ):
+            alert = row["id"]
+    with _job_lock:
+        job = dict(_job)
+    return {"current": sorted(current), "snapshots": rows, "alert": alert, "job": job}
+
+
+def restore_from_history(snapshot_id: str, names: list[str] | None = None) -> list[str]:
+    """기록 하나에서 지금 없는 세션(names 가 있으면 그중 고른 것만)을 백그라운드로 다시 만든다."""
+    data = _read(_history_file())
+    entry = next(
+        (
+            h
+            for h in data.get("snapshots") or []
+            if isinstance(h, dict) and _snapshot_id(h) == snapshot_id
+        ),
+        None,
+    )
+    if entry is None:
+        raise KeyError("그 기록을 찾지 못했습니다.")
+    closed = data.get("closed") if isinstance(data.get("closed"), dict) else {}
+    # 일부러 닫은 세션도 직접 고르면 복구한다
+    missing = _missing(entry, _current_names(), {} if names else closed)
+    if names is not None:
+        wanted = set(names)
+        missing = [s for s in missing if s["name"] in wanted]
+    if not missing:
+        raise ValueError("다시 만들 세션이 없습니다. 모두 열려 있어요.")
+    with _job_lock:
+        if _job["running"]:
+            raise RuntimeError("이미 복구하는 중입니다. 잠시 뒤 다시 시도하세요.")
+        _job.update(running=True, result=None, at=time.time())
+
+    def run() -> None:
+        try:
+            result = restore({"sessions": missing})
+        except Exception:
+            logger.exception("세션 복구 중 오류")
+            result = {"error": True}
+        with _job_lock:
+            _job.update(running=False, result=result, at=time.time())
+        logger.info(
+            "세션 복구 · 복원 %s · 이미 있음 %s · 실패 %s",
+            len(result.get("restored", [])),
+            len(result.get("skipped", [])),
+            result.get("failed") or "-",
+        )
+
+    threading.Thread(target=run, daemon=True, name="tmux-restore").start()
+    return _names(missing)
 
 
 def restore_if_rebooted() -> dict | None:

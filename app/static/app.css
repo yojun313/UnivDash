@@ -263,6 +263,7 @@ html[data-ui-theme-mode="light"] .direct-banner { color: #b45309; }
     display: flex; align-items: flex-end; justify-content: center;
 }
 .sheet-overlay[hidden] { display: none; }
+body.ud-settings-open .sheet-overlay { z-index: 490; }   /* 설정 창에서 띄운 확인 창은 설정 창 위에 */
 /* 키보드 대응: 화면을 덮는 시트 · 모달은 레이아웃 전체(inset 0)가 아니라 실제로 보이는 영역(키보드 위)에 맞춘다.
    iOS 는 키보드가 떠도 레이아웃 높이를 줄이지 않아서, inset 0 이면 아래쪽 시트가 키보드 뒤에 숨는다.
    --vv-top · --app-h 는 app.js syncViewport 가 visualViewport 로 계속 맞춘다 (평소에는 0 · 100%). */
@@ -1516,6 +1517,17 @@ html[data-ui-theme-mode="light"] .mdpdf-pages { background: #e2e8f0; }
 .ud-set-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 4px 22px 22px; }
 .ud-set-badge { margin-left: 4px; padding: 2px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 700; color: #fcd34d; background: rgba(245,158,11,.12); border: 1px solid rgba(245,158,11,.25); }
 .ud-set-badge.local { color: #93c5fd; background: rgba(59,130,246,.12); border-color: rgba(59,130,246,.25); }
+.ud-set-text .ud-set-badge.local { vertical-align: 1px; white-space: nowrap; display: inline-block; }
+/* 로그인 기기 */
+.ud-dev-row { justify-content: flex-start; gap: 12px; }
+.ud-dev-row .ud-set-text { flex: 1; min-width: 0; }
+.ud-dev-icon { flex-shrink: 0; width: 22px; text-align: center; font-size: 18px; opacity: .55; }
+.ud-dev-ua { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: .5; }
+.ud-dev-out { color: #fca5a5; }
+.ud-dev-out:disabled { opacity: .4; cursor: default; }
+.ud-dev-tools { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; padding-top: 14px; border-top: 1px dashed rgba(255,255,255,.07); }
+@media (max-width: 600px) { .ud-dev-row { flex-wrap: wrap; } .ud-dev-row .ud-dev-out { margin-left: 34px; } }
+html[data-ui-theme-mode="light"] .ud-dev-out { color: #dc2626; }
 .ud-set-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; }
 .ud-set-row + .ud-set-row { border-top: 1px dashed rgba(255,255,255,.07); }
 .ud-set-col { flex-direction: column; align-items: stretch; gap: 12px; }
@@ -1723,3 +1735,17 @@ html[data-ui-theme-mode="light"] .wt-solo-return:hover { background: rgba(37,99,
 body.xtab-over #wsTabs { box-shadow: inset 0 -2px 0 #60a5fa; background-color: rgba(96,165,250,.08); }
 #wsTabs .wt.xdrop-before { box-shadow: inset 3px 0 0 #60a5fa; }
 #wsTabs .wt.xdrop-after { box-shadow: inset -3px 0 0 #60a5fa; }
+
+/* 이전 세션 복구 안내 (세션 목록 위) */
+.restore-banner { display: flex; align-items: center; gap: 10px; margin: 4px 4px 10px; padding: 10px 10px 10px 12px; border-radius: 14px; font-size: 12px; color: #fde68a; background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.3); }
+.restore-banner > i { flex-shrink: 0; font-size: 15px; }
+.restore-banner > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.restore-banner b { font-weight: 700; }
+.restore-banner span { opacity: .75; overflow-wrap: anywhere; }
+.restore-banner button { flex-shrink: 0; height: 30px; padding: 0 12px; border-radius: 9px; font: inherit; font-weight: 700; color: #1f1300; background: #fbbf24; border: 0; cursor: pointer; }
+.restore-banner .restore-x { width: 30px; padding: 0; color: inherit; background: transparent; opacity: .7; }
+.restore-banner.busy { color: #bfdbfe; background: rgba(59,130,246,.1); border-color: rgba(59,130,246,.3); }
+.restore-empty-btn { margin-top: 16px; display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 14px; border-radius: 10px; font-size: 12px; font-weight: 700; color: inherit; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); cursor: pointer; }
+html[data-ui-theme-mode="light"] .restore-banner { color: #92400e; background: rgba(245,158,11,.1); }
+html[data-ui-theme-mode="light"] .restore-banner.busy { color: #1d4ed8; }
+html[data-ui-theme-mode="light"] .restore-empty-btn { background: rgba(15,23,42,.04); border-color: rgba(15,23,42,.14); }

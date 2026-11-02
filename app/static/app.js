@@ -897,9 +897,54 @@
       actions: [
         { icon: 'fa-layer-group', label: 'tmux 세션', desc: 'Claude Code · Codex 등을 띄워 두고 휴대폰에서도 이어서 쓰기', onClick: () => newSessionForm() },
         { icon: 'fa-terminal', label: 'Terminal', desc: '셸 하나를 탭으로 바로 열기 (탭을 닫으면 끝남)', onClick: () => { if (window.UnivDashWs?.newTerminal) window.UnivDashWs.newTerminal(); else location.href = '/?newterm=1'; } },
+        'sep',
+        { icon: 'fa-clock-rotate-left', label: '이전 세션 복구', desc: '저장된 시점을 골라 지금 없는 세션을 다시 열기 (에이전트는 이전 대화로)', onClick: () => openRestore() },
       ],
     });
   }
+
+  // ── 이전 세션 복구: 서버가 세션 목록이 바뀔 때마다 남긴 기록에서 지금 없는 세션만 다시 만든다 ──
+  const restoreTime = (t) => new Date(t * 1000).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const nameList = (names, max = 6) => names.slice(0, max).join(', ') + (names.length > max ? ` 외 ${names.length - max}개` : '');
+  async function openRestore() {
+    let data;
+    try { data = await api('GET', '/api/tmux/snapshots'); } catch (error) { toast(error.message, 'error'); return; }
+    if (data.job?.running) { toast('지금 세션을 복구하는 중이에요. 잠시만 기다려 주세요.', 'info'); return; }
+    if (!data.snapshots.length) { toast('아직 저장된 세션 기록이 없어요.', 'info'); return; }
+    actionSheet({
+      title: '이전 세션 복구',
+      subtitle: '시점을 고르면 그때 있었고 지금은 없는 세션만 다시 만들어요. 에이전트는 이전 대화로 이어서 켜져요.',
+      actions: data.snapshots.slice(0, 20).map((row) => ({
+        icon: row.missing.length ? 'fa-clock-rotate-left' : 'fa-circle-check',
+        label: `${restoreTime(row.at)} · 세션 ${row.count}개`,
+        desc: row.missing.length ? `없는 세션 ${row.missing.length}개: ${nameList(row.missing)}` : '이 시점의 세션은 모두 열려 있어요',
+        onClick: () => confirmRestore(row),
+      })),
+    });
+  }
+  async function confirmRestore(row) {
+    if (!row.missing.length) { toast('이 시점의 세션은 모두 열려 있어요.', 'info'); return; }
+    const ok = await confirmSheet({
+      title: `세션 ${row.missing.length}개 복구`,
+      message: `${restoreTime(row.at)} 기록에서 ${nameList(row.missing, 12)}을(를) 다시 만들어요.${row.missing_agents ? ` 에이전트 ${row.missing_agents}개는 이전 대화로 이어서 켜져요.` : ''} 지금 열려 있는 세션은 건드리지 않아요.`,
+      confirmLabel: '복구',
+    });
+    if (!ok) return;
+    try {
+      const result = await api('POST', '/api/tmux/snapshots/restore', { id: row.id, sessions: row.missing });
+      toast(`세션 ${result.started.length}개를 복구하고 있어요. 에이전트는 차례로 켜져요.`, 'ok', null, 6000);
+      store.set('restore-dismissed', row.id);
+      window.dispatchEvent(new CustomEvent('univdash:restore'));
+    } catch (error) {
+      toast(error.message, 'error');
+    }
+  }
+  document.addEventListener('click', (event) => {
+    if (event.target.closest('[data-restore-open]')) { event.preventDefault(); openRestore(); return; }
+    const dismiss = event.target.closest('[data-restore-dismiss]');
+    if (dismiss) { store.set('restore-dismissed', dismiss.dataset.restoreDismiss); window.dispatchEvent(new CustomEvent('univdash:restore')); }
+  });
+  window.UnivDashUI.openRestore = openRestore;
   $$('[data-new-session]').forEach((button) => button.addEventListener('click', () => { if (!mdQuery.matches) setSidebarOpen(false); newChooser(); }));
 
   // 단축키 (keys.js · 기본: t 새 Terminal · t t 새 tmux 세션)
@@ -1466,11 +1511,14 @@
       $('#toggleHiddenBtn').setAttribute('aria-pressed', String(state.showHidden));
       $('#sortLabel').textContent = SORTS[sortMode()].label;
 
+      if (state.windows.length !== restoreCheck.count) { restoreCheck.count = state.windows.length; checkRestore(); }
+      const banner = restoreBannerHtml();
       if (!state.windows.length) {
-        list.innerHTML = `<div class="px-4 py-12 text-center">
+        list.innerHTML = `${banner}<div class="px-4 py-12 text-center">
             <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl glass-strong text-lg text-blue-400"><i class="fas fa-terminal"></i></div>
             <p class="mt-4 text-sm font-bold text-white/70">실행 중인 tmux 세션이 없습니다.</p>
-            <p class="mt-1 text-xs text-white/40">오른쪽 위 + 버튼으로 새 세션을 만들 수 있습니다.</p></div>`;
+            <p class="mt-1 text-xs text-white/40">오른쪽 위 + 버튼으로 새 세션을 만들 수 있습니다.</p>
+            <button type="button" class="restore-empty-btn" data-restore-open><i class="fas fa-clock-rotate-left"></i> 이전 세션 복구</button></div>`;
         return;
       }
 
@@ -1497,8 +1545,36 @@
               <div class="${hasFolders ? 'mt-1 ' : ''}space-y-1">${group.windows.map(itemHtml).join('')}</div></section>`;
         }
       });
-      list.innerHTML = html || `<div class="px-4 py-12 text-center text-xs text-white/40">조건에 맞는 창이 없습니다.</div>`;
+      list.innerHTML = banner + (html || `<div class="px-4 py-12 text-center text-xs text-white/40">조건에 맞는 창이 없습니다.</div>`);
     }
+    // 세션이 한꺼번에 사라졌으면(tmux 서버가 죽음 등) 목록 위에 복구 안내를 띄운다
+    const restoreCheck = { count: -1, timer: null, alert: null };
+    function checkRestore() {
+      clearTimeout(restoreCheck.timer);
+      restoreCheck.timer = setTimeout(async () => {
+        try {
+          const data = await api('GET', '/api/tmux/snapshots');
+          const row = data.job?.running ? null : data.snapshots.find((r) => r.id === data.alert);
+          const before = restoreCheck.alert?.id;
+          restoreCheck.alert = row ? { ...row, restoring: false } : (data.job?.running ? { restoring: true } : null);
+          if (before !== restoreCheck.alert?.id || data.job?.running) renderList();
+          if (data.job?.running) checkRestoreLater();
+        } catch (error) { /* 다음에 다시 */ }
+      }, 1200);
+    }
+    function checkRestoreLater() { setTimeout(checkRestore, 4000); }
+    function restoreBannerHtml() {
+      const alert = restoreCheck.alert;
+      if (!alert) return '';
+      if (alert.restoring) return '<div class="restore-banner busy"><i class="fas fa-circle-notch fa-spin"></i><div><b>세션을 복구하는 중이에요</b><span>에이전트는 차례로 켜져요.</span></div></div>';
+      if (store.get('restore-dismissed', '') === alert.id) return '';
+      return `<div class="restore-banner"><i class="fas fa-triangle-exclamation"></i>
+          <div><b>세션 ${alert.missing.length}개가 사라졌어요</b><span>${escapeHtml(nameList(alert.missing, 4))} · ${escapeHtml(restoreTime(alert.at))} 기록으로 복구할 수 있어요.</span></div>
+          <button type="button" data-restore-open>복구</button>
+          <button type="button" class="restore-x" data-restore-dismiss="${escapeHtml(alert.id)}" aria-label="닫기"><i class="fas fa-xmark"></i></button></div>`;
+    }
+    window.addEventListener('univdash:restore', () => { renderList(); checkRestore(); });
+    setInterval(() => { if (document.visibilityState === 'visible') checkRestore(); }, 60000);
 
     list.addEventListener('click', (event) => {
       const folderButton = event.target.closest('[data-folder]');
@@ -2572,7 +2648,7 @@
         if (log.pane !== state.paneId) loadLatestLog();
         else { pollLog(); subscribeLog(); }
         // 실시간은 WebSocket 으로 밀려온다. 연결이 끊겼을 때를 위한 느린 확인만 남긴다.
-        log.timer = setInterval(() => { if (document.visibilityState === 'visible' && !socket.open) pollLog(); }, 6000);
+        log.timer = setInterval(() => { if (document.visibilityState === 'visible' && !socket.open) (log.available ? pollLog() : loadLatestLog()); }, 6000);
       } else {
         socket.send({ t: 'logunsub' });
         fitTmux(true);
@@ -2580,7 +2656,8 @@
     }
     // 서버가 세션 로그 파일이 바뀌는 즉시(0.4초 주기) 새 항목을 보내 준다
     function subscribeLog() {
-      if (state.paneId && log.pane === state.paneId && log.available) socket.send({ t: 'logsub', pane: state.paneId, since: log.total });
+      // 로그를 아직 못 찾은 에이전트 창(새 세션 · 첫 프롬프트 전)도 구독한다 → 로그가 생기면 서버가 바로 알려 준다
+      if (state.paneId && log.pane === state.paneId && (log.available || agentOf(currentWindow()))) socket.send({ t: 'logsub', pane: state.paneId, since: log.total });
     }
     function setMode(mode) {
       termMode = mode;
@@ -2886,7 +2963,10 @@
       log.agent = data.agent;
       logList.innerHTML = '';
       if (!data.available) {
-        logList.innerHTML = '<div class="log-empty">이 창의 채팅(에이전트 세션 로그)을 찾지 못했습니다.<br>Claude Code · Codex 가 실행 중인 창에서만 볼 수 있어요.</div>';
+        logList.innerHTML = data.agent
+          ? '<div class="log-empty">아직 대화가 없습니다.<br>첫 프롬프트를 보내면 여기에 바로 보여요.</div>'
+          : '<div class="log-empty">이 창의 채팅(에이전트 세션 로그)을 찾지 못했습니다.<br>Claude Code · Codex 가 실행 중인 창에서만 볼 수 있어요.</div>';
+        renderPending();
         return;
       }
       log.start = data.start;
@@ -2925,7 +3005,7 @@
           && JSON.stringify(cached.submitted || []) === JSON.stringify(data.submitted || [])
           && JSON.stringify(cached.items?.at(-1) ?? null) === JSON.stringify(data.items?.at(-1) ?? null);
         if (!same) showLatestLog(data);
-        if (data.available) subscribeLog();
+        subscribeLog();
       } catch (error) {
         if (!cached) logList.innerHTML = `<div class="log-empty">${escapeHtml(error.message)}</div>`;
       }
@@ -3185,6 +3265,7 @@
     }
     socket.on('log', (message) => {
       if (message.pane !== state.paneId || modeFor(currentWindow()) !== 'log') return;
+      if (!log.available) { loadLatestLog(); return; }   // 새 세션의 로그가 방금 생겼다
       applyLogData(message);
     });
     logScroll.addEventListener('scroll', () => {
@@ -4485,7 +4566,7 @@
       const send = (message) => { if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message)); };
       function connect() {
         ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
-        ws.onopen = () => { if (pane) { send({ t: 'sub', pane, history: 300 }); if (modeOf() === 'log' && chat.available) send({ t: 'logsub', pane, since: chat.total }); } };
+        ws.onopen = () => { if (pane) { send({ t: 'sub', pane, history: 300 }); if (modeOf() === 'log' && (chat.available || w?.agent)) send({ t: 'logsub', pane, since: chat.total }); } };
         ws.onmessage = (event) => {
           let message;
           try { message = JSON.parse(event.data); } catch (e) { return; }
@@ -4569,7 +4650,11 @@
           if (forPane !== pane) return;
           chat.available = data.available;
           chat.agent = data.agent;
-          if (!data.available) { listEl.innerHTML = '<div class="log-empty">이 창의 채팅(에이전트 세션 로그)을 찾지 못했습니다.</div>'; return; }
+          if (!data.available) {
+            listEl.innerHTML = data.agent ? '<div class="log-empty">아직 대화가 없습니다. 첫 프롬프트를 보내면 여기에 바로 보여요.</div>' : '<div class="log-empty">이 창의 채팅(에이전트 세션 로그)을 찾지 못했습니다.</div>';
+            if (data.agent) send({ t: 'logsub', pane, since: 0 });   // 로그가 생기면 서버가 알려 준다
+            return;
+          }
           data.items.forEach((item) => chat.items.set(item.id, item));
           chat.total = data.total;
           chat.submitted = data.submitted || [];
@@ -4580,7 +4665,7 @@
       }
       function applyLog(data) {
         if (modeOf() !== 'log') return;
-        if (data.total < chat.total) { loadChat(); return; }
+        if (!chat.available || data.total < chat.total) { loadChat(); return; }
         if (data.items.length && (data.items[0].id > chat.total || data.items.at(-1).id + 1 < data.total)) { loadChat(); return; }
         data.items.forEach((item) => chat.items.set(item.id, item));
         chat.submitted = data.submitted || [];

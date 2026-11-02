@@ -1,12 +1,12 @@
 import logging
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.assets import install as install_assets
 from app.security import LoginRateLimiter, client_key
-from app.services.auth_service import AuthService, config_problem
+from app.services.auth_service import AuthService, config_problem, sessions
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -91,3 +91,51 @@ async def logout_all(request: Request):
         "전체 기기 로그아웃 · %d개 세션 · client=%s", count, client_key(request)
     )
     return RedirectResponse(url="/login", status_code=303)
+
+
+# ── 로그인된 기기 (설정 → 로그인 기기) ──────────────────────────────────────
+
+
+def _current_sid(request: Request) -> str:
+    sid = request.session.get("sid")
+    return sid if isinstance(sid, str) else ""
+
+
+@router.get("/api/auth/sessions", dependencies=[Depends(AuthService.require_user)])
+async def session_list(request: Request):
+    return {"sessions": sessions.active(_current_sid(request))}
+
+
+@router.delete(
+    "/api/auth/sessions/{session_id}",
+    dependencies=[Depends(AuthService.require_user)],
+)
+async def session_revoke(
+    request: Request, session_id: str = Path(pattern=r"^[0-9a-f]{20}$")
+):
+    current = _current_sid(request)
+    mine = any(
+        row["current"] and row["id"] == session_id for row in sessions.active(current)
+    )
+    if not sessions.revoke_id(session_id):
+        raise HTTPException(status_code=404, detail="이미 로그아웃된 기기입니다.")
+    if mine:
+        request.session.clear()
+    logger.warning(
+        "기기 로그아웃 · %s · client=%s",
+        "이 기기" if mine else session_id,
+        client_key(request),
+    )
+    return {"ok": True, "current": mine}
+
+
+@router.post(
+    "/api/auth/sessions/revoke-others",
+    dependencies=[Depends(AuthService.require_user)],
+)
+async def session_revoke_others(request: Request):
+    count = sessions.revoke_others(_current_sid(request))
+    logger.warning(
+        "다른 기기 모두 로그아웃 · %d개 세션 · client=%s", count, client_key(request)
+    )
+    return {"ok": True, "count": count}

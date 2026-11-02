@@ -48,6 +48,7 @@
     { id: 'monitor', icon: 'fa-gauge-high', label: '사이드바', desc: 'Overview · 서버 상태 (CPU · GPU …)' },
     { id: 'keys', icon: 'fa-keyboard', label: '단축키', desc: '키 바꾸기 · 설정 내보내기 / 불러오기' },
     { id: 'upload', icon: 'fa-cloud-arrow-up', label: '업로드 · 파일', desc: '최대 크기 · 보관 · 뷰어', server: true },
+    { id: 'devices', icon: 'fa-laptop', label: '로그인 기기', desc: '로그인된 세션 · 기기별 로그아웃', server: true },
   ];
   const TAB_KEY = 'univdash-settings-tab';
   let tab = raw.get(TAB_KEY, 'display');
@@ -64,6 +65,81 @@
       <button type="button" class="pmd-mode-switch ${on ? 'on' : ''}" role="switch" aria-checked="${on}" aria-label="${esc(title)}" data-switch="${id}"></button>
     </div>`;
   const selectHtml = (name, options, value) => `<select class="ud-set-select" data-server="${name}">${options.map(([v, label]) => `<option value="${v}" ${Number(v) === Number(value) ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>`;
+
+  // ── 로그인 기기 ────────────────────────────────────────────────────────
+  let devices = null;     // null: 불러오는 중 · { error } · { sessions: [...] }
+  function deviceName(ua) {
+    const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android'
+      : /Macintosh|Mac OS X/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : /CrOS/.test(ua) ? 'ChromeOS' : /Linux/.test(ua) ? 'Linux' : '';
+    const browser = /Edg\//.test(ua) ? 'Edge' : /SamsungBrowser/.test(ua) ? '삼성 인터넷' : /Whale\//.test(ua) ? 'Whale'
+      : /OPR\//.test(ua) ? 'Opera' : /Firefox\/|FxiOS/.test(ua) ? 'Firefox' : /Chrome\/|CriOS/.test(ua) ? 'Chrome'
+      : /Safari\//.test(ua) ? 'Safari' : /AppleWebKit/.test(ua) ? (os === 'iPhone' || os === 'iPad' ? '홈 화면 앱' : 'WebKit') : '';
+    const icon = os === 'iPhone' || os === 'Android' ? 'fa-mobile-screen' : os === 'iPad' ? 'fa-tablet-screen-button' : 'fa-laptop';
+    return { icon, label: [browser, os].filter(Boolean).join(' · ') || '알 수 없는 기기' };
+  }
+  const ago = (t) => {
+    const s = Math.max(0, Date.now() / 1000 - t);
+    return s < 60 ? '방금' : s < 3600 ? `${Math.floor(s / 60)}분 전` : s < 86400 ? `${Math.floor(s / 3600)}시간 전` : `${Math.floor(s / 86400)}일 전`;
+  };
+  const stamp = (t) => new Date(t * 1000).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  function devicesSection() {
+    if (!devices) return '<p class="ud-set-note"><i class="fas fa-circle-notch fa-spin"></i> 로그인된 기기를 불러오는 중…</p>';
+    if (devices.error) return `<p class="ud-set-note">${esc(devices.error)}</p><button type="button" class="ud-set-btn" data-devices-reload><i class="fas fa-rotate"></i> 다시 불러오기</button>`;
+    const others = devices.sessions.filter((d) => !d.current).length;
+    return `
+      <p class="ud-set-note">지금 로그인돼 있는 브라우저 · 홈 화면 앱이에요. 모르는 기기가 있으면 로그아웃하고 비밀번호를 바꿔 주세요.</p>
+      ${devices.sessions.map((d) => {
+        const { icon, label } = deviceName(d.ua);
+        const ip = d.last_ip && d.last_ip !== d.ip ? `${d.last_ip} (로그인 ${d.ip || '?'})` : d.ip || '?';
+        return `
+        <div class="ud-set-row ud-dev-row">
+          <i class="fas ${icon} ud-dev-icon"></i>
+          <div class="ud-set-text">
+            <p class="ud-set-title">${esc(label)}${d.current ? '<span class="ud-set-badge local">이 기기</span>' : ''}</p>
+            <p class="ud-set-desc">IP ${esc(ip)} · 최근 사용 ${d.current ? '지금' : ago(d.seen)} · 로그인 ${stamp(d.created)}</p>
+            <p class="ud-set-desc ud-dev-ua" title="${esc(d.ua)}">${esc(d.ua || '브라우저 정보 없음')}</p>
+          </div>
+          <button type="button" class="ud-set-btn ud-dev-out" data-device-out="${esc(d.id)}" data-current="${d.current ? 1 : 0}"><i class="fas fa-right-from-bracket"></i> 로그아웃</button>
+        </div>`;
+      }).join('')}
+      <div class="ud-dev-tools">
+        <button type="button" class="ud-set-btn" data-devices-reload><i class="fas fa-rotate"></i> 새로 고침</button>
+        <button type="button" class="ud-set-btn ud-dev-out" data-devices-others ${others ? '' : 'disabled'}><i class="fas fa-user-slash"></i> 다른 기기 모두 로그아웃${others ? ` (${others})` : ''}</button>
+      </div>`;
+  }
+  async function loadDevices() {
+    try {
+      devices = await U().api('/api/auth/sessions');
+    } catch (error) {
+      devices = { error: error.message };
+    }
+    if (overlay && !overlay.hidden && tab === 'devices') render();
+  }
+  async function deviceOut(button) {
+    const current = button.dataset.current === '1';
+    const all = button.matches('[data-devices-others]');
+    const ok = await window.UnivDashUI.confirmSheet({
+      title: all ? '다른 기기 모두 로그아웃' : current ? '이 기기에서 로그아웃' : '이 기기 로그아웃',
+      message: all ? '이 기기를 뺀 나머지 브라우저 · 홈 화면 앱의 세션을 모두 끊습니다.' : current ? '지금 쓰는 이 브라우저에서 로그아웃하고 로그인 화면으로 갑니다.' : '이 기기는 바로 로그아웃되고, 다시 쓰려면 로그인해야 해요.',
+      confirmLabel: '로그아웃',
+      danger: true,
+    });
+    if (!ok) return;
+    button.disabled = true;
+    try {
+      if (all) {
+        const result = await U().api('/api/auth/sessions/revoke-others', { method: 'POST' });
+        U().toast(`${result.count}개 기기를 로그아웃했어요.`, 'success');
+      } else {
+        const result = await U().api(`/api/auth/sessions/${encodeURIComponent(button.dataset.deviceOut)}`, { method: 'DELETE' });
+        if (result.current) { location.href = '/login'; return; }
+        U().toast('로그아웃했어요.', 'success');
+      }
+    } catch (error) {
+      U().toast(error.message, 'error');
+    }
+    loadDevices();
+  }
 
   let overlay = null;
   let server = null;      // { settings, defaults, limits }
@@ -115,6 +191,7 @@
         </div>`;
     }
     if (id === 'keys') return keysSection();
+    if (id === 'devices') return devicesSection();
     if (id === 'editor') return SWITCHES[id].map(([key, title, desc, read]) => switchHtml(key, title, desc, read())).join('');
     if (!server) return '<p class="ud-set-note"><i class="fas fa-circle-notch fa-spin"></i> 서버 설정을 불러오는 중…</p>';
     const limit = server.limits.upload_max_mb;
@@ -379,6 +456,7 @@
     if (!TABS.some((t) => t.id === id)) return;
     tab = id;
     raw.set(TAB_KEY, id);
+    if (id === 'devices') loadDevices();
     render();
     overlay.querySelector('.ud-set-tabs .on')?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
   }
@@ -403,6 +481,9 @@
     const tabBtn = event.target.closest('[data-tab]');
     if (tabBtn) { selectTab(tabBtn.dataset.tab); return; }
     if (tab === 'keys' && event.target.closest('.ud-set-body') && onKeysClick(event)) return;
+    const out = event.target.closest('[data-device-out], [data-devices-others]');
+    if (out) { deviceOut(out); return; }
+    if (event.target.closest('[data-devices-reload]')) { devices = null; render(); loadDevices(); return; }
     const sw = event.target.closest('[data-switch]');
     if (sw) {
       const all = Object.values(SWITCHES).flat();
@@ -548,6 +629,7 @@
       U().toast(error.message, 'error');
     }
     if (!overlay.hidden) render();
+    if (tab === 'devices') loadDevices();
   }
   function close() {
     if (!overlay || overlay.hidden) return;
