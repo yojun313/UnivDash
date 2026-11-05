@@ -414,7 +414,7 @@
 
   const state = {
     windows: [],
-    prefs: { folders: [], order: [], hidden: [], aliases: {}, sort: 'status', nav_order: ['workspace', 'explorer', 'git', 'ai_usage', 'server'] },
+    prefs: { folders: [], order: [], hidden: [], aliases: {}, notes: {}, sort: 'status', nav_order: ['workspace', 'explorer', 'git', 'ai_usage', 'server'] },
     filter: store.get('filter', 'all'),
     search: '',
     showHidden: false,
@@ -426,6 +426,8 @@
   };
 
   const byKey = () => new Map(state.windows.map((w) => [w.key, w]));
+  // 창 설명: 직접 적은 것이 있으면 그것, 없으면 에이전트가 붙인 작업 제목
+  const windowNote = (w) => state.prefs.notes?.[w.key] || w.title || '';
   const displayName = (w) => state.prefs.aliases[w.key] || (w.index === 0 && !state.windows.some((o) => o.session === w.session && o.key !== w.key) ? w.session : `${w.session}:${w.index} ${w.name}`);
   const isHidden = (key) => state.prefs.hidden.includes(key);
   const folderOf = (key) => state.prefs.folders.find((f) => f.items.includes(key)) || null;
@@ -577,6 +579,27 @@
     });
   }
 
+  // 창 이름 아래 설명을 직접 적는다 (비우면 에이전트가 붙인 작업 제목으로 돌아간다)
+  function noteForm(w) {
+    formSheet({
+      title: '설명 변경',
+      subtitle: `${displayName(w)} 아래에 보일 설명이에요. 비워 두면 에이전트가 붙인 작업 제목${w.title ? ` ("${w.title}")` : ''}을 그대로 보여 줘요.`,
+      fields: [{ name: 'note', label: '설명', value: state.prefs.notes?.[w.key] || '', placeholder: w.title || '예: hw2 풀이 중', maxlength: 120 }],
+      submitLabel: '저장',
+      onMount(body) {
+        const field = body.querySelector('input[name="note"]');
+        setTimeout(() => { field.focus(); field.select(); }, 30);
+      },
+      onSubmit(values) {
+        const note = values.note.replace(/\s+/g, ' ').trim().slice(0, 120);
+        state.prefs.notes = { ...(state.prefs.notes || {}) };
+        if (note) state.prefs.notes[w.key] = note; else delete state.prefs.notes[w.key];
+        commitPrefs();
+        toast(note ? '설명을 바꿨어요.' : '자동 설명으로 되돌렸어요.', 'ok');
+      },
+    });
+  }
+
   function moveSessionKeys(oldName, newName) {
     const prefix = `${oldName}:`;
     const move = (key) => (typeof key === 'string' && key.startsWith(prefix) ? `${newName}:${key.slice(prefix.length)}` : key);
@@ -711,6 +734,7 @@
       actions: [
         ...(page === 'workspace' && state.selectedKey !== w.key ? [{ icon: 'fa-terminal', label: '열기', onClick: () => workspace.select(w.key) }] : []),
         { icon: 'fa-pen', label: '이름 변경 (tmux 세션)', onClick: () => renameForm(w) },
+        { icon: 'fa-comment-dots', label: '설명 변경', sub: state.prefs.notes?.[w.key] ? '직접 적음' : '자동', onClick: () => noteForm(w) },
         { icon: 'fa-folder-open', label: '폴더로 이동', sub: folder ? folder.name : '없음', onClick: () => folderPicker(w) },
         ...(wsFiles ? [{ icon: 'fa-folder-tree', label: '작업 폴더 파일 보기', sub: w.path, onClick: () => wsFiles.reveal(w.path) }] : []),
         { icon: 'fa-arrow-up', label: '위로 이동', sub: sortMode() === 'manual' ? '' : '직접 지정으로 전환', onClick: () => moveWithinGroup(w.key, -1) },
@@ -981,9 +1005,13 @@
       if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
       setConn('connecting');
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      ws = new WebSocket(`${protocol}//${location.host}/ws`);
-      ws.onopen = () => { retry = 0; setConn('live'); (handlers.open || []).forEach((fn) => fn()); };
+      const sock = new WebSocket(`${protocol}//${location.host}/ws`);
+      ws = sock;
+      lastRecv = Date.now();
+      pingAt = 0;
+      ws.onopen = () => { retry = 0; lastRecv = Date.now(); setConn('live'); (handlers.open || []).forEach((fn) => fn()); };
       ws.onmessage = (event) => {
+        lastRecv = Date.now();
         let message;
         try { message = JSON.parse(event.data); } catch (e) { return; }
         if ((message.t === 'ack' || message.t === 'error') && message.id != null && pending.has(message.id)) {
@@ -996,15 +1024,37 @@
         if (message.t === 'error') { toast(message.message, 'error'); return; }
         (handlers[message.t] || []).forEach((fn) => fn(message));
       };
-      ws.onclose = (event) => {
-        pending.forEach((entry) => { clearTimeout(entry.timer); entry.reject(new Error('연결이 끊어졌습니다.')); });
-        pending.clear();
-        if (event.code === 1008) { location.href = '/login'; return; }
-        setConn('offline');
-        retry = Math.min(retry + 1, 5);
-        reconnectTimer = setTimeout(connect, [0, 800, 1500, 3000, 6000, 10000][retry]);
-      };
+      ws.onclose = (event) => { if (ws === sock) closed(event); };
     }
+    function closed(event) {
+      pending.forEach((entry) => { clearTimeout(entry.timer); entry.reject(new Error('연결이 끊어졌습니다.')); });
+      pending.clear();
+      if (event.code === 1008) { location.href = '/login'; return; }
+      setConn('offline');
+      retry = Math.min(retry + 1, 5);
+      reconnectTimer = setTimeout(connect, [0, 800, 1500, 3000, 6000, 10000][retry]);
+    }
+    // 끊겼는데 브라우저가 모르는 연결 (휴대폰 잠자기 · 네트워크 전환 · 프록시가 조용히 끊음): readyState 는 OPEN 인데
+    // 아무것도 오지 않아 채팅 · 진행 상황이 멈춘다. 조용하면 ping 을 보내고, 답이 없으면 버리고 새로 연결한다.
+    let lastRecv = 0;
+    let pingAt = 0;
+    function checkAlive(now = Date.now()) {
+      if (!ws || ws.readyState !== WebSocket.OPEN || document.visibilityState !== 'visible') return;
+      if (pingAt && lastRecv < pingAt) {
+        if (now - pingAt < PONG_TIMEOUT) return;
+        const dead = ws;
+        ws = null;
+        try { dead.close(); } catch (e) { /* 이미 닫힘 */ }
+        retry = 0;
+        closed({ code: 0 });
+        return;
+      }
+      pingAt = 0;
+      if (now - lastRecv > IDLE_PING) { pingAt = now; ws.send(JSON.stringify({ t: 'ping' })); }
+    }
+    const IDLE_PING = 5000;
+    const PONG_TIMEOUT = 4000;
+    setInterval(checkAlive, 2000);
 
     function send(message, { ack = false } = {}) {
       if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -1021,7 +1071,12 @@
     }
 
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') { retry = 0; connect(); refreshState(); }
+      if (document.visibilityState === 'visible') {
+        retry = 0;
+        // 다시 보게 되면 연결이 살아 있는지 바로 확인한다 (잠자기 뒤 죽은 연결이 OPEN 으로 남는 경우)
+        if (ws && ws.readyState === WebSocket.OPEN) { lastRecv = 0; pingAt = 0; checkAlive(); } else connect();
+        refreshState();
+      }
     });
     window.addEventListener('online', () => { retry = 0; connect(); });
 
@@ -1034,6 +1089,7 @@
 
   // ── 공통 렌더링 ──────────────────────────────────────────────────────
   let lastStatuses = new Map();
+  const doneTimers = new Map();
   function onWindows(windows) {
     const previous = lastStatuses;
     lastStatuses = new Map(windows.map((w) => [w.key, w.status]));
@@ -1056,7 +1112,17 @@
         if (watching || !window.UnivDash.settings.get('notify-agents')) return;
         const open = page === 'workspace' ? { label: '열기', onClick: () => workspace.select(w.key) } : null;
         if (w.status === 'waiting') { toast(`${displayName(w)} · 응답이 필요합니다`, 'warn', open, 6000); vibrate([20, 60, 20]); }
-        else if (before === 'busy' && w.status === 'idle') { toast(`${displayName(w)} · 작업 완료`, 'ok', open, 5000); vibrate(15); }
+        else if (before === 'busy' && w.status === 'idle' && !w.compacted) {
+          // 로그가 몇 초 늦게 기록된다: 잠시 뒤에도 쉬는 중이고 압축만 끝난 게 아니면 알린다
+          clearTimeout(doneTimers.get(w.key));
+          doneTimers.set(w.key, setTimeout(() => {
+            doneTimers.delete(w.key);
+            const now = state.windows.find((x) => x.key === w.key);
+            if (!now || now.status !== 'idle' || now.compacted) return;
+            if (w.key === state.selectedKey && isTermVisible() && document.visibilityState === 'visible') return;
+            toast(`${displayName(now)} · 작업 완료`, 'ok', open, 5000); vibrate(15);
+          }, 5000));
+        }
       });
     }
 
@@ -1100,7 +1166,7 @@
   let lastRenderSignature = '';
   function renderAll(force = false) {
     renderStats();
-    const windowsSignature = state.windows.map((w) => [w.key, w.status, w.title, w.path, w.agent, unreadActivity(w) > (state.seen[w.key] || 0), timeAgo(w.activity), w.panes.length]);
+    const windowsSignature = state.windows.map((w) => [w.key, w.status, windowNote(w), w.path, w.agent, unreadActivity(w) > (state.seen[w.key] || 0), timeAgo(w.activity), w.panes.length]);
     const signature = JSON.stringify([windowsSignature, state.prefs, state.filter, state.search, state.showHidden, state.selectedKey]);
     if (!force && signature === lastRenderSignature) return;
     lastRenderSignature = signature;
@@ -1420,7 +1486,7 @@
     function matches(w) {
       const query = state.search.trim().toLowerCase();
       if (query) {
-        const haystack = [displayName(w), w.session, w.name, w.title, w.path, w.agent].join(' ').toLowerCase();
+        const haystack = [displayName(w), w.session, w.name, windowNote(w), w.path, w.agent].join(' ').toLowerCase();
         if (!haystack.includes(query)) return false;
       }
       if (state.filter === 'busy') return w.status === 'busy';
@@ -1440,7 +1506,7 @@
           ${statusIcon(w)}
           <span class="min-w-0 flex-1">
             <span class="flex items-center gap-2 min-w-0"><span class="truncate text-sm font-bold text-white/90">${escapeHtml(displayName(w))}</span>${agentPill(w)}</span>
-            ${w.title && w.title !== displayName(w) ? `<span class="block truncate text-xs text-white/60 mt-0.5">${escapeHtml(w.title)}</span>` : ''}
+            ${windowNote(w) && windowNote(w) !== displayName(w) ? `<span class="block truncate text-xs text-white/60 mt-0.5" title="${escapeHtml(windowNote(w))}">${escapeHtml(windowNote(w))}</span>` : ''}
             <span class="block truncate font-mono text-[10px] text-white/35 mt-0.5">${escapeHtml(meta)}</span>
           </span>
           <button type="button" class="win-more" data-more aria-label="${escapeHtml(displayName(w))} 메뉴"><i class="fas fa-ellipsis-vertical"></i></button>
@@ -2008,7 +2074,7 @@
       if (lastScreen && lastScreen.pane === state.paneId) updateChatStatus(lastScreen);
       $('#termTitle').textContent = displayName(w);
       $('#promptInput').placeholder = promptPlaceholder(w);
-      $('#termSubtitle').textContent = [STATUS[w.status]?.label, w.title, w.path].filter(Boolean).join(' · ');
+      $('#termSubtitle').textContent = [STATUS[w.status]?.label, windowNote(w), w.path].filter(Boolean).join(' · ');
       $('#termStatusDot').className = `status-dot flex-shrink-0 ${w.status}`;
       const pill = $('#termAgent');
       pill.className = w.agent ? `agent-pill agent-${w.agent}` : 'agent-pill agent-shell';
@@ -4111,15 +4177,61 @@
       for (const c of id) h = (h * 31 + c.charCodeAt(0)) | 0;
       return `univdash-solo-${(h >>> 0).toString(36)}`;
     }
+    const onScreen = (sc, p) => p.x >= sc.left && p.x < sc.left + sc.width && p.y >= sc.top && p.y < sc.top + sc.height;
+    // 화면 좌표 p 가 있는 모니터 (모르면 null → 브라우저에 맡긴다).
+    // 끌어 놓기 중에는 권한 창을 띄우지 않는다: 기다리는 사이 클릭 직후에만 허용되는 팝업이 막히기 때문.
+    // 권한이 아직 없으면 needScreenAccess 를 켜 두고, 띄운 뒤 안내의 [허용] 버튼(새 클릭)으로 받는다.
+    let needScreenAccess = false;
+    async function screenAt(p) {
+      const here = window.screen;
+      const cur = { left: here.availLeft ?? 0, top: here.availTop ?? 0, width: here.width, height: here.height };
+      if (onScreen(cur, p) || !('getScreenDetails' in window)) return null;
+      try {
+        if (!screenDetails) {
+          const state = (await navigator.permissions.query({ name: 'window-management' }))?.state;
+          if (state !== 'granted') { needScreenAccess = state === 'prompt'; return null; }
+          screenDetails = await window.getScreenDetails();
+        }
+        return screenDetails.screens.find((sc) => onScreen(sc, p)) || null;
+      } catch (e) {
+        return null;
+      }
+    }
+    async function moveToScreen(win, p, width, height) {
+      try {
+        screenDetails = screenDetails || await window.getScreenDetails();
+        const sc = screenDetails.screens.find((x) => onScreen(x, p));
+        if (!sc || win.closed) return;
+        const w = Math.min(width, sc.availWidth);
+        const h = Math.min(height, sc.availHeight);
+        win.moveTo(Math.min(Math.max(p.x - 120, sc.availLeft), sc.availLeft + sc.availWidth - w), Math.min(Math.max(p.y - 20, sc.availTop), sc.availTop + sc.availHeight - h));
+        win.resizeTo(w, h);
+        toast('놓은 모니터로 옮겼어요. 다음부터는 바로 그 모니터에 떠요.', 'success', 2600);
+      } catch (e) {
+        toast('창 관리 권한이 없어 이 모니터에 띄웠어요. 주소창 왼쪽 사이트 설정에서 \'창 관리\'를 허용하면 놓은 모니터에 떠요.', 'info', 6000);
+      }
+    }
     async function popOut(tab, group, { otherScreen = false, at = null } = {}) {
       if (!tab) return;
       if (tab.type === 'file' && tab.tab?.dirty) { toast('저장하지 않은 변경이 있어요. 저장한 뒤 새 창으로 띄워 주세요.', 'error'); return; }
       const info = tabInfo(tab);
       const pane = (group === 'main' ? $('#termPane') : groups[group]?.el)?.getBoundingClientRect();
-      const width = Math.round(Math.min(window.screen.availWidth, Math.max(1100, pane?.width || 1100)));
-      const height = Math.round(Math.min(window.screen.availHeight, Math.max(520, (pane?.height || 760) + 40)));
+      let width = Math.round(Math.min(window.screen.availWidth, Math.max(1100, pane?.width || 1100)));
+      let height = Math.round(Math.min(window.screen.availHeight, Math.max(520, (pane?.height || 760) + 40)));
       let left = at ? Math.round(at.x - 120) : window.screenX + 48;   // at: 탭을 끌어 놓은 화면 위치
       let top = at ? Math.round(at.y - 20) : window.screenY + 48;
+      // 놓은 곳이 이 창이 있는 모니터가 아니면 (보조 모니터의 창 → 주 모니터 등) 그 모니터를 찾아 그 안에 띄운다.
+      // 브라우저는 '창 관리' 권한이 없으면 팝업을 지금 모니터 안으로 끌어오므로 권한을 받아 모니터 정보를 쓴다.
+      needScreenAccess = false;
+      if (at && !otherScreen) {
+        const target = await screenAt(at);
+        if (target) {
+          width = Math.min(width, target.availWidth);
+          height = Math.min(height, target.availHeight);
+          left = Math.min(Math.max(left, target.availLeft), target.availLeft + target.availWidth - width);
+          top = Math.min(Math.max(top, target.availTop), target.availTop + target.availHeight - height);
+        }
+      }
       if (otherScreen) {
         try {
           screenDetails = screenDetails || await window.getScreenDetails();   // 처음 한 번 '창 관리' 권한을 물어본다
@@ -4132,11 +4244,19 @@
         } catch (e) { /* 권한 거부: 그냥 옆에 띄운다 */ }
       }
       const win = window.open(soloUrl(info), popupName(tab.id), `popup=yes,width=${width},height=${height},left=${left},top=${top}`);
-      if (!win) { toast('팝업이 막혔어요. 주소창의 팝업 차단 아이콘에서 이 사이트를 허용한 뒤 다시 눌러 주세요.', 'error'); return; }
+      if (!win) {
+        // 끌어 놓기가 길면(다른 모니터까지) 브라우저가 '클릭 직후'로 보지 않아 팝업을 막는다 → 버튼 한 번으로 띄운다
+        if (at) toast('탭을 새 창으로 띄우려면 눌러 주세요.', 'info', { label: '새 창 열기', onClick: () => popOut(tab, group, { at }) }, 8000);
+        else toast('팝업이 막혔어요. 주소창의 팝업 차단 아이콘에서 이 사이트를 허용한 뒤 다시 눌러 주세요.', 'error');
+        return;
+      }
+      const askScreen = needScreenAccess === true && at;
+      needScreenAccess = false;
       if (group === 'main') await closeTab(tab.id, { keep: true });
       else await closeTabIn(groups[group], tab.id, { keep: true });
       if (info.type === 'pty') watchPopup(win, info);
-      toast('새 창으로 띄웠어요. 원하는 모니터로 옮겨 쓰세요.', 'success', 2200);
+      if (askScreen) toast('놓은 모니터에 띄우려면 창 관리 권한이 필요해요.', 'info', { label: '허용하고 옮기기', onClick: () => moveToScreen(win, at, width, height) }, 8000);
+      else toast('새 창으로 띄웠어요. 원하는 모니터로 옮겨 쓰세요.', 'success', 2200);
     }
     // 팝업이 닫혔는데 Terminal 이 돌아오지 않았으면 (그냥 창을 닫은 경우) 셸이 살아 있는 한 이 창 탭으로 되돌린다
     function watchPopup(win, info) {
@@ -4459,10 +4579,14 @@
     document.addEventListener('dragleave', (event) => { if (dragTab && offWindow(event)) outside = true; }, true);
     document.addEventListener('dragend', (event) => {
       const drag = dragTab;
-      const left = outside;
+      const at = event.screenX || event.screenY ? { x: event.screenX, y: event.screenY } : null;
+      // 창 밖으로 나갔는지: dragleave 로 본 것 + 놓은 화면 좌표가 이 창 바깥인지 (다른 모니터로 넘어가면
+      // dragleave 좌표가 창 안쪽 값으로 오기도 해서 둘 다 본다)
+      const offScreen = !!at && (at.x < window.screenX || at.y < window.screenY
+        || at.x >= window.screenX + window.outerWidth || at.y >= window.screenY + window.outerHeight);
+      const left = outside || offScreen;
       outside = false;
       if (!drag || !left || !desktopQuery.matches || event.dataTransfer?.dropEffect === 'move') return;
-      const at = event.screenX || event.screenY ? { x: event.screenX, y: event.screenY } : null;
       clearTimeout(pendingPop?.timer);
       pendingPop = { id: drag.id, timer: setTimeout(() => {
         pendingPop = null;
@@ -4565,17 +4689,39 @@
       const KEYS = { Esc: 'Escape', '⇧Tab': 'BTab', '↑': 'Up', '↓': 'Down', '⏎': 'Enter', '^C': 'C-c' };
       const send = (message) => { if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message)); };
       function connect() {
-        ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+        const sock = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+        ws = sock;
+        lastRecv = Date.now();
+        pingAt = 0;
         ws.onopen = () => { if (pane) { send({ t: 'sub', pane, history: 300 }); if (modeOf() === 'log' && (chat.available || w?.agent)) send({ t: 'logsub', pane, since: chat.total }); } };
         ws.onmessage = (event) => {
+          lastRecv = Date.now();
           let message;
           try { message = JSON.parse(event.data); } catch (e) { return; }
           if (message.pane !== pane) return;
           if (message.t === 'screen') { const first = !lastScreen; lastScreen = message; if (first) fitTmux(true); if (modeOf() === 'screen') renderScreen(); else renderStatus(); }
           else if (message.t === 'log') applyLog(message);
         };
-        ws.onclose = () => { if (pane && !disposed) setTimeout(() => { if (pane && !disposed && (!ws || ws.readyState === WebSocket.CLOSED)) connect(); }, 1500); };
+        ws.onclose = () => { if (ws === sock && pane && !disposed) setTimeout(() => { if (ws === sock && pane && !disposed) connect(); }, 1500); };
       }
+      // 조용히 죽은 연결 감지 (메인 연결과 같은 규칙): 조용하면 ping, 답이 없으면 새로 연결
+      let lastRecv = 0;
+      let pingAt = 0;
+      const aliveTimer = setInterval(() => {
+        if (disposed) { clearInterval(aliveTimer); return; }
+        if (!pane || ws?.readyState !== WebSocket.OPEN || document.visibilityState !== 'visible') return;
+        const now = Date.now();
+        if (pingAt && lastRecv < pingAt) {
+          if (now - pingAt < 4000) return;
+          const dead = ws;
+          ws = null;
+          try { dead.close(); } catch (e) { /* 이미 닫힘 */ }
+          connect();
+          return;
+        }
+        pingAt = 0;
+        if (now - lastRecv > 5000) { pingAt = now; send({ t: 'ping' }); }
+      }, 2000);
       // 터미널 화면
       function renderScreen() {
         if (!lastScreen) return;
@@ -4734,7 +4880,7 @@
         pill.className = `tp-agent ${w.agent ? `agent-pill agent-${w.agent}` : 'agent-pill agent-shell'}`;   // 메인 머리글과 같은 색
         pill.textContent = w.agent || 'shell';
         const statusLabel = STATUS[w.status]?.label || '';
-        $$in('.tp-sub').textContent = [statusLabel, w.title, w.path].filter(Boolean).join(' · ');
+        $$in('.tp-sub').textContent = [statusLabel, windowNote(w), w.path].filter(Boolean).join(' · ');
         const usage = $$in('.tp-usage');
         const html = R.usageMarkup(w.agent);
         usage.classList.toggle('hidden', !html);

@@ -4,7 +4,6 @@ import json
 import os
 import re
 import select
-import shutil
 import subprocess
 import tempfile
 import threading
@@ -14,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, ClassVar
 
-from app.paths import data_dir
+from app.paths import data_dir, find_command
 
 
 class AIUsageService:
@@ -357,7 +356,7 @@ class AIUsageService:
                 if cached and time.monotonic() - cached[0] < 15:
                     return cached[1]
 
-        codex = shutil.which("codex")
+        codex = find_command("codex")
         if not codex:
             return None
         env = os.environ.copy()
@@ -1087,7 +1086,7 @@ class AIUsageService:
         files: list[Path],
         dates: list[Any],
     ) -> dict[str, Any]:
-        command_path = shutil.which(command)
+        command_path = find_command(command)
         authenticated = any(path.is_file() for path in auth_files) or any(
             bool(os.getenv(key)) for key in env_keys
         )

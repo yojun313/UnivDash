@@ -37,6 +37,9 @@ logger = logging.getLogger(__name__)
 MAX_SUBSCRIPTIONS = 30
 WATCH_INTERVAL = 2.0
 DEDUPE_SECONDS = 10
+# '작업 완료'는 이만큼 기다렸다가 다시 확인하고 보낸다: 세션 로그는 몇 초 늦게 기록되므로 방금 끝난 것이
+# 대화 압축뿐인지 바로는 알 수 없고, 자동 압축 직후에는 잠깐 쉬었다가 다시 작업을 이어 간다.
+DONE_SETTLE = 5.0
 PUSH_TTL = 6 * 3600  # 기기가 꺼져 있으면 푸시 서비스가 이 시간까지 보관했다가 전달
 SEND_TIMEOUT = 10
 DEVICE_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
@@ -417,12 +420,15 @@ def _events(previous: dict[str, str], windows, prefs) -> list[dict]:
         if window.status == "waiting":
             what = "응답이 필요해요"
         elif before == "busy" and window.status == "idle":
+            if getattr(window, "compacted", False):
+                continue  # 대화 압축만 끝난 것은 작업 완료가 아니다
             what = "작업 완료"
         else:
             continue
         name = _display_name(window, windows, prefs.aliases)
         agent = AGENT_LABELS.get(window.agent or "", window.agent or "")
-        detail = " · ".join(x for x in (agent, window.title, window.path) if x)
+        note = getattr(prefs, "notes", {}).get(window.key) or window.title
+        detail = " · ".join(x for x in (agent, note, window.path) if x)
         events.append(
             {
                 "title": f"{name} · {what}",
@@ -443,6 +449,7 @@ async def watch_loop() -> None:
 
     previous: dict[str, str] = {}
     sent: dict[tuple[str, str], float] = {}
+    held: dict[str, tuple[float, dict]] = {}  # 창 키 → (보낼 시각, '작업 완료' 알림)
     while True:
         await asyncio.sleep(WATCH_INTERVAL)
         try:
@@ -455,7 +462,24 @@ async def watch_loop() -> None:
             previous = {w.key: w.status for w in windows}
             now = time.monotonic()
             sent = {k: t for k, t in sent.items() if now - t < DEDUPE_SECONDS}
+            ready = []
             for event in events:
+                if event["status"] == "idle":
+                    held[event["key"]] = (now + DONE_SETTLE, event)
+                else:
+                    held.pop(event["key"], None)
+                    ready.append(event)
+            by_key = {w.key: w for w in windows}
+            for key, (due, event) in list(held.items()):
+                window = by_key.get(key)
+                if window is None or window.status != "idle" or window.compacted:
+                    del held[
+                        key
+                    ]  # 다시 작업 중 · 창이 사라짐 · 압축만 끝남 → 알리지 않는다
+                elif now >= due:
+                    del held[key]
+                    ready.append(event)
+            for event in ready:
                 mark = (event["key"], event["status"])
                 if mark in sent:
                     continue

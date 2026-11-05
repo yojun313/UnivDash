@@ -646,6 +646,51 @@
       select(result.path);
       return result.path;
     }
+    // 여러 개를 한 번에 옮기기 · 복사 (끌어 놓기). 한 번만 묻고, 못 옮기는 것(이미 그 폴더 · 자기 안)은 빼고 알린다.
+    async function moveManyTo(sources, dest, { copy = false } = {}) {
+      const list = sources.filter((p) => (copy ? !(dest === p || dest.startsWith(`${p}/`)) : canMove(p, dest)));
+      const skipped = sources.length - list.length;
+      if (!list.length) { toast(copy ? '폴더를 자기 안으로 복사할 수 없습니다.' : '옮길 수 있는 항목이 없어요 (이미 그 폴더에 있거나 자기 안으로).', 'error'); return; }
+      const names = list.slice(0, 6).map((p) => `· ${basename(p)}`).join('\n') + (list.length > 6 ? `\n외 ${list.length - 6}개` : '');
+      const ok = await ui().confirmSheet({
+        title: `${list.length}개 항목을 여기로 ${copy ? '복사' : '옮길'}할까요?`,
+        message: `${names}\n→  ${where(dest)}${skipped ? `\n\n(이미 그 폴더에 있거나 자기 안이라 ${skipped}개는 빼요)` : ''}${copy ? '' : '\n\nCtrl/Alt 를 누른 채 놓으면 복사합니다.'}`,
+        confirmLabel: copy ? '복사' : '이동',
+      });
+      if (!ok) return;
+      const slow = setTimeout(() => toast(`${list.length}개 항목을 ${copy ? '복사하는' : '옮기는'} 중…`, 'info'), 1200);
+      const placed = [];
+      const swaps = [];
+      try {
+        for (const source of list) {
+          try {
+            const result = await api('/api/fs/op', { method: 'POST', body: { op: copy ? 'copy' : 'move', path: source, dest } });
+            placed.push(result.path);
+            if (!copy) {
+              swaps.push([source, result.path]);
+              cache.delete(dirname(source));
+              if (shared.clipboard?.paths.includes(source)) shared.clipboard = null;
+              window.dispatchEvent(new CustomEvent('univdash:fs-moved', { detail: { from: source, to: result.path } }));
+            }
+          } catch (error) { toast(`${basename(source)}: ${error.message}`, 'error'); }
+        }
+      } finally { clearTimeout(slow); }
+      if (swaps.length) {
+        // 펼쳐 둔 하위 폴더 · 가린 항목도 새 경로로
+        const swap = (p) => { for (const [from, to] of swaps) { if (p === from) return to; if (p.startsWith(`${from}/`)) return to + p.slice(from.length); } return p; };
+        expanded = new Set([...expanded].map(swap));
+        prefs().hidden = prefs().hidden.map(swap);
+        savePrefs();
+      }
+      if (placed.length) toast(`${placed.length}개 항목을 ${copy ? '복사했어요' : '옮겼어요'}.`, 'success');
+      expanded.add(dest);
+      saveExpanded();
+      for (const d of new Set(list.map(dirname))) await load(d, true);
+      await refresh(dest);
+      if (!placed.length) { render(); return; }
+      select(placed[placed.length - 1]);
+      if (placed.length > 1) { picked = new Set(placed); paintSelection(); }
+    }
     async function moveDialog(entry) {
       const value = await askName({ title: '다른 폴더로 이동', subtitle: `${entry.name} 을(를) 옮길 폴더 경로 (~/ 가능)`, value: shortHome(dirname(entry.path)), label: '대상 폴더', submitLabel: '다음' });
       if (!value) return;
@@ -910,6 +955,7 @@
     }, { passive: true });
     // 트리 안에서 마우스로 끌어 옮기기 (다른 폴더 위에 놓기 → 확인 → 이동, Ctrl/Alt 는 복사)
     let dragSource = null;
+    let dragSources = [];   // 여러 개를 골라 놓고 그중 하나를 끌면 고른 것 전부 (하위 항목은 상위만)
     let hoverTimer = null;
     let hoverDir = null;
     const clearDrop = () => {
@@ -923,19 +969,23 @@
       const row = event.target.closest?.('.ex-row[draggable="true"]');
       if (!row) return;
       dragSource = row.dataset.path;
+      const many = picked.has(dragSource) && picked.size > 1 ? [...picked] : [dragSource];
+      dragSources = many.filter((p) => !many.some((other) => other !== p && p.startsWith(`${other}/`)));
       event.dataTransfer.effectAllowed = 'copyMove';
       event.dataTransfer.setData('application/x-univdash-path', dragSource);
-      event.dataTransfer.setData('text/plain', dragSource);   // 프롬프트 입력창에 놓으면 경로가 들어간다
-      row.classList.add('dragging');
+      event.dataTransfer.setData('text/plain', dragSources.join(' '));   // 프롬프트 입력창에 놓으면 경로가 들어간다
+      if (dragSources.length > 1) container.querySelectorAll('.ex-tree .ex-row.selected').forEach((el) => el.classList.add('dragging'));
+      else row.classList.add('dragging');
     });
     container.addEventListener('dragend', () => {
       container.querySelectorAll('.ex-row.dragging').forEach((el) => el.classList.remove('dragging'));
       dragSource = null;
+      dragSources = [];
       clearDrop();
     });
     // 순서 직접 지정: 같은 폴더 항목 위에 놓으면 그 앞 · 뒤로 (폴더 줄은 가운데면 폴더 안으로, 위 · 아래 가장자리면 순서)
     function reorderSpot(event) {
-      if (prefs().sort !== 'manual' || !dragSource || event.ctrlKey || event.altKey || event.metaKey) return null;
+      if (prefs().sort !== 'manual' || !dragSource || dragSources.length > 1 || event.ctrlKey || event.altKey || event.metaKey) return null;
       const row = event.target.closest?.('.ex-row');
       if (!row || row.dataset.path === dragSource || dirname(row.dataset.path) !== dirname(dragSource)) return null;
       const r = row.getBoundingClientRect();
@@ -970,7 +1020,7 @@
       }
       const dir = dropDir(event);
       const copy = event.ctrlKey || event.altKey || event.metaKey;
-      if (!copy && !canMove(dragSource, dir)) { event.dataTransfer.dropEffect = 'none'; clearDrop(); return; }
+      if (!copy && !dragSources.some((source) => canMove(source, dir))) { event.dataTransfer.dropEffect = 'none'; clearDrop(); return; }
       event.preventDefault();
       event.dataTransfer.dropEffect = copy ? 'copy' : 'move';
       if (hoverDir !== dir) {
@@ -991,13 +1041,16 @@
       event.preventDefault();
       event.stopPropagation();
       const source = dragSource;
+      const sources = dragSources;
       const spot = reorderSpot(event);
       const dir = dropDir(event);
       const copy = event.ctrlKey || event.altKey || event.metaKey;
       dragSource = null;
+      dragSources = [];
       clearDrop();
       if (spot) { reorder(source, spot.row.dataset.path, spot.before); return; }
-      moveTo(source, dir, { copy });
+      if (sources.length > 1) moveManyTo(sources, dir, { copy });
+      else moveTo(source, dir, { copy });
     });
 
     body.addEventListener('dragover', (event) => {

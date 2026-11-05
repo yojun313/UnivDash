@@ -9,11 +9,11 @@
 """
 
 import logging
-import shutil
 import subprocess
 import threading
 import time
 
+from app.paths import find_command
 from app.services import agent_restart, codex_accounts, tmux_service
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ _job: dict = {
 
 def _update_claude() -> bool | None:
     """claude 를 최신으로. 명령이 없으면 None."""
-    binary = shutil.which("claude")
+    binary = find_command("claude")
     if not binary:
         return None
     from app.services.pty_service import _env  # 대시보드 비밀값을 뺀 환경

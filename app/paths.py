@@ -51,3 +51,29 @@ def _migrate_legacy(target: Path) -> None:
                 logger.warning(
                     "데이터 파일을 옮기지 못했습니다 · %s: %s", source, error
                 )
+
+
+# pm2 로 띄운 서버는 로그인 셸의 PATH 를 물려받지 않아 ~/.local/bin 같은 곳에 깔린 claude · codex 를
+# 못 찾는다 (그러면 Codex 사용량 · 계정 바꾸기 · 업데이트가 조용히 실패한다). PATH 다음에 흔한 설치 위치도 본다.
+_EXTRA_BIN_DIRS = (
+    "~/.local/bin",
+    "~/.codex/packages/standalone/current/bin",
+    "~/.claude/local",
+    "~/.npm-global/bin",
+    "~/.bun/bin",
+    "~/.volta/bin",
+    "/usr/local/bin",
+    "/opt/homebrew/bin",
+)
+
+
+def find_command(name: str) -> str | None:
+    """실행 파일 경로. PATH 에 없으면 사용자 설치 위치에서 찾는다."""
+    found = shutil.which(name)
+    if found:
+        return found
+    for folder in _EXTRA_BIN_DIRS:
+        candidate = Path(folder).expanduser() / name
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None

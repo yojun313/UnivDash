@@ -131,6 +131,7 @@ class Window:
     activity: int
     panes: list[Pane] = field(default_factory=list)
     reply_activity: int = 0  # 마지막 실제 에이전트 답변 시각 (화면 다시 그리기 제외)
+    compacted: bool = False  # 마지막으로 한 일이 대화 압축뿐 (압축이 끝난 것은 '작업 완료' 알림을 하지 않는다)
     agent: str | None = None
     title: str = ""
     path: str = ""
@@ -326,6 +327,9 @@ def list_windows(with_status: bool = True) -> list[Window]:
                                 if item.get("kind") == "assistant" and item.get("ts")
                             ),
                             None,
+                        )
+                        window.compacted = bool(items) and (
+                            items[-1].get("text") == transcript_service.COMPACTED
                         )
                         if latest:
                             window.reply_activity = int(

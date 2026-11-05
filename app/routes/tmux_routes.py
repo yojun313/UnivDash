@@ -397,6 +397,7 @@ MAX_ATTACHMENTS = 20
 SCREEN_INTERVAL = 0.15  # 화면 · 세션 로그 확인 주기 (터미널 글이 채팅에 바로 뜨게)
 WINDOWS_INTERVAL = 1.5
 AUTH_RECHECK = 10
+SEND_TIMEOUT = 20
 
 
 class _Channel:
@@ -422,7 +423,11 @@ class _Channel:
 
     async def send(self, payload: dict) -> None:
         async with self.send_lock:
-            await self.ws.send_text(json.dumps(payload, ensure_ascii=False))
+            # 받는 쪽이 멈춘 연결(잠든 휴대폰 등)에 막혀 화면 · 채팅 전송이 통째로 서지 않게 한다
+            await asyncio.wait_for(
+                self.ws.send_text(json.dumps(payload, ensure_ascii=False)),
+                timeout=SEND_TIMEOUT,
+            )
 
     async def push_screen(self, force: bool = False) -> None:
         pane = self.pane
@@ -544,6 +549,15 @@ async def _pump(channel: _Channel) -> None:
             except TimeoutError:
                 pass
             channel.wake.clear()
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        # 화면 · 채팅을 보내는 일이 멈추면 연결은 살아 있어도 아무것도 오지 않는다 → 끊어서 클라이언트가 다시 붙게 한다
+        logger.warning("실시간 전송 중단 → 연결을 닫습니다", exc_info=True)
+        try:
+            await asyncio.wait_for(channel.ws.close(code=1011), timeout=5)
+        except Exception:
+            pass
     finally:
         if windows_task is not None:
             windows_task.cancel()
@@ -696,6 +710,11 @@ async def websocket_endpoint(websocket: WebSocket):
                 )
     except WebSocketDisconnect:
         pass
+    except TimeoutError:
+        logger.info("응답 없는 WebSocket 연결을 닫습니다")
+    except RuntimeError:
+        # 전송 루프가 먼저 연결을 닫은 경우 (receive 가 닫힌 소켓을 읽음)
+        logger.debug("WebSocket 이 이미 닫혔습니다", exc_info=True)
     finally:
         push_service.set_focus(id(channel), None)
         pump.cancel()

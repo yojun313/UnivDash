@@ -22,7 +22,7 @@ import threading
 import time
 from pathlib import Path
 
-from app.paths import data_dir
+from app.paths import data_dir, find_command
 from app.services.ai_usage_service import AIUsageService
 
 LOGIN_TIMEOUT = 15 * 60  # 기기 코드 유효 시간
@@ -437,7 +437,7 @@ _logins: dict[str, _Login] = {}
 
 
 def _codex_bin() -> str:
-    found = shutil.which("codex")
+    found = find_command("codex")
     if not found:
         raise AccountError("codex 명령을 찾지 못했어요.")
     return found

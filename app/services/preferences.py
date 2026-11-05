@@ -33,6 +33,9 @@ def _unique_keys(values: list[str]) -> list[str]:
     return result
 
 
+NOTE_MAX = 120
+
+
 class Folder(BaseModel):
     id: str = Field(min_length=1, max_length=32)
     name: str = Field(min_length=1, max_length=40)
@@ -73,6 +76,8 @@ class Preferences(BaseModel):
     )  # 폴더 밖 창 순서
     hidden: list[str] = Field(default_factory=list, max_length=MAX_ITEMS)
     aliases: dict[str, str] = Field(default_factory=dict)
+    # 창 이름 아래 한 줄 설명 (비우면 에이전트가 붙인 작업 제목을 그대로 쓴다)
+    notes: dict[str, str] = Field(default_factory=dict)
     sort: str = "status"
     nav_order: list[str] = Field(
         default_factory=lambda: list(NAV_ORDER_DEFAULT), max_length=20
@@ -96,6 +101,16 @@ class Preferences(BaseModel):
             alias = " ".join(str(alias).split())[:60]
             if WINDOW_KEY.match(key) and alias:
                 cleaned[key] = alias
+        return cleaned
+
+    @field_validator("notes")
+    @classmethod
+    def validate_notes(cls, value: dict[str, str]) -> dict[str, str]:
+        cleaned = {}
+        for key, note in list(value.items())[:MAX_ITEMS]:
+            note = " ".join(str(note).split())[:NOTE_MAX]
+            if WINDOW_KEY.match(key) and note:
+                cleaned[key] = note
         return cleaned
 
     @field_validator("nav_order")
@@ -122,7 +137,7 @@ class Preferences(BaseModel):
 
 
 def rename_session_keys(prefs: "Preferences", old: str, new: str) -> "Preferences":
-    """세션 이름이 바뀌면 "이전이름:N" 키를 "새이름:N" 으로 옮긴다 (폴더 · 순서 · 숨김 유지, 별칭은 지움)."""
+    """세션 이름이 바뀌면 "이전이름:N" 키를 "새이름:N" 으로 옮긴다 (폴더 · 순서 · 숨김 · 설명 유지, 별칭은 지움)."""
     prefix = f"{old}:"
 
     def move(key: str) -> str:
@@ -136,6 +151,9 @@ def rename_session_keys(prefs: "Preferences", old: str, new: str) -> "Preference
     data["aliases"] = {
         k: v for k, v in data["aliases"].items() if not k.startswith(prefix)
     }
+    data["notes"] = {
+        move(k): v for k, v in data["notes"].items()
+    }  # 설명은 그대로 따라간다
     return Preferences.model_validate(data)
 
 
