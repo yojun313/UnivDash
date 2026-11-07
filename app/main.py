@@ -14,6 +14,7 @@ load_dotenv()
 from app.routes import (
     account_routes,
     auth_routes,
+    domain_routes,
     fs_routes,
     git_routes,
     pty_routes,
@@ -26,6 +27,7 @@ from app.routes import (
 from app.security import SecurityMiddleware, env_flag, resolve_secret_key
 from app.services import (
     agent_restart,
+    git_auto_pull,
     push_service,
     session_restore,
     tool_install,
@@ -44,6 +46,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(upload_service.cleanup_loop()),
         asyncio.create_task(push_service.watch_loop()),
         asyncio.create_task(agent_restart.auto_trust_loop()),
+        asyncio.create_task(git_auto_pull.loop()),
     ]
     try:
         yield
@@ -93,6 +96,7 @@ app.include_router(tmux_routes.router)
 app.include_router(upload_routes.router)
 app.include_router(server_routes.router)
 app.include_router(git_routes.router)
+app.include_router(domain_routes.router)
 app.include_router(fs_routes.router)
 app.include_router(pty_routes.router)
 app.include_router(settings_routes.router)

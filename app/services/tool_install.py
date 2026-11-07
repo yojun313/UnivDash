@@ -3,6 +3,8 @@
 - 이미 있으면 아무것도 하지 않는다 (업데이트 · 로그인 정보는 건드리지 않는다).
 - 서버가 뜨는 것을 막지 않게 백그라운드에서 돌고, 실패하면 기록만 남기고 다음에 켤 때 다시 한다.
 - sudo 는 쓰지 않는다: 전부 사용자 폴더에 설치한다. AUTO_INSTALL_TOOLS=0 이면 끈다.
+- Chrome 이 쓰는 시스템 라이브러리가 없으면 apt 저장소에서 패키지를 받아 사용자 폴더에 풀고 Chrome 에만 쓴다.
+  (apt-get download 는 root 없이 되고, 서명된 패키지 목록으로 파일을 검증한다)
 - Claude · Codex 는 공식 설치 스크립트로, Chrome 은 Google 의 Chrome for Testing 배포본으로 받는다.
   주소는 HTTPS · 정해진 호스트만 허용한다.
 """
@@ -11,6 +13,7 @@ import json
 import logging
 import os
 import platform
+import re
 import shutil
 import stat
 import subprocess
@@ -51,6 +54,21 @@ _PLATFORMS = {
     ("Linux", "x86_64"): "linux64",
     ("Darwin", "arm64"): "mac-arm64",
     ("Darwin", "x86_64"): "mac-x64",
+}
+
+MAX_LIBRARY_ROUNDS = 8
+LIBRARY_TIMEOUT = 120
+_LIBRARY_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]*\.so(?:\.[0-9.]+)?")
+# 패키지 이름이 라이브러리 이름에서 나오지 않는 것들
+_LIBRARY_PACKAGES = {
+    "libnss3.so": "libnss3",
+    "libnssutil3.so": "libnss3",
+    "libsmime3.so": "libnss3",
+    "libssl3.so": "libnss3",
+    "libnspr4.so": "libnspr4",
+    "libplc4.so": "libnspr4",
+    "libplds4.so": "libnspr4",
+    "libatspi.so.0": "libatspi2.0-0",
 }
 
 _chrome_lock = threading.Lock()
@@ -200,6 +218,107 @@ def installed_chrome() -> str | None:
     return str(candidate) if os.access(candidate, os.X_OK) else None
 
 
+def _libraries_root() -> Path:
+    return _chrome_root() / "libs"
+
+
+def chrome_env(binary: str, env: dict[str, str]) -> dict[str, str]:
+    """받아 둔 Chrome 을 실행할 환경. 내려받은 라이브러리는 이 Chrome 에만 보이게 한다."""
+    root = _libraries_root()
+    if not binary.startswith(f"{_chrome_root()}{os.sep}") or not root.is_dir():
+        return env
+    folders = sorted({str(path.parent) for path in root.rglob("*.so*")})
+    if not folders:
+        return env
+    return {**env, "LD_LIBRARY_PATH": os.pathsep.join(folders)}
+
+
+def _missing_libraries(binary: str) -> list[str]:
+    if not shutil.which("ldd"):
+        return []
+    result = subprocess.run(
+        ["ldd", binary],
+        env=chrome_env(binary, _child_env()),
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        errors="replace",
+        timeout=30,
+        check=False,
+    )
+    missing = set()
+    for line in result.stdout.splitlines():
+        name, _, rest = line.strip().partition(" => ")
+        if rest.startswith("not found") and _LIBRARY_NAME.fullmatch(name):
+            missing.add(name)
+    return sorted(missing)
+
+
+def _package_candidates(library: str) -> list[str]:
+    """Debian 의 이름 규칙: libatk-1.0.so.0 → libatk1.0-0, libX11.so.6 → libx11-6 (Ubuntu 24.04 는 t64 가 붙기도 한다)."""
+    packages = []
+    if library in _LIBRARY_PACKAGES:
+        packages = [_LIBRARY_PACKAGES[library]]
+    elif match := re.fullmatch(r"(.+?)\.so\.([0-9]+)[0-9.]*", library):
+        name, version = match.group(1).lower().replace("_", "-"), match.group(2)
+        head, dash, tail = name.rpartition("-")
+        stems = [f"{head}{tail}", name] if dash else [name]
+        packages = [
+            f"{stem}-{version}" if stem[-1].isdigit() else f"{stem}{version}"
+            for stem in stems
+        ]
+    return [variant for item in packages for variant in (f"{item}t64", item)]
+
+
+def _download_library(library: str) -> bool:
+    env = {**_child_env(), "LC_ALL": "C"}
+    for package in _package_candidates(library):
+        with tempfile.TemporaryDirectory(prefix="univdash-lib-") as folder:
+            result = subprocess.run(
+                ["apt-get", "download", package],
+                cwd=folder,
+                env=env,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                timeout=LIBRARY_TIMEOUT,
+                check=False,
+            )
+            archives = list(Path(folder).glob("*.deb"))
+            if result.returncode != 0 or len(archives) != 1:
+                continue
+            subprocess.run(
+                ["dpkg-deb", "-x", str(archives[0]), str(_libraries_root())],
+                env=env,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                timeout=LIBRARY_TIMEOUT,
+                check=True,
+            )
+            logger.info("Chrome 용 라이브러리 설치 · %s (%s)", library, package)
+            return True
+    return False
+
+
+def _install_missing_libraries(binary: str) -> list[str]:
+    """없는 라이브러리를 받는다. 받은 라이브러리가 또 다른 것을 필요로 할 수 있어 없어질 때까지 반복한다."""
+    missing = _missing_libraries(binary)
+    if not missing or not (shutil.which("apt-get") and shutil.which("dpkg-deb")):
+        return missing
+    _libraries_root().mkdir(parents=True, exist_ok=True)
+    tried: set[str] = set()
+    for _ in range(MAX_LIBRARY_ROUNDS):
+        fresh = [library for library in missing if library not in tried]
+        if not fresh:
+            break
+        tried.update(fresh)
+        for library in fresh:
+            _download_library(library)
+        missing = _missing_libraries(binary)
+        if not missing:
+            break
+    return missing
+
+
 def _chrome_problem(binary: str) -> str | None:
     """받은 Chrome 이 이 컴퓨터에서 실행되는지. 필요한 시스템 라이브러리가 없으면 그 이름을 알려 준다."""
     with tempfile.TemporaryDirectory(prefix="univdash-chrome-") as folder:
@@ -212,7 +331,7 @@ def _chrome_problem(binary: str) -> str | None:
                 "--dump-dom",
                 "about:blank",
             ],
-            env=_child_env(),
+            env=chrome_env(binary, _child_env()),
             stdin=subprocess.DEVNULL,
             capture_output=True,
             timeout=30,
@@ -266,7 +385,14 @@ def _download_chrome() -> None:
         folders = [p for p in unpacked.iterdir() if p.is_dir()]
         if len(folders) != 1 or not (folders[0] / CHROME_NAME).is_file():
             raise RuntimeError("받은 파일의 구성이 예상과 다릅니다.")
-        problem = _chrome_problem(str(folders[0] / CHROME_NAME))
+        binary = str(folders[0] / CHROME_NAME)
+        missing = _install_missing_libraries(binary)
+        if missing:
+            raise RuntimeError(
+                f"Chrome 에 필요한 시스템 라이브러리를 받지 못했습니다: {', '.join(missing[:6])}. "
+                "관리자가 시스템에 Chrome 을 설치하면 해결됩니다."
+            )
+        problem = _chrome_problem(binary)
         if problem:
             raise RuntimeError(f"받은 Chrome 이 실행되지 않습니다: {problem}")
         current = root / "current"
@@ -339,7 +465,7 @@ def chrome_needs_no_sandbox(binary: str) -> bool:
                     "--dump-dom",
                     "about:blank",
                 ],
-                env=_child_env(),
+                env=chrome_env(binary, _child_env()),
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
                 timeout=30,

@@ -1,0 +1,122 @@
+{% extends '_layout.html' %}
+
+{% block content %}
+<div class="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 safe-bottom">
+    <div class="max-w-[1400px] mx-auto">
+        <div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <p class="text-xs text-white/40">도메인 연결과 SSL(HTTPS) 인증서를 관리합니다.</p>
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <label class="relative block sm:w-64">
+                    <span class="sr-only">도메인 · 폴더 검색</span>
+                    <input id="domainSearch" type="search" placeholder="도메인 · 폴더 검색" autocomplete="off" autocapitalize="off" spellcheck="false" class="w-full glass-input rounded-xl px-3 py-2 pr-8 text-xs text-white placeholder-white/30">
+                    <i class="fas fa-search pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-white/30"></i>
+                </label>
+                <button id="domainNewFolder" type="button" class="glass-soft rounded-xl px-4 py-2 text-xs font-bold text-white/70 hover:bg-white/10 transition"><i class="fas fa-folder-plus mr-1"></i>새 폴더</button>
+                <button id="domainAdd" type="button" class="rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-cyan-900/30 hover:from-cyan-500 hover:to-blue-500 transition"><i class="fas fa-plus mr-1"></i>새 도메인 추가</button>
+            </div>
+        </div>
+
+        <div id="domainHelperBanner" class="hidden mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-5 text-amber-300">
+            <p id="domainHelperText" class="font-bold"></p>
+            <p class="mt-1">서버 터미널에서 관리자 비밀번호로 아래 명령을 실행한 뒤 새로고침해 주세요. 그 전에는 목록 보기와 폴더 정리만 됩니다.</p>
+            <code id="domainHelperCommand" class="mt-2 block break-all rounded-lg border border-amber-500/30 px-3 py-2 font-mono text-[11px]"></code>
+        </div>
+
+        <section class="glass overflow-hidden rounded-2xl shadow-xl">
+            <div class="dom-head hidden lg:grid border-b border-white/10 px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-white/35">
+                <span>Domain Name</span><span>Port</span><span>Paths</span><span>Config File</span><span class="text-right">Actions</span>
+            </div>
+            <div id="domainList"><p class="p-10 text-center text-xs text-white/35">불러오는 중입니다.</p></div>
+        </section>
+    </div>
+</div>
+
+<div id="domAddModal" class="dom-modal hidden fixed inset-0 bg-black/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+    <form id="domAddForm" class="glass-strong w-full max-w-md max-h-full overflow-y-auto rounded-2xl p-5 space-y-3 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="domAddTitle">
+        <h3 id="domAddTitle" class="text-sm font-bold text-white">새 도메인 추가</h3>
+        <label class="dom-field"><span>도메인 주소</span><input name="domain" required maxlength="253" placeholder="example.com" autocapitalize="off" spellcheck="false" class="glass-input"></label>
+        <label class="dom-field"><span>경로 (선택, 기본 /)</span><input name="path" value="/" maxlength="200" placeholder="/ 또는 /api" autocapitalize="off" spellcheck="false" class="glass-input"><small>이미 있는 도메인에 경로만 더하려면 목록의 + 버튼을 쓰세요. 인증서를 다시 받지 않고 바로 반영돼요.</small></label>
+        <label class="dom-field"><span>SSL 인증용 이메일</span><input name="email" type="email" required maxlength="254" placeholder="admin@example.com" class="glass-input"></label>
+        <label class="dom-field"><span>내부 연결 포트</span><input name="port" type="number" required min="1" max="65535" placeholder="3000" class="glass-input"></label>
+        <label class="dom-field"><span>폴더 (선택)</span><select name="folder_id" data-folder-select class="glass-input"></select></label>
+        <p class="text-[11px] leading-4 text-amber-300/90">도메인의 DNS A 레코드가 이 서버를 가리켜야 인증서가 발급돼요. 실패하면 새 설정을 자동으로 지웁니다.</p>
+        <div class="dom-modal-actions"><button type="button" data-close-modal>취소</button><button type="submit" class="dom-primary">생성 시작</button></div>
+    </form>
+</div>
+
+<div id="domAddPathModal" class="dom-modal hidden fixed inset-0 bg-black/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+    <form id="domAddPathForm" class="glass-strong w-full max-w-md rounded-2xl p-5 space-y-3 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="domAddPathTitle">
+        <h3 id="domAddPathTitle" class="text-sm font-bold text-white">경로 추가</h3>
+        <p id="domAddPathLabel" class="font-mono text-[11px] text-white/40"></p>
+        <label class="dom-field"><span>경로</span><input name="path" required maxlength="200" placeholder="/api" autocapitalize="off" spellcheck="false" class="glass-input"></label>
+        <label class="dom-field"><span>내부 연결 포트</span><input name="port" type="number" required min="1" max="65535" placeholder="3001" class="glass-input"></label>
+        <div class="dom-modal-actions"><button type="button" data-close-modal>취소</button><button type="submit" class="dom-primary">추가</button></div>
+    </form>
+</div>
+
+<div id="domEditPathModal" class="dom-modal hidden fixed inset-0 bg-black/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+    <form id="domEditPathForm" class="glass-strong w-full max-w-md rounded-2xl p-5 space-y-3 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="domEditPathTitle">
+        <h3 id="domEditPathTitle" class="text-sm font-bold text-white">포트 수정</h3>
+        <p id="domEditPathLabel" class="break-all font-mono text-[11px] text-white/40"></p>
+        <label class="dom-field"><span>내부 연결 포트</span><input name="port" type="number" required min="1" max="65535" class="glass-input"></label>
+        <div class="dom-modal-actions"><button type="button" data-close-modal>취소</button><button type="submit" class="dom-primary">저장</button></div>
+    </form>
+</div>
+
+<div id="domRenameModal" class="dom-modal hidden fixed inset-0 bg-black/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+    <form id="domRenameForm" class="glass-strong w-full max-w-md max-h-full overflow-y-auto rounded-2xl p-5 space-y-3 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="domRenameTitle">
+        <h3 id="domRenameTitle" class="text-sm font-bold text-white">도메인 이름 변경</h3>
+        <p class="text-[11px] text-white/40">경로와 내부 포트는 그대로 두고 도메인 주소만 바꿉니다.</p>
+        <div class="dom-field"><span>기존 도메인</span><p id="domRenameOld" class="dom-readonly break-all"></p></div>
+        <div class="dom-field"><span>유지되는 경로 / 포트</span><div id="domRenameKept" class="dom-readonly space-y-1"></div></div>
+        <label class="dom-field"><span>새 도메인 주소</span><input name="new_domain" required maxlength="253" placeholder="new.example.com" autocapitalize="off" spellcheck="false" class="glass-input"></label>
+        <label class="dom-field"><span>SSL 인증용 이메일</span><input name="email" type="email" required maxlength="254" placeholder="admin@example.com" class="glass-input"></label>
+        <p class="text-[11px] leading-4 text-amber-300/90">새 도메인의 DNS A 레코드가 이 서버를 가리켜야 인증서가 발급돼요. 실패하면 기존 설정으로 자동 복구됩니다.</p>
+        <p class="dom-self-warning hidden text-[11px] leading-4 text-red-300"></p>
+        <div class="dom-modal-actions"><button type="button" data-close-modal>취소</button><button type="submit" class="dom-primary">변경 시작</button></div>
+    </form>
+</div>
+
+<div id="domDeleteModal" class="dom-modal hidden fixed inset-0 bg-black/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+    <form id="domDeleteForm" class="glass-strong w-full max-w-md rounded-2xl p-5 space-y-3 shadow-2xl" role="alertdialog" aria-modal="true" aria-labelledby="domDeleteTitle">
+        <h3 id="domDeleteTitle" class="text-sm font-bold text-red-300">정말 삭제할까요?</h3>
+        <p class="text-xs leading-5 text-white/60">되돌릴 수 없고 인증서도 함께 파기됩니다. 확정하려면 아래 도메인 이름을 똑같이 입력해 주세요.</p>
+        <p id="domDeleteTarget" class="break-all rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1 font-mono text-xs font-bold text-red-300"></p>
+        <input id="domDeleteInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="도메인 주소를 그대로 입력" aria-label="삭제할 도메인 주소 입력" class="w-full glass-input rounded-lg px-3 py-2 text-xs text-white placeholder-white/30">
+        <p class="dom-self-warning hidden text-[11px] leading-4 text-red-300"></p>
+        <div class="dom-modal-actions"><button type="button" data-close-modal>취소</button><button id="domDeleteConfirm" type="submit" class="dom-danger" disabled>삭제 확정</button></div>
+    </form>
+</div>
+
+<div id="domFolderModal" class="dom-modal hidden fixed inset-0 bg-black/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+    <form id="domFolderForm" class="glass-strong w-full max-w-md rounded-2xl p-5 space-y-3 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="domFolderTitle">
+        <h3 id="domFolderTitle" class="text-sm font-bold text-white">새 폴더</h3>
+        <p class="text-[11px] text-white/40">목록을 묶어 보기 위한 폴더입니다. nginx 설정과 인증서에는 영향을 주지 않아요.</p>
+        <label class="dom-field"><span>폴더 이름</span><input name="name" required maxlength="40" placeholder="예: 운영 서비스" class="glass-input"></label>
+        <div class="dom-modal-actions"><button type="button" data-close-modal>취소</button><button type="submit" class="dom-primary">저장</button></div>
+    </form>
+</div>
+
+<div id="domMoveModal" class="dom-modal hidden fixed inset-0 bg-black/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+    <form id="domMoveForm" class="glass-strong w-full max-w-md rounded-2xl p-5 space-y-3 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="domMoveTitle">
+        <h3 id="domMoveTitle" class="text-sm font-bold text-white">폴더 이동</h3>
+        <p id="domMoveLabel" class="break-all font-mono text-[11px] text-white/40"></p>
+        <label class="dom-field"><span>폴더</span><select name="folder_id" data-folder-select class="glass-input"></select></label>
+        <div class="dom-modal-actions"><button type="button" data-close-modal>취소</button><button type="submit" class="dom-primary">이동</button></div>
+    </form>
+</div>
+
+<div id="domConsoleModal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-md z-[110] flex items-center justify-center p-4">
+    <div class="glass-strong flex h-[65vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="domConsoleTitle">
+        <div class="flex items-center justify-between gap-3 border-b border-white/10 p-3">
+            <span id="domConsoleTitle" class="font-mono text-[11px] tracking-wider text-white/50">실행 중...</span>
+            <button id="domConsoleClose" type="button" class="hidden glass-soft rounded-lg px-3 py-1 text-xs font-bold text-white/70 hover:bg-white/10">닫기</button>
+        </div>
+        <div id="domConsoleOutput" class="terminal min-h-0 flex-1 overflow-y-auto p-4 font-mono text-[12px] leading-5" aria-live="polite"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+    <script src="{{ asset('domains.js') }}"></script>
+{% endblock %}

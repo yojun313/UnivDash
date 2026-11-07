@@ -414,7 +414,7 @@
 
   const state = {
     windows: [],
-    prefs: { folders: [], order: [], hidden: [], aliases: {}, notes: {}, sort: 'status', nav_order: ['workspace', 'explorer', 'git', 'ai_usage', 'server'] },
+    prefs: { folders: [], order: [], hidden: [], aliases: {}, notes: {}, sort: 'status', nav_order: ['workspace', 'git', 'ai_usage', 'server', 'domains'] },
     filter: store.get('filter', 'all'),
     search: '',
     showHidden: false,

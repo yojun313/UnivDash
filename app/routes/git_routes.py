@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from app.routes.pages import render_page
-from app.services import git_workflow
+from app.services import git_auto_pull, git_workflow
 from app.services.auth_service import AuthService
 from app.services.git_preferences import GitPreferences, GitPreferencesStore
 from app.services.git_service import GitService
@@ -31,6 +31,15 @@ class GitActionRequest(BaseModel):
     include_untracked: bool = False
     stash_ref: str | None = Field(default=None, max_length=32)
     commit: str | None = Field(default=None, max_length=40)
+
+
+class AutoPullRequest(BaseModel):
+    enabled: bool
+    interval_minutes: int = Field(
+        default=git_auto_pull.DEFAULT_INTERVAL_MINUTES,
+        ge=git_auto_pull.MIN_INTERVAL_MINUTES,
+        le=git_auto_pull.MAX_INTERVAL_MINUTES,
+    )
 
 
 def _raise_for(error: Exception):
@@ -140,7 +149,12 @@ async def start_workflow(repository_id: str):
 async def get_repositories(status: bool = True):
     repositories = await asyncio.to_thread(GitService.list_repositories, status)
     preferences = await asyncio.to_thread(GitPreferencesStore.load)
-    return {"repositories": repositories, "preferences": preferences.model_dump()}
+    auto_pull = await asyncio.to_thread(git_auto_pull.overview)
+    return {
+        "repositories": repositories,
+        "preferences": preferences.model_dump(),
+        "auto_pull": auto_pull,
+    }
 
 
 @router.put("/api/git/preferences", dependencies=api_auth)
@@ -149,12 +163,26 @@ async def save_preferences(preferences: GitPreferences):
     return {"preferences": saved.model_dump()}
 
 
+@router.put("/api/git/auto-pull/{repository_id}", dependencies=api_auth)
+async def save_auto_pull(repository_id: str, body: AutoPullRequest):
+    try:
+        return await asyncio.to_thread(
+            git_auto_pull.configure, repository_id, body.enabled, body.interval_minutes
+        )
+    except (KeyError, ValueError, RuntimeError) as error:
+        _raise_for(error)
+
+
 @router.get("/api/git/repositories/{repository_id}", dependencies=api_auth)
 async def get_repository(repository_id: str):
     try:
-        return await asyncio.to_thread(GitService.get_repository_detail, repository_id)
+        detail = await asyncio.to_thread(
+            GitService.get_repository_detail, repository_id
+        )
     except (KeyError, ValueError, RuntimeError) as error:
         _raise_for(error)
+    detail["auto_pull"] = await asyncio.to_thread(git_auto_pull.status, repository_id)
+    return detail
 
 
 @router.get("/api/git/repositories/{repository_id}/diff", dependencies=api_auth)

@@ -20,7 +20,7 @@ FOLDER_COLORS = {"blue", "purple", "emerald", "amber", "rose", "cyan", "slate"}
 # Workspace 목록 정렬: 상태(작업 중 에이전트 먼저) / 최근 활동 / 이름 / 직접 지정(창 정리 순서)
 SORT_MODES = {"status", "activity", "name", "manual"}
 MAX_ITEMS = 500
-NAV_ORDER_DEFAULT = ("workspace", "explorer", "git", "ai_usage", "server")
+NAV_ORDER_DEFAULT = ("workspace", "git", "ai_usage", "server", "domains")
 
 
 def _unique_keys(values: list[str]) -> list[str]:
@@ -118,6 +118,9 @@ class Preferences(BaseModel):
     def validate_nav_order(cls, value: list[str]) -> list[str]:
         allowed = set(NAV_ORDER_DEFAULT)
         ordered = list(dict.fromkeys(key for key in value if key in allowed))
+        # 예전에 저장한 순서에는 Domains 가 없다 → Servers 바로 아래에 둔다
+        if "domains" not in ordered and "server" in ordered:
+            ordered.insert(ordered.index("server") + 1, "domains")
         return ordered + [key for key in NAV_ORDER_DEFAULT if key not in ordered]
 
     def normalized(self) -> "Preferences":

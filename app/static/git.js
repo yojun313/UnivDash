@@ -18,6 +18,7 @@
     selectedFile: null, // { path, staged }
     busy: false,
     dragId: null,
+    autoPull: {}, // { 저장소 ID: 자동 Pull 설정 · 마지막 결과 }
   };
 
   const byId = (id) => state.repositories.find((repo) => repo.id === id);
@@ -159,6 +160,14 @@
     return badges.join('<span class="text-white/20">·</span>');
   }
 
+  function autoPullBadge(id) {
+    const info = state.autoPull[id];
+    if (!info?.enabled) return '';
+    return info.ok === false
+      ? '<i class="fas fa-rotate text-[9px] text-red-400" title="자동 Pull 실패"></i>'
+      : `<i class="fas fa-rotate text-[9px] text-violet-300" title="자동 Pull ${info.interval_minutes}분마다"></i>`;
+  }
+
   function repoItem(repo, { draggable = true } = {}) {
     const selected = repo.id === state.selectedId;
     const hidden = isHidden(repo.id);
@@ -173,6 +182,7 @@
             <span class="truncate">${escapeHtml(displayName(repo))}</span>
             ${isFavorite(repo.id) ? '<i class="fas fa-star text-[9px] text-amber-400"></i>' : ''}
             ${hidden ? '<i class="fas fa-eye-slash text-[9px] text-white/40"></i>' : ''}
+            ${autoPullBadge(repo.id)}
           </span>
           <span class="mt-0.5 flex min-w-0 items-center gap-1.5 text-[9px] text-white/40">${statusBadges(repo.status)}</span>
         </span>
@@ -411,6 +421,7 @@
       const data = await api('/api/git/repositories');
       state.repositories = data.repositories || [];
       state.prefs = data.preferences;
+      state.autoPull = data.auto_pull || {};
       renderList();
       if (state.selectedId && !byId(state.selectedId)) state.selectedId = null;
       if (!state.selectedId) {
@@ -606,12 +617,70 @@
     if (!state.tab) setTab('changes');
   }
 
+  // ── 자동 Pull ───────────────────────────────────────────────────────
+  function renderAutoPull(info) {
+    const interval = $('gitAutoPullInterval');
+    if (autoPullSaving) return;
+    $('gitAutoPullEnabled').checked = Boolean(info?.enabled);
+    if (document.activeElement !== interval) interval.value = info?.interval_minutes ?? 15;
+    const status = $('gitAutoPullStatus');
+    const parts = [];
+    if (info?.last_run) parts.push(`${relativeTime(info.last_run * 1000)} 확인: ${info.message}`);
+    if (info?.enabled) {
+      if (!info.next_run) parts.push('곧 첫 확인을 해요');
+      else if (info.next_run * 1000 > Date.now()) parts.push(`다음 확인 ${relativeTime(info.next_run * 1000)}`);
+      else parts.push('곧 다시 확인해요');
+    }
+    if (info?.updated_at) parts.push(`마지막으로 받은 때 ${relativeTime(info.updated_at * 1000)}`);
+    status.textContent = parts.join(' · ');
+    status.classList.toggle('text-red-400', info?.ok === false);
+    status.classList.toggle('text-white/40', info?.ok !== false);
+  }
+
+  // 주기를 고치고 바로 체크박스를 누르면 저장이 연달아 일어난다 → 차례로 보내고, 마지막 화면 값이 남게 한다
+  let autoPullSaving = false;
+  let autoPullAgain = false;
+  async function saveAutoPull() {
+    if (autoPullSaving) { autoPullAgain = true; return; }
+    const id = state.selectedId;
+    if (!id) return;
+    autoPullSaving = true;
+    let info = state.autoPull[id];
+    try {
+      do {
+        autoPullAgain = false;
+        const minutes = Number($('gitAutoPullInterval').value);
+        if (!Number.isInteger(minutes) || minutes < 1 || minutes > 10080) {
+          toast('주기는 1분에서 10080분(7일) 사이의 정수로 적어 주세요.', 'error');
+          break;
+        }
+        info = await api(`/api/git/auto-pull/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          body: { enabled: $('gitAutoPullEnabled').checked, interval_minutes: minutes },
+        });
+        state.autoPull[id] = info;
+      } while (autoPullAgain && state.selectedId === id);
+      renderList();
+    } catch (error) {
+      toast(`자동 Pull 설정 저장 실패: ${error.message}`, 'error');
+    } finally {
+      autoPullSaving = false;
+      if (state.selectedId === id) renderAutoPull(info);
+    }
+  }
+
   async function refreshDetail({ quiet = false } = {}) {
     if (!state.selectedId) return;
     const requestNumber = ++state.detailRequest;
     try {
       const detail = await api(`/api/git/repositories/${encodeURIComponent(state.selectedId)}`);
       if (requestNumber !== state.detailRequest) return;
+      // 남은 시간이 계속 바뀌므로 다른 상세 내용과 따로 그린다
+      if (!autoPullSaving) {
+        state.autoPull[detail.id] = detail.auto_pull;
+        renderAutoPull(detail.auto_pull);
+      }
+      delete detail.auto_pull;
       const json = JSON.stringify(detail);
       if (json !== state.detailJson) {
         state.detailJson = json;
@@ -659,6 +728,7 @@
       $('gitEmptyMessage').textContent = '저장소 정보를 불러오는 중입니다.';
     }
     syncWorkflowButton();
+    renderAutoPull(state.autoPull[id]);
     await refreshDetail();
   }
 
@@ -1224,6 +1294,8 @@
     renderList();
   }));
   document.querySelectorAll('.git-tab').forEach((tab) => tab.addEventListener('click', () => setTab(tab.dataset.gitTab)));
+  $('gitAutoPullEnabled').addEventListener('change', saveAutoPull);
+  $('gitAutoPullInterval').addEventListener('change', saveAutoPull);
 
   document.addEventListener('click', (event) => {
     if (!event.target.closest('.git-menu') && !event.target.closest('#gitMoreButton')) closeMenus();

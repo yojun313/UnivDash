@@ -43,7 +43,8 @@ Built as a mobile-first web app (installable to the iPhone home screen as a PWA)
 * **File viewer & editor**: tabs that survive page changes and reloads (scroll, zoom and unsaved edits are kept), syntax highlighting, rendered Markdown with a code toggle, images, video / audio, PDFs and Office documents (docx, xlsx, pptx, hwp…) rendered to page images on the server (works in the iPhone home-screen app), HWPX (한글) documents with tables and images, Jupyter notebooks, CSV tables, SQLite tables, archive listings, HEIC / TIFF images, and a hex view for any other binary. Search within file viewers and editors with `Ctrl/⌘+F`, including text in PDF and Office documents; use `Enter` / `Shift+Enter` to navigate matches and `Esc` to close. Edit text files with `Ctrl/⌘+S`; saving refuses to overwrite a file an agent changed in the meantime unless you confirm.
 * **Server & processes**: CPU per core, memory / swap, disk, network; PM2 status, restart / stop / delete, watch toggle, resource charts, live logs, `pm2 save` and startup status. Add apps to `ecosystem.config.js` from a form (script and `.venv` interpreter are suggested from the folder) and start them with `pm2 start --only`.
 * **AI usage**: remaining Claude Code and Codex limits (current session and weekly), token statistics for today / 7 / 30 days, daily, hourly and weekday charts, per-model and per-project breakdowns.
-* **Git manager**: repositories discovered under configured roots, folders / favorites / aliases, diffs, staging, commit (amend) and commit & push, fetch / pull (rebase) / push (force-with-lease), branches, merges (no-ff / squash), stashes, revert.
+* **Git manager**: repositories discovered under configured roots, folders / favorites / aliases, diffs, staging, commit (amend) and commit & push, fetch / pull (rebase) / push (force-with-lease), branches, merges (no-ff / squash), stashes, revert, per-repository auto pull on a schedule (fast-forward only).
+* **Domains**: nginx reverse-proxy domains and paths, SSL certificates through certbot, rename with automatic rollback, display folders.
 * **Feels like an app on the phone**: bottom tab bar, bottom sheets, long-press menus, no zoom, safe-area aware layout, the keyboard never covers the input, and notifications when an agent finishes or needs you.
 * **Themes**: Aurora / Gradient Mesh / Apple Glass / Minimal Flat, dark & light mode.
 
@@ -122,6 +123,7 @@ UnivDash can type into terminals and run PM2 / Git commands, so it is treated li
 * **Login**: 12+ character password or PBKDF2 hash, optional TOTP (codes cannot be reused), per-IP and global rate limits, generic error messages, audit logging with IP and user agent.
 * **Sessions**: random session IDs stored server-side (hashed); logout and *log out all devices* survive restarts; idle / absolute expiry; changing the password or TOTP secret invalidates every session; open WebSockets re-check the session.
 * **Browser**: no external CDN (Tailwind is prebuilt, Chart.js / SortableJS / Font Awesome / fonts are self-hosted) with a strict CSP `script-src 'self'`; same-origin `Origin` required for every state-changing request and WebSocket; `SameSite=Strict` cookies; `frame-ancestors 'none'`; no `/docs`, `/redoc`, `/openapi.json`.
+* **Domains**: the app runs one root-owned helper through a single sudo rule (`sudo bash tools/install_nginx_helper.sh`, once). The helper takes only validated domain, path, port and email values and writes the nginx config itself, so it never accepts config text. A failed `nginx -t` restores the previous config. Any process running as the dashboard user can run this helper, so it can change domains but gains no other root access.
 * **Server commands**: tmux / PM2 / Git / node are run without a shell, only on IDs that exist, with an allow-list of keys. Uploads are authenticated before the body is read, size-limited and named by the server.
 
 > After adding new Tailwind classes to templates or scripts, rebuild the CSS with `tools/build_css.sh`.
@@ -150,6 +152,7 @@ app/
     upload_routes.py       Attachment upload / delete
     server_routes.py       Server stats, PM2 control & logs, ecosystem.config.js, AI usage
     git_routes.py          Git manager API
+    domain_routes.py       Domains page API and console WebSocket
   services/
     tmux_service.py        tmux listing, capture, prompt / key input, status detection
     transcript_service.py  Claude Code / Codex session log reader
@@ -160,10 +163,14 @@ app/
     ecosystem_service.py   Read / append apps in ecosystem.config.js
     ai_usage_service.py    Claude Code / Codex usage from local logs
     git_service.py         Git operations
+    git_auto_pull.py       Scheduled fast-forward pull per repository
+    domain_service.py      Domain listing, display folders, helper calls
+    nginx_helper.py        Root helper for nginx / certbot (installed as /usr/local/sbin/univdash-nginx)
   templates/               Jinja2 layout and pages
   static/                  app.js, server.js, git.js, ai-usage.js, theme system, icons, vendor/
 tools/
   security.py              hash-password / totp / secret-key helpers
   build_css.sh             Tailwind build (no CDN)
+  install_nginx_helper.sh  Installs the root helper and its single sudo rule
 run.py                     Server entry point
 ```

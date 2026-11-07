@@ -615,7 +615,7 @@ def _chrome_print(job: Path, url: str, file_access: bool) -> Path:
     try:
         result = subprocess.run(
             command,
-            env=_env(),
+            env=tool_install.chrome_env(chrome, _env()),
             stdin=subprocess.DEVNULL,
             capture_output=True,
             timeout=90,
