@@ -15,6 +15,13 @@ from typing import Any, ClassVar
 
 from app.paths import data_dir, find_command
 
+# Codex 가 로그인 문제로 한도 조회를 거절했을 때의 오류 글
+_CODEX_LOGIN_ERROR = re.compile(
+    r"\b401\b|unauthori[sz]ed|refresh.?token|token.{0,40}(?:expired|revoked|invalid)"
+    r"|(?:sign|log).?in\b|authenticat",
+    re.IGNORECASE,
+)
+
 
 class AIUsageService:
     """Claude Code와 Codex의 로컬 세션 기록을 안전하게 집계합니다.
@@ -66,6 +73,7 @@ class AIUsageService:
         claude = cls._collect_claude(claude_root, cutoff, dates, now)
         accounts = cls.accounts()
         claude["account"] = accounts["claude"]
+        claude.update(cls._claude_login_state(claude_root))
         codex_summaries = []
         for index, account in enumerate(cls._saved_codex_accounts(codex_root)):
             codex = cls._collect_codex(
@@ -81,6 +89,7 @@ class AIUsageService:
                 else cls._saved_codex_limits(account["path"], now)
             )
             codex["limits"] = live or codex["limits"]
+            codex["login_expired"] = account["email"] in cls._codex_login_problems
             codex_summaries.append(codex)
         # 구버전 Codex 로그에는 계정 ID가 없어 어느 계정인지 안전하게 판별할 수 없다.
         # 임의의 계정에 합산하지 않고 별도 기록으로 보여준다.
@@ -101,6 +110,7 @@ class AIUsageService:
             codex = cls._collect_codex(codex_root, cutoff, dates, now)
             codex["account"] = accounts["codex"]
             codex["limits"] = cls._live_codex_limits(codex_root, now) or codex["limits"]
+            codex["login_expired"] = accounts["codex"] in cls._codex_login_problems
             codex_summaries.append(codex)
         result = {
             "generated_at": now.isoformat(),
@@ -119,6 +129,10 @@ class AIUsageService:
     _codex_saved_limits_cache: ClassVar[
         dict[str, tuple[int, float, dict[str, Any]]]
     ] = {}
+
+    # 서버가 로그인을 거부한 Codex 계정 메일 · Claude 토큰 끝자리 (다음 조회에서 성공하면 지운다)
+    _codex_login_problems: ClassVar[set[str]] = set()
+    _claude_rejected_token: str | None = None
 
     @classmethod
     def limits(cls) -> dict[str, Any]:
@@ -349,6 +363,7 @@ class AIUsageService:
             return None
         if not isinstance(account_id, str) or not account_id:
             return None
+        email = cls._clean_email(cls._codex_claims_from_auth(auth).get("email"))
         cache_key = (str(root), auth_mtime)
         if use_cache:
             with cls._cache_lock:
@@ -410,6 +425,13 @@ class AIUsageService:
                         continue
                     if response.get("id") != 1:
                         continue
+                    error = response.get("error")
+                    if (
+                        email
+                        and isinstance(error, dict)
+                        and _CODEX_LOGIN_ERROR.search(str(error.get("message") or ""))
+                    ):
+                        cls._codex_login_problems.add(email)
                     result = response.get("result")
                     if (
                         not isinstance(result, dict)
@@ -443,6 +465,7 @@ class AIUsageService:
                         else None,
                     }
                     limits = cls._codex_limits(normalized, now, now)
+                    cls._codex_login_problems.discard(email)
                     if use_cache and auth_file.stat().st_mtime_ns != auth_mtime:
                         return None
                     if use_cache:
@@ -754,6 +777,23 @@ class AIUsageService:
         return f"subscription_{kind}" if isinstance(kind, str) and kind else None
 
     @classmethod
+    def _claude_login_state(cls, root: Path) -> dict[str, bool]:
+        """login_expired: 다시 로그인해야 함이 확실 / login_stale: 토큰 기한이 지남.
+
+        기한이 지난 토큰은 실행 중인 Claude 가 알아서 갱신하므로 그것만으로 만료라고 단정하지 않는다
+        (여기서 대신 갱신하면 토큰이 바뀌어 실행 중인 Claude 의 로그인이 꼬일 수 있다).
+        """
+        oauth = cls._claude_credentials(root) or {}
+        token = oauth.get("accessToken")
+        expires = oauth.get("expiresAt")
+        past = isinstance(expires, (int, float)) and expires / 1000 < time.time()
+        if not isinstance(token, str) or not token:
+            return {"login_expired": True, "login_stale": False}
+        rejected = cls._claude_rejected_token == token[-12:]
+        no_refresh = past and not oauth.get("refreshToken")
+        return {"login_expired": rejected or no_refresh, "login_stale": past}
+
+    @classmethod
     def _fetch_claude_usage(cls, root: Path) -> dict | None:
         """Claude Code 와 같은 방법으로 남은 한도를 가져온다 (GET /api/oauth/usage, 60초 캐시).
 
@@ -787,6 +827,7 @@ class AIUsageService:
             if response.status_code == 200:
                 data = response.json()
                 result = data if isinstance(data, dict) else None
+            cls._claude_rejected_token = key if response.status_code == 401 else None
         except Exception:  # noqa: BLE001 — 네트워크 오류면 표시만 안 한다
             result = None
         cls._claude_usage_cache = (time.monotonic(), key, result)

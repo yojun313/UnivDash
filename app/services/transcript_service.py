@@ -454,6 +454,11 @@ class _Log:
         self.title = ""
         # Claude Code 대기열: 작업 중에 입력해 아직 전달되지 않은 프롬프트 (queue-operation enqueue/remove)
         self.queue: list[str] = []
+        # Codex 대기열은 로그에 남지 않는다 → 입력 기록과 맞춰 본다 (_codex_queued)
+        self.turn_open = False
+        self.stretch_start: float | None = None  # 턴이 이어지는 동안의 시작 시각
+        self.stretch_users = 0  # 그동안 로그에 기록된 사용자 메시지 수
+        self.turn_ended_at: float | None = None
         self.agent_names: dict[str, str] = {}  # Claude 서브에이전트 ID → 설명(이름)
         # Codex 서브에이전트 경로(/root/ground) → spawn_agent 도구 항목
         self.subagents: dict[str, dict] = {}
@@ -682,8 +687,22 @@ class _Log:
             if event == "task_started":
                 trigger = (p.get("turn_attribution") or {}).get("turn_trigger")
                 self.awaiting = _epoch(ts) if trigger == "user" else None
+                # 앞 턴이 끝나자마자 이어진 턴이면(대기 메시지 전달) 같은 묶음으로 센다
+                started = _epoch(ts)
+                ended = self.turn_ended_at
+                if (
+                    self.turn_open
+                    or started is None
+                    or ended is None
+                    or started - ended > FOLLOW_UP_GAP
+                ):
+                    self.stretch_start, self.stretch_users = started, 0
+                self.turn_open = True
             elif event in {"task_complete", "turn_aborted"}:
                 self.awaiting = None
+                self.turn_open = False
+                # 중단(Esc)하면 대기 메시지는 입력창으로 돌아가거나 바로 전달된다 → 묶음을 끊는다
+                self.turn_ended_at = _epoch(ts) if event == "task_complete" else None
             return
         if kind != "response_item":
             return
@@ -691,6 +710,7 @@ class _Log:
         if ptype == "message" and p.get("role") == "user":
             if self._user(p.get("content"), ts) == "user":
                 self.awaiting = None
+                self.stretch_users += 1
         elif ptype == "message" and p.get("role") == "assistant":
             text = _blocks_text(p.get("content")).strip()
             if text:
@@ -764,6 +784,9 @@ def _epoch(ts: str) -> float | None:
 
 
 HISTORY_TAIL = 256 * 1024
+FOLLOW_UP_GAP = 3.0
+# 슬래시 명령은 대화에 메시지로 남지 않는다. "/home/me/a.pdf 참고해" 같은 경로는 일반 메시지다.
+_SLASH_COMMAND = re.compile(r"/[\w-]+(?:\s|$)")
 
 
 def _codex_history() -> Path:
@@ -802,6 +825,40 @@ def _codex_submitted(thread_id: str, since: float) -> str | None:
         if isinstance(text, str) and text.strip():
             found = text
     return found
+
+
+def _codex_queued(thread_id: str, since: float, delivered: int) -> list[str]:
+    """보냈지만 아직 로그에 없는 입력 (작업 중에 더 보낸 메시지).
+
+    Codex 는 전달할 때에야 로그에 적지만 입력 기록에는 보낸 즉시 적고, 보낸 순서대로 전달한다.
+    → 이번 묶음의 입력 중 앞의 delivered 개를 뺀 나머지가 대기 중이다.
+    """
+    try:
+        with _codex_history().open("rb") as handle:
+            handle.seek(max(0, handle.seek(0, os.SEEK_END) - HISTORY_TAIL))
+            lines = handle.read().splitlines()
+    except OSError:
+        return []
+    entries: list[str] = []
+    for raw in reversed(lines):
+        try:
+            entry = json.loads(raw)
+        except ValueError:
+            continue
+        if not isinstance(entry, dict) or entry.get("session_id") != thread_id:
+            continue
+        ts = entry.get("ts")
+        if not isinstance(ts, (int, float)) or ts < since - 2:  # 기록은 초 단위(버림)
+            break
+        text = entry.get("text")
+        if (
+            isinstance(text, str)
+            and text.strip()
+            and not _SLASH_COMMAND.match(text.strip())
+        ):
+            entries.append(text)
+    entries.reverse()
+    return entries[delivered:]
 
 
 _cache: "OrderedDict[str, _Log]" = OrderedDict()
@@ -847,12 +904,18 @@ def read(path: Path, agent: str, start: int | None, limit: int) -> dict:
         related = [dict(log.items[i]) for i in sorted(refs) if i < total]
         title, queue = log.title, list(log.queue)
         awaiting, thread_id = log.awaiting, log.thread_id
+        turn_open, stretch_start = log.turn_open, log.stretch_start
+        stretch_users = log.stretch_users
     # 보낸 프롬프트가 아직 기록되지 않은 턴 (예: 대화 압축 중)
     submitted = (
         _codex_submitted(thread_id, awaiting)
         if agent == "codex" and awaiting is not None and thread_id
         else None
     )
+    if agent == "codex" and turn_open and stretch_start is not None and thread_id:
+        queue = _codex_queued(thread_id, stretch_start, stretch_users)
+        if submitted and queue and queue[0] == submitted:
+            queue = queue[1:]  # 턴을 시작한 입력은 "전달됨"으로 따로 보여 준다
     return {
         "related": related,
         "total": total,
@@ -866,8 +929,8 @@ def read(path: Path, agent: str, start: int | None, limit: int) -> dict:
             if not text.lstrip().startswith(_NOTIFY)
         ],
         "submitted": [_clip(submitted, MAX_TEXT)] if submitted else [],
-        # 프롬프트를 아직 못 찾았다: 입력 기록 파일이 바뀌면 다시 읽어야 한다
-        "awaiting": awaiting is not None and not submitted and agent == "codex",
+        # 작업 중에는 입력 기록 파일이 바뀌면 다시 읽어야 한다 (터미널에서 더 보낸 메시지 · 늦게 적힌 프롬프트)
+        "awaiting": agent == "codex" and (turn_open or awaiting is not None),
     }
 
 

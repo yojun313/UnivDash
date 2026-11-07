@@ -356,6 +356,36 @@ def apply_to_sessions() -> dict:
     return schedule_apply(sync_current())
 
 
+def _install_live(auth: dict) -> None:
+    """(_lock 안에서) 원래 파일을 백업하고 auth.json 을 원자적으로 바꾼다."""
+    live = live_file()
+    if live.exists():
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        backup = _store() / "backups" / f"auth-{stamp}-{secrets.token_hex(2)}.json"
+        _write_secret(backup, live.read_text(encoding="utf-8"))
+        olds = sorted((_store() / "backups").glob("auth-*.json"))
+        for old in olds[:-KEEP_BACKUPS]:
+            old.unlink(missing_ok=True)
+    live.parent.mkdir(parents=True, exist_ok=True)
+    _write_secret(live, json.dumps(auth, indent=2, ensure_ascii=False))
+    _invalidate_usage_cache()
+
+
+def _store_login(auth: dict, info: dict) -> bool:
+    """로그인 결과를 저장한다. 지금 쓰는 계정(또는 로그인이 비어 있음)이면 auth.json 도 새 토큰으로.
+
+    같은 계정의 토큰만 바뀌므로 실행 중인 Codex 창은 그대로 둔다. 다른 계정이면 목록에만 추가한다.
+    """
+    with _lock:
+        _save_profile(auth, info)
+        current = _read_json(live_file())
+        current_info = _info(current) if current else None
+        if current_info and current_info["email"] != info["email"]:
+            return False
+        _install_live(auth)
+        return True
+
+
 def switch(account_id: str) -> dict:
     with _lock:
         path = _profile_path(account_id)
@@ -370,17 +400,7 @@ def switch(account_id: str) -> dict:
         active = sync_current()  # 지금 계정의 최신 토큰을 먼저 저장
         if active == account_id:
             return {"email": info["email"], "changed": False}
-        live = live_file()
-        if live.exists():
-            stamp = time.strftime("%Y%m%d-%H%M%S")
-            backup = _store() / "backups" / f"auth-{stamp}-{secrets.token_hex(2)}.json"
-            _write_secret(backup, live.read_text(encoding="utf-8"))
-            olds = sorted((_store() / "backups").glob("auth-*.json"))
-            for old in olds[:-KEEP_BACKUPS]:
-                old.unlink(missing_ok=True)
-        live.parent.mkdir(parents=True, exist_ok=True)
-        _write_secret(live, json.dumps(record["auth"], indent=2, ensure_ascii=False))
-        _invalidate_usage_cache()
+        _install_live(record["auth"])
     # 실행 중인 Codex(와 공유 데몬)는 예전 계정을 들고 있어 토큰 갱신 때 "다른 계정" 오류가 난다
     # → 업데이트 후 같은 대화로 다시 켠다 (작업 중인 창이 있으면 모두 끝난 뒤 자동으로)
     return {
@@ -414,6 +434,7 @@ class _Login:
         self.code: str | None = None
         self.state = "starting"  # starting → waiting → done | error | cancelled
         self.email: str | None = None
+        self.live = False  # 지금 로그인(auth.json)도 새로 바뀌었는지
         self.error: str | None = None
         self.started = time.monotonic()
         self.output: list[str] = []
@@ -426,6 +447,7 @@ class _Login:
             "url": self.url,
             "code": self.code,
             "email": self.email,
+            "live": self.live,
             "error": self.error,
             "expires_in": max(
                 0, int(LOGIN_TIMEOUT - (time.monotonic() - self.started))
@@ -485,8 +507,7 @@ def _run_login(login: _Login) -> None:
         auth = _read_json(login.home / "auth.json")
         info = _info(auth) if auth else None
         if code == 0 and info:
-            with _lock:
-                _save_profile(auth, info)
+            login.live = _store_login(auth, info)
             login.email = info["email"]
             login.state = "done"
         else:

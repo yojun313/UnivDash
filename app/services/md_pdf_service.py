@@ -27,7 +27,7 @@ import time
 from pathlib import Path
 
 from app.paths import data_dir
-from app.services import preview_service
+from app.services import preview_service, tool_install
 from app.services.fs_service import IMAGE_EXT, MEDIA_EXT, FsError, resolve
 
 STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
@@ -96,7 +96,7 @@ def chrome_path() -> str | None:
         found = shutil.which(name)
         if found:
             return found
-    return None
+    return tool_install.installed_chrome()
 
 
 def _root() -> Path:
@@ -565,14 +565,39 @@ def _result(token: str, out: Path, file: Path, kind: str, zoom: float | None) ->
     }
 
 
+def _without_sandbox() -> bool:
+    chrome = chrome_path()
+    return bool(chrome and tool_install.chrome_needs_no_sandbox(chrome))
+
+
+_DOCTYPE = re.compile(rb"^\s*(?:\xef\xbb\xbf)?\s*<!doctype[^>]*>", re.IGNORECASE)
+
+
+def _block_scripts(page: bytes, folder: Path) -> bytes:
+    """샌드박스 없이 인쇄할 때: 사용자 파일의 스크립트가 돌지 못하게 맨 앞에 CSP 를 넣는다.
+
+    어떤 태그보다 먼저 들어가므로 파일 안의 스크립트는 전부 막힌다. 옆에 있는 그림은 base 로 그대로 찾는다.
+    """
+    guard = (
+        '<meta http-equiv="Content-Security-Policy" '
+        "content=\"script-src 'none'; object-src 'none'; connect-src 'none'\">"
+        f'<base href="{html.escape(folder.as_uri())}/">'
+    ).encode()
+    match = _DOCTYPE.match(page)
+    end = match.end() if match else 0
+    return page[:end] + guard + page[end:]
+
+
 def _chrome_print(job: Path, url: str, file_access: bool) -> Path:
     chrome = chrome_path()
     if not chrome:
-        raise MdPdfError("서버에 Chrome/Chromium 이 없어 PDF 를 만들 수 없어요.")
+        raise MdPdfError(tool_install.chrome_missing_message())
     out = job / "out.pdf"
+    no_sandbox = tool_install.chrome_needs_no_sandbox(chrome)
     command = [
         chrome,
-        "--headless=new",
+        *([] if Path(chrome).name == tool_install.CHROME_NAME else ["--headless=new"]),
+        *(["--no-sandbox"] if no_sandbox else []),
         "--disable-gpu",
         "--no-first-run",
         "--no-default-browser-check",
@@ -635,13 +660,27 @@ def render(
             raise
     if kind == "html":
         token, job = _new_job()
+        if _without_sandbox():
+            (job / "page.html").write_bytes(
+                _block_scripts(file.read_bytes(), file.parent)
+            )
+            return _result(
+                token,
+                _chrome_print(job, (job / "page.html").as_uri(), False),
+                file,
+                kind,
+                None,
+            )
         return _result(
             token, _chrome_print(job, file.as_uri(), False), file, kind, None
         )
     if kind == "hwpx":
         page = _hwpx_html(file)
         token, job = _new_job()
-        (job / "page.html").write_text(page, encoding="utf-8")
+        data = page.encode("utf-8")
+        (job / "page.html").write_bytes(
+            _block_scripts(data, file.parent) if _without_sandbox() else data
+        )
         return _result(
             token,
             _chrome_print(job, (job / "page.html").as_uri(), False),

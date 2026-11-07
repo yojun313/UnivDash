@@ -24,17 +24,26 @@ from app.routes import (
     upload_routes,
 )
 from app.security import SecurityMiddleware, env_flag, resolve_secret_key
+from app.services import (
+    agent_restart,
+    push_service,
+    session_restore,
+    tool_install,
+    upload_service,
+)
 from app.services.auth_service import SESSION_MAX_AGE
-from app.services import push_service, session_restore, upload_service
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 재부팅 뒤 tmux 세션 복원 + 세션 구성 스냅숏 (백그라운드 스레드)
     session_restore.start()
+    # 없는 도구(Claude Code · Codex · PDF 용 Chrome) 설치 (백그라운드 스레드)
+    tool_install.start()
     tasks = [
         asyncio.create_task(upload_service.cleanup_loop()),
         asyncio.create_task(push_service.watch_loop()),
+        asyncio.create_task(agent_restart.auto_trust_loop()),
     ]
     try:
         yield

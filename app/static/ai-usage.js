@@ -43,6 +43,7 @@
       </div>`;
   }
 
+  const canRelogin = (provider) => provider.id === 'claude' || (provider.id === 'codex' && !provider.account?.startsWith('계정 미확인'));
   function renderLimits(providers) {
     $('aiLimits').innerHTML = providers.map((provider) => {
       const limits = provider.limits;
@@ -57,16 +58,24 @@
               <div>
                 <h3 class="font-bold text-white/90">${escapeHtml(provider.name)}</h3>
                 ${provider.account ? `<p class="ai-account text-[11px] font-semibold text-white/60 break-all"><i class="far fa-user text-[9px] mr-1 opacity-70"></i>${escapeHtml(provider.account)}</p>` : '<p class="text-[11px] text-white/35">로그인 계정 정보 없음</p>'}
-                ${provider.id === 'codex' && provider.active !== false ? '<button type="button" class="ai-accounts-btn mt-1" data-codex-accounts><i class="fas fa-right-left"></i> 계정 전환 · 추가</button>' : ''}
+                <div class="ai-account-actions">
+                  ${provider.id === 'codex' && provider.active !== false ? '<button type="button" class="ai-accounts-btn" data-codex-accounts><i class="fas fa-right-left"></i> 계정 전환 · 추가</button>' : ''}
+                  ${canRelogin(provider) ? `<button type="button" class="ai-accounts-btn" data-relogin="${provider.id}" data-email="${escapeHtml(provider.account || '')}"><i class="fas fa-right-to-bracket"></i> 다시 로그인</button>` : ''}
+                </div>
                 ${provider.id === 'codex' && provider.active ? '<p class="text-[10px] font-bold text-emerald-400">현재 사용 중</p>' : ''}
                 <p class="text-[10px] text-white/40">${limits?.updated_at ? `기준 ${relativeTime(limits.updated_at)}` : '한도 정보 없음'}</p>
               </div>
             </div>
             ${limits?.plan ? `<span class="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-bold text-white/60">${escapeHtml(limits.plan)}</span>` : ''}
           </div>
-          ${windows.length ? `<div class="space-y-2.5">${windows.map(renderWindow).join('')}</div>` : `
+          ${provider.login_expired ? `
+            <div class="ai-login-alert">
+              <p><i class="fas fa-triangle-exclamation"></i> 로그인이 만료됐어요.</p>
+              <button type="button" class="btn-glow" data-relogin="${provider.id}" data-email="${escapeHtml(provider.account || '')}">다시 로그인</button>
+            </div>` : ''}
+          ${windows.length ? `<div class="space-y-2.5">${windows.map(renderWindow).join('')}</div>` : provider.login_expired ? '' : `
             <div class="rounded-xl border border-dashed border-white/15 p-4 text-center text-xs text-white/40">
-              ${provider.id === 'claude' ? 'Claude Code 를 실행하면 ~/.claude.json 에 한도 정보가 기록됩니다.' : provider.account?.startsWith('계정 미확인') ? '이전 기록에는 계정 정보가 없어 한도를 연결할 수 없습니다.' : '이 계정의 한도 정보를 불러오지 못했습니다.'}
+              ${provider.id === 'claude' && provider.login_stale && !provider.login_expired ? '한도를 읽지 못했어요. 로그인 기한이 지났어요. Claude Code 를 실행하면 대개 자동으로 이어지고, 안 되면 다시 로그인하세요.' : provider.id === 'claude' ? 'Claude Code 를 실행하면 ~/.claude.json 에 한도 정보가 기록됩니다.' : provider.account?.startsWith('계정 미확인') ? '이전 기록에는 계정 정보가 없어 한도를 연결할 수 없습니다.' : '이 계정의 한도 정보를 불러오지 못했습니다.'}
             </div>`}
           ${breakdown.length ? `
             <div class="mt-4 border-t border-white/10 pt-3">
@@ -313,7 +322,7 @@
           onClick: () => { if (!a.active) switchCodex(a); },
         })),
         ...(data.accounts.length ? ['sep'] : []),
-        { icon: 'fa-plus', label: '계정 추가', desc: '다른 ChatGPT 계정으로 로그인 (지금 로그인은 그대로)', onClick: addCodexAccount },
+        { icon: 'fa-plus', label: '계정 추가', desc: '다른 ChatGPT 계정으로 로그인 (지금 로그인은 그대로)', onClick: () => addCodexAccount() },
         { icon: 'fa-rotate', label: '모든 Codex 창에 지금 계정 적용', desc: "'다른 계정으로 로그인했다' 토큰 오류가 날 때 · 같은 대화로 다시 켜기", onClick: applyCodexAccount },
         ...(others.length ? [{ icon: 'fa-trash', label: '저장된 계정 지우기', danger: true, onClick: () => removeCodexMenu(others) }] : []),
       ],
@@ -358,14 +367,102 @@
       })),
     });
   }
-  function addCodexAccount() {
+  function reloginClaude() {
+    let login = null;
+    let timer = null;
+    let finished = false;
+    const body = () => document.getElementById('sheetBody');
+    const box = () => body()?.querySelector('.cx-login');
+    const endpoint = () => `/api/accounts/claude/login/${login.id}`;
+    const stop = () => { clearInterval(timer); timer = null; finished = true; };
+    const retryButton = '<button type="button" class="btn-glow" data-claude-retry>다시 시도</button>';
+    const paint = () => {
+      const el = box();
+      if (!el || !login) return;
+      if (login.state === 'done') {
+        el.innerHTML = `<p class="cx-done"><i class="fas fa-circle-check"></i> ${escapeHtml(login.email || 'Claude')} 로 로그인했어요.</p><p class="cx-note">실행 중인 Claude Code 창에도 곧 적용돼요.</p>`;
+        return;
+      }
+      if (login.state === 'error' || login.state === 'cancelled') {
+        el.innerHTML = `<p class="cx-error"><i class="fas fa-triangle-exclamation"></i> ${escapeHtml(login.error || '로그인이 취소됐어요.')}</p>${retryButton}`;
+        return;
+      }
+      if (login.state === 'verifying') {
+        el.innerHTML = '<p class="cx-wait"><i class="fas fa-circle-notch fa-spin"></i> 로그인 확인 중…</p>';
+        return;
+      }
+      el.innerHTML = `<ol class="cx-steps">
+          <li><span>이 링크를 열고 Claude 계정으로 로그인하세요</span><a href="${escapeHtml(login.url)}" target="_blank" rel="noopener noreferrer" class="cx-link">로그인 페이지 열기 <i class="fas fa-arrow-up-right-from-square"></i></a></li>
+          <li><span>화면에 나온 코드를 복사해 붙여 넣으세요</span>
+            <form class="cx-code-form" data-claude-code><input type="text" class="input-glass" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" placeholder="코드 붙여넣기" aria-label="로그인 코드" required><button type="submit" class="btn-glow">확인</button></form></li>
+        </ol><p class="cx-note">로그인이 끝나기 전에는 지금 로그인이 그대로 유지돼요. 다른 계정으로 로그인하면 Claude Code 전체가 그 계정으로 바뀌어요.</p>`;
+    };
+    const poll = () => {
+      clearInterval(timer);
+      timer = setInterval(async () => {
+        try {
+          login = await api(endpoint());
+          if (['done', 'error', 'cancelled'].includes(login.state)) {
+            stop();
+            paint();
+            if (login.state === 'done') { toast('Claude Code 에 다시 로그인했어요.', 'success'); refreshAfterLogin(); }
+          } else if (login.state === 'verifying') paint();
+        } catch (error) { stop(); }
+      }, 1500);
+    };
+    const start = () => {
+      finished = false;
+      login = null;
+      const el = box();
+      if (el) el.innerHTML = '<p class="cx-wait"><i class="fas fa-circle-notch fa-spin"></i> 로그인 링크를 받는 중…</p>';
+      api('/api/accounts/claude/login', { method: 'POST' }).then((result) => {
+        login = result;
+        if (!body()) { api(endpoint(), { method: 'DELETE' }).catch(() => {}); return; }
+        paint();
+        poll();
+      }).catch((error) => {
+        finished = true;
+        const target = box();
+        if (target) target.innerHTML = `<p class="cx-error"><i class="fas fa-triangle-exclamation"></i> ${escapeHtml(error.message)}</p>${retryButton}`;
+      });
+    };
+    ui().infoSheet({
+      title: 'Claude Code 다시 로그인',
+      subtitle: '이 기기(휴대폰 · PC)의 브라우저에서 로그인하고 코드를 붙여 넣으세요.',
+      bodyHtml: '<div class="cx-login"></div>',
+      onClose: () => { clearInterval(timer); if (login && !finished) api(endpoint(), { method: 'DELETE' }).catch(() => {}); },
+    });
+    const el = box();
+    el?.addEventListener('click', (event) => { if (event.target.closest('[data-claude-retry]')) start(); });
+    el?.addEventListener('submit', async (event) => {
+      const form = event.target.closest('[data-claude-code]');
+      if (!form) return;
+      event.preventDefault();
+      const input = form.querySelector('input');
+      const button = form.querySelector('button');
+      const code = input.value.trim();
+      if (!/^[A-Za-z0-9_\-.~#+/=%]{8,2048}$/.test(code)) { toast('코드 형식이 올바르지 않아요. 복사한 코드를 그대로 붙여 넣어 주세요.', 'error'); return; }
+      button.disabled = true;
+      try {
+        login = await api(`${endpoint()}/code`, { method: 'POST', body: { code } });
+        paint();
+      } catch (error) {
+        toast(error.message, 'error');
+        button.disabled = false;
+      }
+    });
+    start();
+  }
+  // 로그인이 바뀌면 머리글 게이지와 이 페이지를 새로 읽는다
+  function refreshAfterLogin() { ui().codexAccountChanged(); }
+  function addCodexAccount(relogin = null) {
     let login = null;
     let timer = null;
     let finished = false;
     const body = () => document.getElementById('sheetBody');
     ui().infoSheet({
-      title: 'Codex 계정 추가',
-      subtitle: '다른 기기(휴대폰 · PC)의 브라우저에서 로그인하면 여기에 추가돼요.',
+      title: relogin === null ? 'Codex 계정 추가' : 'Codex 다시 로그인',
+      subtitle: relogin === null ? '다른 기기(휴대폰 · PC)의 브라우저에서 로그인하면 여기에 추가돼요.' : `이 기기(휴대폰 · PC)의 브라우저에서 ${relogin || 'ChatGPT 계정'} 으로 로그인하세요.`,
       bodyHtml: '<div class="cx-login"><p class="cx-wait"><i class="fas fa-circle-notch fa-spin"></i> 로그인 코드를 받는 중…</p></div>',
       onClose: () => { clearInterval(timer); if (login && !finished) api(`/api/accounts/codex/login/${login.id}`, { method: 'DELETE' }).catch(() => {}); },
     });
@@ -373,7 +470,10 @@
       const box = body()?.querySelector('.cx-login');
       if (!box || !login) return;
       if (login.state === 'done') {
-        box.innerHTML = `<p class="cx-done"><i class="fas fa-circle-check"></i> ${escapeHtml(login.email)} 계정을 추가했어요.</p><p class="cx-note">계정 목록에서 골라 바꿀 수 있어요. 지금 로그인은 그대로예요.</p>`;
+        const message = login.live
+          ? `<p class="cx-done"><i class="fas fa-circle-check"></i> ${escapeHtml(login.email)} 로 다시 로그인했어요.</p><p class="cx-note">실행 중인 Codex 창은 그대로 두고 새 로그인으로 이어져요.</p>`
+          : `<p class="cx-done"><i class="fas fa-circle-check"></i> ${escapeHtml(login.email)} 계정을 저장했어요.</p><p class="cx-note">지금 쓰는 계정과 달라서 바꾸지 않았어요. 계정 목록에서 골라 바꿀 수 있어요.</p>`;
+        box.innerHTML = message;
         return;
       }
       if (login.state === 'error' || login.state === 'cancelled') {
@@ -382,7 +482,7 @@
       }
       const minutes = Math.ceil((login.expires_in || 0) / 60);
       box.innerHTML = `<ol class="cx-steps">
-          <li><span>이 링크를 열고, 추가할 ChatGPT 계정으로 로그인하세요</span><a href="${escapeHtml(login.url)}" target="_blank" rel="noopener noreferrer" class="cx-link">${escapeHtml(login.url)} <i class="fas fa-arrow-up-right-from-square"></i></a></li>
+          <li><span>이 링크를 열고, ${relogin === null ? '추가할 ChatGPT 계정' : escapeHtml(relogin || 'ChatGPT 계정')}으로 로그인하세요</span><a href="${escapeHtml(login.url)}" target="_blank" rel="noopener noreferrer" class="cx-link">${escapeHtml(login.url)} <i class="fas fa-arrow-up-right-from-square"></i></a></li>
           <li><span>이 코드를 입력하세요 <small>(${minutes}분 안에)</small></span><button type="button" class="cx-code" data-copy-code title="눌러서 복사">${escapeHtml(login.code)} <i class="far fa-copy"></i></button></li>
         </ol><p class="cx-wait"><i class="fas fa-circle-notch fa-spin"></i> 로그인을 기다리는 중…</p>
         <p class="cx-note">다른 사람이 보내 준 코드라면 입력하지 마세요.</p>`;
@@ -401,7 +501,10 @@
             clearInterval(timer);
             finished = true;
             paint();
-            if (login.state === 'done') { toast(`${login.email} 계정을 추가했어요.`, 'success'); load(); }
+            if (login.state === 'done') {
+              toast(login.live ? `${login.email} 로 다시 로그인했어요.` : `${login.email} 계정을 저장했어요.`, 'success');
+              refreshAfterLogin();
+            }
           }
         } catch (error) { clearInterval(timer); }
       }, 2000);
@@ -411,7 +514,13 @@
       if (box) box.innerHTML = `<p class="cx-error"><i class="fas fa-triangle-exclamation"></i> ${escapeHtml(error.message)}</p>`;
     });
   }
-  $('aiLimits').addEventListener('click', (event) => { if (event.target.closest('[data-codex-accounts]')) codexAccounts(); });
+  $('aiLimits').addEventListener('click', (event) => {
+    if (event.target.closest('[data-codex-accounts]')) { codexAccounts(); return; }
+    const relogin = event.target.closest('[data-relogin]');
+    if (!relogin) return;
+    if (relogin.dataset.relogin === 'claude') reloginClaude();
+    else addCodexAccount(relogin.dataset.email || '');
+  });
   window.addEventListener('univdash:codex-account-changed', () => {
     state.data = null;
     $('aiLimits').innerHTML = '<div class="text-sm text-white/50">계정별 사용량을 불러오는 중…</div>';

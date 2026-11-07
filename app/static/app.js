@@ -2328,11 +2328,11 @@
       toggle.setAttribute('aria-expanded', String(!collapsed));
       toggle.innerHTML = collapsed ? '<i class="fas fa-chevron-up"></i> 키 펼치기' : '<i class="fas fa-chevron-down"></i> 키 접기';
     }
-    applyKeyBar(store.get('keybar-collapsed', false));
+    applyKeyBar(store.get('keybar-folded', true));
     $('#keyBarToggle').addEventListener('pointerdown', (event) => event.preventDefault());
     $('#keyBarToggle').addEventListener('click', () => {
       const collapsed = !$('#keyBar').classList.contains('hidden');
-      store.set('keybar-collapsed', collapsed);
+      store.set('keybar-folded', collapsed);
       applyKeyBar(collapsed);
       refit();
     });
@@ -3143,7 +3143,7 @@
           return now - e.at < SENT_KEEP_MS;
         });
       }
-      const queuedBubble = (text) => `<div class="msg msg-user pending"><div class="msg-meta"><i class="fas fa-hourglass-half"></i> 대기 중 · 지금 작업이 끝나면 전달돼요</div><div class="msg-body">${escapeHtml(text)}</div></div>`;
+      const queuedBubble = (text) => `<div class="msg msg-user pending"><div class="msg-meta"><i class="fas fa-hourglass-half"></i> 대기 중 · 작업 중에 곧 전달돼요</div><div class="msg-body">${escapeHtml(text)}</div></div>`;
       const sentBubble = (e) => `<div class="msg msg-user"><div class="msg-meta">나 · ${escapeHtml(logTime(e.at))}</div><div class="msg-body">${escapeHtml(e.text)}</div></div>`;
       const sentHere = log.sent.filter((e) => e.pane === state.paneId);
       // 이 화면에서 보낸 말풍선이 이미 있으면 서버가 알려 준 것은 겹치니 빼고 보여 준다
@@ -4681,7 +4681,7 @@
       let lastScreen = null;
       let stick = true;
       let logStick = true;
-      const chat = { items: new Map(), total: 0, available: false, agent: null, submitted: [] };
+      const chat = { items: new Map(), total: 0, available: false, agent: null, submitted: [], queued: [] };
       const model = { id: null };
       let modelRequest = 0;
       const modes = store.get('tp-modes', {});
@@ -4766,9 +4766,10 @@
           let arrived = items.filter((item) => item.kind === 'user' && item.id > sent[0].afterId).length;
           while (sent.length && (arrived > 0 || Date.now() - sent[0].at > 10 * 60 * 1000)) { if (arrived > 0) arrived -= 1; sent.shift(); }
         }
-        const pending = sent.length
+        const queuedHtml = chat.queued.map((text) => `<div class="msg msg-user pending"><div class="msg-meta"><i class="fas fa-hourglass-half"></i> 대기 중 · 작업 중에 곧 전달돼요</div><div class="msg-body">${escapeHtml(text)}</div></div>`).join('');
+        const pending = queuedHtml + (sent.length
           ? sent.map((e) => `<div class="msg msg-user"><div class="msg-meta">나 · ${escapeHtml(new Date(e.at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }))}</div><div class="msg-body">${escapeHtml(e.text)}</div></div>`).join('')
-          : chat.submitted.map((text) => `<div class="msg msg-user"><div class="msg-meta">나 · 전달됨</div><div class="msg-body">${escapeHtml(text)}</div></div>`).join('');
+          : chat.submitted.map((text) => `<div class="msg msg-user"><div class="msg-meta">나 · 전달됨</div><div class="msg-body">${escapeHtml(text)}</div></div>`).join(''));
         // 다시 그려도 펼쳐 둔 항목(서브에이전트 등)은 펼친 채로
         const opened = new Set([...listEl.querySelectorAll(':scope > details[open][data-item]')].map((el) => el.dataset.item));
         listEl.dataset.pane = pane || '';
@@ -4803,7 +4804,7 @@
           }
           data.items.forEach((item) => chat.items.set(item.id, item));
           chat.total = data.total;
-          chat.submitted = data.submitted || [];
+          chat.submitted = data.submitted || []; chat.queued = data.queued || [];
           logStick = true;
           renderChat();
           send({ t: 'logsub', pane, since: chat.total });
@@ -4814,7 +4815,7 @@
         if (!chat.available || data.total < chat.total) { loadChat(); return; }
         if (data.items.length && (data.items[0].id > chat.total || data.items.at(-1).id + 1 < data.total)) { loadChat(); return; }
         data.items.forEach((item) => chat.items.set(item.id, item));
-        chat.submitted = data.submitted || [];
+        chat.submitted = data.submitted || []; chat.queued = data.queued || [];
         (data.related || []).forEach((item) => { if (chat.items.has(item.id)) chat.items.set(item.id, item); });
         chat.total = Math.max(chat.total, data.total);
         renderChat();
@@ -4923,13 +4924,13 @@
       const attachments = [];
       const tray = $$in('.tp-tray');
       function syncToggles() {
-        const collapsed = store.get('keybar-collapsed', false);
+        const collapsed = store.get('keybar-folded', true);
         $$in('.tp-keys').classList.toggle('hidden', collapsed);
         $$in('[data-tp-keybar]').innerHTML = collapsed ? '<i class="fas fa-chevron-up"></i> 키 펼치기' : '<i class="fas fa-chevron-down"></i> 키 접기';
       }
       syncToggles();
 
-      $$in('[data-tp-keybar]').addEventListener('click', () => { store.set('keybar-collapsed', !store.get('keybar-collapsed', false)); syncToggles(); });
+      $$in('[data-tp-keybar]').addEventListener('click', () => { store.set('keybar-folded', !store.get('keybar-folded', true)); syncToggles(); });
       function recall(delta) {
         const list = store.get('recent', []);
         if (!list.length) return;

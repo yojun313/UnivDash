@@ -9,7 +9,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services import codex_accounts
+from app.services import claude_login, codex_accounts
 from app.services.ai_usage_service import AIUsageService
 from app.services.auth_service import AuthService
 
@@ -103,4 +103,56 @@ async def codex_login_status(login_id: str):
 @router.delete("/api/accounts/codex/login/{login_id}", dependencies=api_auth)
 async def codex_login_cancel(login_id: str):
     codex_accounts.cancel_login(login_id)
+    return {"ok": True}
+
+
+# ── Claude Code 다시 로그인 ──
+
+
+class ClaudeCodeRequest(BaseModel):
+    code: str = Field(pattern=claude_login.CODE_PATTERN)
+
+
+def _claude_error(error: Exception):
+    if isinstance(error, KeyError):
+        raise HTTPException(
+            status_code=404, detail="로그인 요청을 찾지 못했어요."
+        ) from error
+    if isinstance(error, claude_login.LoginError):
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    logger.warning("Claude 로그인 처리 실패: %s", type(error).__name__)
+    raise HTTPException(
+        status_code=500, detail="로그인을 진행하지 못했어요."
+    ) from error
+
+
+@router.post("/api/accounts/claude/login", dependencies=api_auth)
+async def claude_login_start():
+    try:
+        result = await asyncio.to_thread(claude_login.start_login)
+    except (OSError, claude_login.LoginError) as error:
+        _claude_error(error)
+    logger.info("Claude 다시 로그인 시작")
+    return result
+
+
+@router.get("/api/accounts/claude/login/{login_id}", dependencies=api_auth)
+async def claude_login_status(login_id: str):
+    try:
+        return claude_login.status(login_id)
+    except KeyError as error:
+        _claude_error(error)
+
+
+@router.post("/api/accounts/claude/login/{login_id}/code", dependencies=api_auth)
+async def claude_login_code(login_id: str, body: ClaudeCodeRequest):
+    try:
+        return await asyncio.to_thread(claude_login.submit_code, login_id, body.code)
+    except (KeyError, OSError, claude_login.LoginError) as error:
+        _claude_error(error)
+
+
+@router.delete("/api/accounts/claude/login/{login_id}", dependencies=api_auth)
+async def claude_login_cancel(login_id: str):
+    claude_login.cancel(login_id)
     return {"ok": True}

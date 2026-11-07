@@ -1419,6 +1419,15 @@ html[data-ui-theme-mode="light"] .chat-picker-effort, html[data-ui-theme-mode="l
 /* AI Usage: Codex 계정 전환 · 추가 */
 .ai-accounts-btn { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 8px; font-size: 11px; font-weight: 700; color: #93c5fd; background: rgba(59,130,246,.12); border: 1px solid rgba(96,165,250,.28); }
 html[data-ui-theme-mode="light"] .ai-accounts-btn { color: #1d4ed8; background: rgba(37,99,235,.07); border-color: rgba(37,99,235,.25); }
+.ai-account-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+.ai-account-actions:empty { display: none; }
+.ai-login-alert { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; padding: 10px 12px; border-radius: 12px; font-size: 12.5px; font-weight: 700; color: #fbbf24; background: rgba(245,158,11,.12); border: 1px solid rgba(245,158,11,.35); }
+html[data-ui-theme-mode="light"] .ai-login-alert { color: #92400e; background: rgba(245,158,11,.12); }
+.ai-login-alert .btn-glow { padding: 6px 12px; font-size: 12px; }
+.cx-code-form { display: flex; gap: 6px; margin-top: 6px; }
+.cx-code-form input { flex: 1; min-width: 0; font-size: 16px; }
+.cx-code-form .btn-glow, .cx-login > .btn-glow { padding: 8px 14px; white-space: nowrap; }
+.cx-login > .btn-glow { align-self: flex-start; }
 .cx-login { display: flex; flex-direction: column; gap: 12px; font-size: 13px; }
 .cx-steps { display: flex; flex-direction: column; gap: 14px; padding-left: 18px; list-style: decimal; }
 .cx-steps li > span { display: block; margin-bottom: 6px; font-weight: 600; }

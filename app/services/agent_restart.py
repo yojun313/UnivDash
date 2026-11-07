@@ -6,7 +6,9 @@
 을 입력한다. 셸에서 직접 실행한 에이전트만 다룬다 (pane 자체가 에이전트면 종료하는 순간 창이 닫힌다).
 """
 
+import asyncio
 import json
+import logging
 import os
 import re
 import secrets
@@ -20,6 +22,8 @@ import psutil
 from app.paths import data_dir
 from app.services import tmux_service, transcript_service
 from app.services.ai_usage_service import AIUsageService
+
+logger = logging.getLogger(__name__)
 
 SHELLS = {"bash", "zsh", "fish", "sh", "dash", "ksh"}
 _UUID = re.compile(
@@ -689,6 +693,7 @@ def relaunch_codex(after_stop=None) -> dict:
 # 대시보드에서 켠 에이전트는 사용자가 이미 고른 폴더에서 도는 것이므로 신뢰 질문에 "예"로 답한다.
 # Codex 업데이트 안내는 켜는 게 막히지 않게 건너뛴다 (업데이트는 '업데이트' 버튼으로 따로).
 _CURSOR = re.compile(r"^\s*[❯›>]")
+AUTO_TRUST_INTERVAL = 2.0
 
 
 def _screen_lines(pane_id: str) -> list[str]:
@@ -709,6 +714,46 @@ def _option_line(lines: list[str], label: str) -> str | None:
         if match and match.group(1) == label:
             return line
     return None
+
+
+def _answer_codex_trust(pane_id: str, lines: list[str]) -> str | None:
+    """Codex: "Trust this folder? …" + "› 1. Trust and continue" + 맨 아래 "enter continue · esc back"."""
+    bottom = [line for line in lines if line.strip()][-16:]
+    footer = bottom[-1].strip() if bottom else ""
+    yes = _option_line(bottom, "Trust and continue")
+    if (
+        yes
+        and any("Trust this folder?" in line for line in bottom)
+        and footer.startswith("enter continue")
+    ):
+        key = "Enter" if _CURSOR.match(yes) else "Up"
+        tmux_service.send_keys(pane_id, [key])
+        return f"codex-trust:{key}"
+    return None
+
+
+def _trust_waiting_codex() -> None:
+    for window in tmux_service.cached_windows():
+        if window.agent != "codex" or window.status != "waiting":
+            continue
+        pane = next((p for p in window.panes if p.active), None)
+        if pane is None:
+            continue
+        answered = _answer_codex_trust(pane.id, _screen_lines(pane.id))
+        if answered:
+            logger.info("Codex 폴더 신뢰 질문 자동 수락: %s", window.key)
+
+
+async def auto_trust_loop() -> None:
+    """어떻게 켠 Codex 창이든 "Trust and continue" 질문이 뜨면 바로 수락한다."""
+    while True:
+        await asyncio.sleep(AUTO_TRUST_INTERVAL)
+        try:
+            await asyncio.to_thread(_trust_waiting_codex)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # 감시가 멈추지 않도록
+            logger.debug("Codex 신뢰 질문 확인 실패", exc_info=True)
 
 
 def _answer_once(pane_id: str, lines: list[str]) -> str | None:
@@ -735,16 +780,9 @@ def _answer_once(pane_id: str, lines: list[str]) -> str | None:
         key = "Enter" if _CURSOR.match(yes) else "Down"
         tmux_service.send_keys(pane_id, [key])
         return f"claude-bypass:{key}"
-    # Codex: "Trust this folder? …" + "› 1. Trust and continue" + 맨 아래 "enter continue · esc back"
-    yes = _option_line(bottom, "Trust and continue")
-    if (
-        yes
-        and any("Trust this folder?" in line for line in bottom)
-        and footer.startswith("enter continue")
-    ):
-        key = "Enter" if _CURSOR.match(yes) else "Up"
-        tmux_service.send_keys(pane_id, [key])
-        return f"codex-trust:{key}"
+    answered = _answer_codex_trust(pane_id, lines)
+    if answered:
+        return answered
     # Codex: "Update available · …" + "› 1. Update now" + 맨 아래 "enter continue · esc skip"
     if (
         (
