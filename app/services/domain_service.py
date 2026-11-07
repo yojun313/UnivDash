@@ -71,7 +71,7 @@ def clean_passphrase(value) -> str:
     return value
 
 
-def _run_helper(passphrase: str, *args: str) -> tuple[int, str]:
+def _run_helper(*args: str, passphrase: str) -> tuple[int, str]:
     if not helper_status()["ready"]:
         raise ValueError("도메인을 바꾸려면 먼저 Nginx 헬퍼를 설치해 주세요.")
     try:
@@ -344,7 +344,7 @@ def rename_in_folders(old_domain: str, new_domain: str) -> None:
 # ── 경로 (인증서를 다시 받지 않는 작업) ─────────────────────────────────
 def add_path(domain: str, path: str, port: str, passphrase: str) -> None:
     code, output = _run_helper(
-        passphrase, "add-path", _require_domain(domain), path, port
+        "add-path", _require_domain(domain), path, port, passphrase=passphrase
     )
     if code != 0:
         raise ValueError(_helper_message(output))
@@ -352,7 +352,7 @@ def add_path(domain: str, path: str, port: str, passphrase: str) -> None:
 
 def edit_path(domain: str, path: str, port: str, passphrase: str) -> None:
     code, output = _run_helper(
-        passphrase, "edit-path", _require_domain(domain), path, port
+        "edit-path", _require_domain(domain), path, port, passphrase=passphrase
     )
     if code != 0:
         raise ValueError(_helper_message(output))
@@ -360,7 +360,9 @@ def edit_path(domain: str, path: str, port: str, passphrase: str) -> None:
 
 def delete_path(domain: str, path: str, passphrase: str) -> bool:
     """마지막 경로라서 도메인 전체를 지워야 하면 True."""
-    code, output = _run_helper(passphrase, "delete-path", _require_domain(domain), path)
+    code, output = _run_helper(
+        "delete-path", _require_domain(domain), path, passphrase=passphrase
+    )
     if code == nginx_helper.EXIT_LAST_PATH:
         return True
     if code != 0:

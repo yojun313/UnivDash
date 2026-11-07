@@ -2,7 +2,9 @@
 
 import hashlib
 import os
+import secrets
 import stat
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -66,7 +68,7 @@ class HelperTest(unittest.TestCase):
             patcher = patch.object(helper, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
-        self.passphrase = "correct horse battery"
+        self.passphrase = secrets.token_hex(16)  # 실행마다 만드는 시험용 값
         salt = b"0123456789abcdef"
         key = hashlib.scrypt(
             self.passphrase.encode(),
@@ -351,6 +353,33 @@ class HelperTest(unittest.TestCase):
             ["delete", "a.com"],
         )
 
+    def test_app_sends_passphrase_only_through_stdin(self):
+        calls = {}
+
+        def fake_run(command, **options):
+            calls.update(command=command, stdin=options["input"])
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        ready = {"ready": True}
+        with (
+            patch.object(domain_service, "helper_status", lambda: ready),
+            patch.object(domain_service.subprocess, "run", fake_run),
+        ):
+            domain_service.add_path("a.example.com", "/x", "1", self.passphrase)
+            self.assertEqual(
+                calls["command"][3:], ["add-path", "a.example.com", "/x", "1"]
+            )
+            self.assertEqual(calls["stdin"], self.passphrase + "\n")
+            domain_service.edit_path("a.example.com", "/x", "2", self.passphrase)
+            self.assertEqual(
+                calls["command"][3:], ["edit-path", "a.example.com", "/x", "2"]
+            )
+            domain_service.delete_path("a.example.com", "/x", self.passphrase)
+            self.assertEqual(
+                calls["command"][3:], ["delete-path", "a.example.com", "/x"]
+            )
+            self.assertNotIn(self.passphrase, calls["command"])
+
     def test_list_reads_real_format(self):
         domains = domain_service.get_domains()
         self.assertEqual(domains[0]["domain"], "a.example.com")
@@ -387,10 +416,16 @@ class RealConfigTest(unittest.TestCase):
             helper.with_path_added(content, "/univdash-test", "65002")
             hardened = helper.hardened_config(content)
             self.assertEqual(helper.hardened_config(hardened), hardened, path.name)
-            stripped = hardened
-            for line in helper.FORWARDED_HEADERS:
-                stripped = stripped.replace(f"        {line}\n", "")
-            self.assertEqual(stripped, content, path.name)
+
+            # 이미 적용된 서버에서도 맞도록 전달 헤더를 뺀 나머지를 비교한다
+            def without_headers(text):
+                for line in helper.FORWARDED_HEADERS:
+                    text = text.replace(f"        {line}\n", "")
+                return text
+
+            self.assertEqual(
+                without_headers(hardened), without_headers(content), path.name
+            )
             helper.renamed_config(content, "new.example.com")
 
 
