@@ -63,13 +63,21 @@ def helper_command(*args: str) -> list[str]:
     return [SUDO, "-n", str(HELPER_PATH), *args]
 
 
-def _run_helper(*args: str) -> tuple[int, str]:
+def clean_passphrase(value) -> str:
+    if not isinstance(value, str) or not 1 <= len(value) <= 1024:
+        raise ValueError("변경 비밀번호를 입력해 주세요.")
+    if any(ord(character) < 32 for character in value):
+        raise ValueError("변경 비밀번호에 쓸 수 없는 글자가 있습니다.")
+    return value
+
+
+def _run_helper(passphrase: str, *args: str) -> tuple[int, str]:
     if not helper_status()["ready"]:
         raise ValueError("도메인을 바꾸려면 먼저 Nginx 헬퍼를 설치해 주세요.")
     try:
         result = subprocess.run(
             helper_command(*args),
-            stdin=subprocess.DEVNULL,
+            input=clean_passphrase(passphrase) + "\n",
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -183,10 +191,32 @@ def group_domains(domains: list[dict]) -> list[dict]:
     return groups
 
 
+def hardening_status() -> dict:
+    """이미 있는 사이트 중 예전 설정(클라이언트가 IP 를 속일 수 있음)으로 남은 것."""
+    pending = []
+    try:
+        names = os.listdir(nginx_helper.SITES_AVAILABLE)
+    except OSError:
+        names = []
+    for name in names:
+        if not nginx_helper.is_valid_domain(name):
+            continue
+        content = _read_site(os.path.join(nginx_helper.SITES_AVAILABLE, name))
+        if content and nginx_helper.needs_hardening(content):
+            pending.append(name)
+    missing_reject = bool(names) and not os.path.lexists(nginx_helper.REJECT_CONF)
+    return {
+        "needed": bool(pending) or missing_reject,
+        "sites": len(pending),
+        "command": f"sudo {HELPER_PATH} harden",
+    }
+
+
 def overview() -> dict:
     domains = get_domains()
     return {
         "helper": helper_status(),
+        "hardening": hardening_status(),
         "groups": group_domains(domains),
         "folders": [
             {"id": folder["id"], "name": folder["name"]} for folder in list_folders()
@@ -312,21 +342,25 @@ def rename_in_folders(old_domain: str, new_domain: str) -> None:
 
 
 # ── 경로 (인증서를 다시 받지 않는 작업) ─────────────────────────────────
-def add_path(domain: str, path: str, port: str) -> None:
-    code, output = _run_helper("add-path", _require_domain(domain), path, port)
+def add_path(domain: str, path: str, port: str, passphrase: str) -> None:
+    code, output = _run_helper(
+        passphrase, "add-path", _require_domain(domain), path, port
+    )
     if code != 0:
         raise ValueError(_helper_message(output))
 
 
-def edit_path(domain: str, path: str, port: str) -> None:
-    code, output = _run_helper("edit-path", _require_domain(domain), path, port)
+def edit_path(domain: str, path: str, port: str, passphrase: str) -> None:
+    code, output = _run_helper(
+        passphrase, "edit-path", _require_domain(domain), path, port
+    )
     if code != 0:
         raise ValueError(_helper_message(output))
 
 
-def delete_path(domain: str, path: str) -> bool:
+def delete_path(domain: str, path: str, passphrase: str) -> bool:
     """마지막 경로라서 도메인 전체를 지워야 하면 True."""
-    code, output = _run_helper("delete-path", _require_domain(domain), path)
+    code, output = _run_helper(passphrase, "delete-path", _require_domain(domain), path)
     if code == nginx_helper.EXIT_LAST_PATH:
         return True
     if code != 0:

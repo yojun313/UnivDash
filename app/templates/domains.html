@@ -22,6 +22,12 @@
             <code id="domainHelperCommand" class="mt-2 block break-all rounded-lg border border-amber-500/30 px-3 py-2 font-mono text-[11px]"></code>
         </div>
 
+        <div id="domainHardenBanner" class="hidden mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs leading-5 text-red-300">
+            <p id="domainHardenText" class="font-bold"></p>
+            <p class="mt-1">적용하기 전에는 접속자가 자기 IP 를 속여 로그인 시도 제한을 피할 수 있어요. 서버 터미널에서 아래 명령을 실행해 주세요.</p>
+            <code id="domainHardenCommand" class="mt-2 block break-all rounded-lg border border-red-500/30 px-3 py-2 font-mono text-[11px]"></code>
+        </div>
+
         <section class="glass overflow-hidden rounded-2xl shadow-xl">
             <div class="dom-head hidden lg:grid border-b border-white/10 px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-white/35">
                 <span>Domain Name</span><span>Port</span><span>Paths</span><span>Config File</span><span class="text-right">Actions</span>
@@ -103,6 +109,15 @@
         <p id="domMoveLabel" class="break-all font-mono text-[11px] text-white/40"></p>
         <label class="dom-field"><span>폴더</span><select name="folder_id" data-folder-select class="glass-input"></select></label>
         <div class="dom-modal-actions"><button type="button" data-close-modal>취소</button><button type="submit" class="dom-primary">이동</button></div>
+    </form>
+</div>
+
+<div id="domPassModal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-md z-[105] flex items-center justify-center p-4">
+    <form id="domPassForm" class="glass-strong w-full max-w-sm rounded-2xl p-5 space-y-3 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="domPassTitle" autocomplete="off">
+        <h3 id="domPassTitle" class="text-sm font-bold text-white">변경 비밀번호</h3>
+        <p class="text-[11px] leading-4 text-white/40">Nginx 를 바꾸는 작업마다 설치할 때 정한 변경 비밀번호가 필요해요. 틀리기를 5번 반복하면 15분 동안 잠겨요.</p>
+        <label class="dom-field"><span>변경 비밀번호</span><input id="domPassInput" type="password" required maxlength="1024" autocomplete="new-password" class="glass-input"></label>
+        <div class="dom-modal-actions"><button id="domPassCancel" type="button">취소</button><button type="submit" class="dom-primary">확인</button></div>
     </form>
 </div>
 

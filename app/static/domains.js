@@ -10,6 +10,7 @@
     groups: [],
     folders: [],
     helper: { ready: false },
+    hardening: { needed: false },
     collapsed: new Map(),  // 폴더 ID → 접힘 여부 (처음에는 폴더만 접어 둔다)
     openDomains: new Set(),
     pathDomain: '',
@@ -139,6 +140,17 @@
     $('domainHelperCommand').textContent = helper.command || '';
   }
 
+  function renderHardening() {
+    const { helper, hardening } = state;
+    const show = Boolean(helper.ready && hardening.needed);
+    $('domainHardenBanner').classList.toggle('hidden', !show);
+    if (!show) return;
+    $('domainHardenText').textContent = hardening.sites
+      ? `도메인 ${hardening.sites}개에 보안 설정을 적용해야 합니다.`
+      : '등록되지 않은 도메인 차단 설정을 적용해야 합니다.';
+    $('domainHardenCommand').textContent = hardening.command;
+  }
+
   function renderFolderSelects() {
     const options = ['<option value="">미분류</option>']
       .concat(state.folders.map((folder) => `<option value="${escapeHtml(folder.id)}">${escapeHtml(folder.name)}</option>`))
@@ -152,7 +164,9 @@
       state.groups = data.groups;
       state.folders = data.folders;
       state.helper = data.helper;
+      state.hardening = data.hardening;
       renderHelper();
+      renderHardening();
       renderFolderSelects();
       render();
     } catch (error) {
@@ -187,6 +201,29 @@
     button.disabled = true;
     try { await task(); } catch (error) { toast(error.message, 'error'); } finally { button.disabled = false; }
   }
+
+  // 변경 비밀번호는 저장하지 않고 작업마다 묻는다. 취소하면 null.
+  let settlePassphrase = null;
+  function askPassphrase() {
+    settlePassphrase?.(null);
+    const input = $('domPassInput');
+    input.value = '';
+    $('domPassModal').classList.remove('hidden');
+    input.focus();
+    return new Promise((resolve) => {
+      settlePassphrase = (value) => {
+        settlePassphrase = null;
+        input.value = '';
+        $('domPassModal').classList.add('hidden');
+        resolve(value);
+      };
+    });
+  }
+  $('domPassForm').addEventListener('submit', (event) => {
+    event.preventDefault();
+    settlePassphrase?.($('domPassInput').value);
+  });
+  $('domPassCancel').addEventListener('click', () => settlePassphrase?.(null));
 
   // ── 콘솔 ────────────────────────────────────────────────────────────
   function runConsole(payload) {
@@ -272,8 +309,10 @@
   async function deletePath(domain, path) {
     if (!requireHelper()) return;
     if (!confirm(`${routeOf(domain, path)} 경로를 삭제할까요?`)) return;
+    const passphrase = await askPassphrase();
+    if (passphrase === null) return;
     try {
-      const result = await api('/api/domains/paths/delete', { method: 'POST', body: { domain, path } });
+      const result = await api('/api/domains/paths/delete', { method: 'POST', body: { domain, path, passphrase } });
       if (result.requires_full_delete) {
         toast('마지막 경로예요. 지우려면 도메인 전체를 삭제해야 합니다.');
         openDelete(domain);
@@ -411,16 +450,21 @@
   });
   document.querySelectorAll('[data-close-modal]').forEach((button) => button.addEventListener('click', closeModals));
 
-  $('domAddForm').addEventListener('submit', (event) => {
+  $('domAddForm').addEventListener('submit', async (event) => {
     event.preventDefault();
+    const values = formValues(event.target);
+    const passphrase = await askPassphrase();
+    if (passphrase === null) return;
     closeModals();
-    runConsole({ action: 'add', ...formValues(event.target) });
+    runConsole({ action: 'add', ...values, passphrase });
   });
   $('domAddPathForm').addEventListener('submit', (event) => {
     event.preventDefault();
     const form = event.target;
     submitting(form, async () => {
-      await api('/api/domains/paths', { method: 'POST', body: { domain: state.pathDomain, ...formValues(form) } });
+      const passphrase = await askPassphrase();
+      if (passphrase === null) return;
+      await api('/api/domains/paths', { method: 'POST', body: { domain: state.pathDomain, ...formValues(form), passphrase } });
       closeModals();
       await load();
     });
@@ -429,7 +473,9 @@
     event.preventDefault();
     const form = event.target;
     submitting(form, async () => {
-      await api('/api/domains/paths', { method: 'PUT', body: { domain: state.pathDomain, path: state.pathValue, port: form.port.value } });
+      const passphrase = await askPassphrase();
+      if (passphrase === null) return;
+      await api('/api/domains/paths', { method: 'PUT', body: { domain: state.pathDomain, path: state.pathValue, port: form.port.value, passphrase } });
       closeModals();
       await load();
     });
@@ -443,19 +489,23 @@
     submitting(form, async () => {
       await api('/api/domains/rename/check', { method: 'POST', body: { old_domain: oldDomain, new_domain: newDomain } });
       if (!confirm(`${oldDomain} → ${newDomain}\n\n경로와 포트는 유지되고, 새 도메인으로 SSL 인증서를 다시 발급합니다. 진행할까요?`)) return;
+      const passphrase = await askPassphrase();
+      if (passphrase === null) return;
       closeModals();
-      runConsole({ action: 'rename', old_domain: oldDomain, new_domain: newDomain, email });
+      runConsole({ action: 'rename', old_domain: oldDomain, new_domain: newDomain, email, passphrase });
     });
   });
   $('domDeleteInput').addEventListener('input', (event) => {
     $('domDeleteConfirm').disabled = event.target.value !== state.deleteDomain;
   });
-  $('domDeleteForm').addEventListener('submit', (event) => {
+  $('domDeleteForm').addEventListener('submit', async (event) => {
     event.preventDefault();
     if ($('domDeleteInput').value !== state.deleteDomain) return;
     const domain = state.deleteDomain;
+    const passphrase = await askPassphrase();
+    if (passphrase === null) return;
     closeModals();
-    runConsole({ action: 'delete', domain });
+    runConsole({ action: 'delete', domain, passphrase });
   });
   $('domFolderForm').addEventListener('submit', (event) => {
     event.preventDefault();
@@ -476,7 +526,9 @@
   });
 
   window.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') closeModals();
+    if (event.key !== 'Escape') return;
+    if (settlePassphrase) settlePassphrase(null);
+    else closeModals();
   });
   document.querySelectorAll('.dom-modal').forEach((modal) => modal.addEventListener('mousedown', (event) => {
     if (event.target === modal) closeModals();

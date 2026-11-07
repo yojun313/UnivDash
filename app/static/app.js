@@ -1094,6 +1094,7 @@
     const previous = lastStatuses;
     lastStatuses = new Map(windows.map((w) => [w.key, w.status]));
     state.windows = windows;
+    state.windowsLoaded = true;
 
     // 처음 보는 창은 읽은 것으로 간주, 선택된 창은 계속 읽음 처리
     windows.forEach((w) => {
@@ -3985,6 +3986,7 @@
     function renderGroups() {
       Object.values(groups).forEach((g) => renderGroup(g));
       applyLayout();
+      queueCollapse();
       // 모바일에서 데스크톱 분할로 돌아오거나 배치를 복원할 때도 보이는 창을 읽음 처리한다.
       Object.values(groups).forEach((g) => {
         const key = g.mirror?.key;
@@ -3992,6 +3994,54 @@
         if (w && isWindowVisible(key)) markSeen(key, unreadActivity(w));
       });
     }
+    // ── 빈 칸은 두지 않는다: 탭이 없는 그룹은 없애고, 메인이 비면 이웃 그룹이 메인 자리로 온다 ──
+    // 창 하나만 남으면 자연히 전체 화면이 된다. 탭을 옮기는 도중(잠깐 비어 있음)과 불러오는 중에는 건드리지 않는다.
+    let layoutBusy = 0;
+    let collapsing = false;
+    let collapseQueued = false;
+    async function whileMoving(task) {
+      layoutBusy += 1;
+      try { return await task(); } finally { layoutBusy -= 1; queueCollapse(); }
+    }
+    function queueCollapse() {
+      if (collapseQueued) return;
+      collapseQueued = true;
+      setTimeout(() => { collapseQueued = false; collapseEmptyGroups(); });
+    }
+    const groupIsEmpty = (g) => !(g.items.some((id) => id.startsWith('sfile:')) && !g.viewer) && !tabsOf(g).length;
+    // 메인 파일 탭은 뷰어를 연 뒤에야 보이므로 뷰어가 없을 때 저장된 파일 탭이 있으면 비었다고 보지 않는다
+    const mainIsEmpty = () => !mainTabs().length && (viewer || !tabOrder.some((id) => id.startsWith('file:')));
+    // 메인과 합쳐도 직사각형이 되는 그룹이어야 나머지 배치가 깨지지 않는다
+    function groupForMain() {
+      const main = cellsOf('main');
+      return Object.values(groups).find((g) => {
+        const union = [...main, ...cellsOf(g.id)];
+        return new Set(union.map(([r]) => r)).size * new Set(union.map(([, c]) => c)).size === union.length;
+      });
+    }
+    async function promoteToMain(g) {
+      const activeTab = tabsOf(g).find((t) => t.id === g.active);
+      for (const tab of tabsOf(g)) await moveTab(tab, g.id, 'main', { show: false });
+      if (groups[g.id]) removeGroup(g.id);
+      focusGroup = 'main';
+      const shown = activeTab && findTab('main', activeTab.type === 'file' ? fileId(activeTab.path) : activeTab.id);
+      const next = shown || mainTabs()[0];
+      if (next) activate(next);
+    }
+    async function collapseEmptyGroups() {
+      if (layoutBusy || collapsing || SOLO || !desktopQuery.matches || !state.windowsLoaded || !ptyLoaded) return;
+      collapsing = true;
+      let changed = false;
+      try {
+        Object.values(groups).filter(groupIsEmpty).forEach((g) => { removeGroup(g.id); changed = true; });
+        const heir = isSplit() && mainIsEmpty() ? groupForMain() : null;
+        if (heir) { await promoteToMain(heir); changed = true; }
+      } finally {
+        collapsing = false;
+      }
+      if (changed) { if (!groups[focusGroup]) focusGroup = 'main'; renderBar(); renderGroups(); }
+    }
+    setInterval(collapseEmptyGroups, 2000);   // 창이 밖에서 닫힌 경우도 놓치지 않게
     function hideGroupViews(g) { g.el.querySelectorAll('.side-view').forEach((el) => el.classList.add('hidden')); }
     function showIn(g, id) {
       const tab = tabsOf(g).find((t) => t.id === id);
@@ -4022,7 +4072,8 @@
 
     // ── 탭 옮기기: from/to 는 'main' 또는 그룹 id ──
     const findTab = (from, id) => (from === 'main' ? mainTabs() : tabsOf(groups[from] || { items: [] })).find((t) => t.id === id);
-    async function moveTab(tab, from, to, { show = true } = {}) {
+    function moveTab(tab, from, to, options) { return whileMoving(() => moveTabNow(tab, from, to, options)); }
+    async function moveTabNow(tab, from, to, { show = true } = {}) {
       if (!tab || from === to) return;
       const entry = tab.type === 'file' ? { path: tab.path, name: tab.tab.name, ext: tab.tab.ext, type: 'file' } : null;
       // 1) 원래 그룹에서 빼기 (보고 있던 탭이면 옆 탭으로)
@@ -4079,8 +4130,10 @@
     }
     async function splitWith(tab, from, target, edge) {
       if (from === target && from !== 'main' && tabsOf(groups[from]).length <= 1) return;   // 하나뿐인 탭을 자기 가장자리로: 의미 없음
-      const id = makeGroupAt(target, edge);
-      if (id) await moveTab(tab, from, id);
+      await whileMoving(async () => {
+        const id = makeGroupAt(target, edge);
+        if (id) await moveTab(tab, from, id);
+      });
     }
     // 파일을 어느 그룹에서 열기 (탐색기에서 끌어 온 파일)
     function openFileIn(group, entry) {
@@ -4110,13 +4163,15 @@
       renderGroups();
       renderBar();
     }
-    async function closeGroup(id) {
-      const g = groups[id];
-      if (!g) return;
-      for (const tab of tabsOf(g)) await moveTab(tab, id, 'main', { show: false });
-      if (groups[id]) removeGroup(id);
-      renderBar();
-      renderGroups();
+    function closeGroup(id) {
+      return whileMoving(async () => {
+        const g = groups[id];
+        if (!g) return;
+        for (const tab of tabsOf(g)) await moveTab(tab, id, 'main', { show: false });
+        if (groups[id]) removeGroup(id);
+        renderBar();
+        renderGroups();
+      });
     }
     // 새로고침 뒤: 저장된 배치대로 그룹을 다시 만든다
     function restoreGroups() {
@@ -4419,7 +4474,7 @@
         event.preventDefault();
         event.stopPropagation();
         if (target.zone === 'center') await openWindowIn(target.group, key);
-        else { const id = makeGroupAt(target.group, target.zone); await openWindowIn(id || target.group, key); }
+        else await whileMoving(async () => { const id = makeGroupAt(target.group, target.zone); await openWindowIn(id || target.group, key); });
         return;
       }
       if (!dragFile) return;

@@ -9,9 +9,15 @@
 - 다른 프로그램은 절대 경로로, 셸 없이, 비운 환경 변수로 실행한다.
 - nginx -t 가 실패하면 원래 설정으로 되돌리고 reload 하지 않는다.
 - 표준 라이브러리만 쓰고 파일 경로 · 동작을 바꾸는 옵션이나 환경 변수를 받지 않는다.
+- 같은 사용자로 도는 다른 프로그램(에이전트 등)이 몰래 부르지 못하게, 바꾸는 명령은 설치할 때 정한
+  변경 비밀번호를 표준 입력으로 받아 확인한다. 해시는 root 만 읽을 수 있다.
 """
 
 import fcntl
+import getpass
+import hashlib
+import hmac
+import json
 import os
 import re
 import signal
@@ -20,15 +26,25 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 
 SITES_AVAILABLE = "/etc/nginx/sites-available"
 SITES_ENABLED = "/etc/nginx/sites-enabled"
 NGINX = "/usr/sbin/nginx"
 CERTBOT = "/usr/bin/certbot"
 SYSTEMCTL = "/usr/bin/systemctl"
+REJECT_CONF = "/etc/nginx/conf.d/reject-unknown-host.conf"
+BACKUP_ROOT = "/var/backups/nginx-helper"
+REQUIRE_PASSPHRASE = True
+PASSPHRASE_FILE = "/etc/univdash-nginx/passphrase"
+FAILURES_FILE = "/run/univdash-nginx-failures"
+MAX_FAILURES = 5
+LOCK_SECONDS = 15 * 60
+MAX_PASSPHRASE = 1024
 
 EXIT_FAILED = 1
 EXIT_LAST_PATH = 3
+EXIT_PASSPHRASE = 4
 
 COMMAND_TIMEOUT = 60
 CERTBOT_TIMEOUT = 300
@@ -39,6 +55,24 @@ _PATH_SEGMENT = re.compile(r"[A-Za-z0-9_-]+")
 _EMAIL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._%+-]*@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 _PORT = re.compile(r"[0-9]{1,5}")
 _LOCATION = re.compile(r"^[ \t]*location\s+(\S+)\s*\{", re.MULTILINE)
+# 클라이언트가 보낸 값을 그대로 넘기면 uvicorn 등이 믿어 버려 IP 를 속일 수 있다 → nginx 가 항상 덮어쓴다
+FORWARDED_HEADERS = (
+    "proxy_set_header X-Real-IP $remote_addr;",
+    "proxy_set_header X-Forwarded-For $remote_addr;",
+    "proxy_set_header X-Forwarded-Proto $scheme;",
+)
+_FORWARDED_LINE = re.compile(
+    r"^[ \t]*proxy_set_header\s+(?:X-Real-IP|X-Forwarded-For|X-Forwarded-Proto)\s[^;]*;[^\n]*\n",
+    re.MULTILINE | re.IGNORECASE,
+)
+_PROXY_PASS_LINE = re.compile(r"^[ \t]*proxy_pass\s[^;]*;[^\n]*\n", re.MULTILINE)
+REJECT_CONTENT = """# 등록되지 않은 도메인으로 온 HTTPS 요청은 받지 않는다 (없으면 알파벳순 첫 사이트로 넘어간다)
+server {
+    listen 443 ssl default_server;
+    ssl_reject_handshake on;
+    return 444;
+}
+"""
 _SERVER_NAME = re.compile(r"^[^#\n]*?(?<![\w-])server_name\s+([^;]+);", re.MULTILINE)
 
 
@@ -139,6 +173,8 @@ def first_server_name(content):
 
 
 def location_block(path, port):
+    # 전달 헤더는 proxy_pass 바로 아래에 둔다 (hardened_config 와 같은 모양이어야 다시 고칠 일이 없다)
+    forwarded = "".join(f"        {line}\n" for line in FORWARDED_HEADERS)
     common = (
         "        proxy_http_version 1.1;\n"
         "        proxy_set_header Upgrade $http_upgrade;\n"
@@ -149,11 +185,12 @@ def location_block(path, port):
     )
     if path == "/":
         return (
-            f"    location / {{\n        proxy_pass http://localhost:{port};\n{common}"
+            "    location / {\n"
+            f"        proxy_pass http://localhost:{port};\n{forwarded}{common}"
         )
     return (
         f"    location {path}/ {{\n"
-        f"        proxy_pass http://localhost:{port}/;\n"
+        f"        proxy_pass http://localhost:{port}/;\n{forwarded}"
         f"        proxy_redirect / {path}/;\n{common}"
     )
 
@@ -161,6 +198,30 @@ def location_block(path, port):
 def new_config(domain, blocks):
     body = "\n".join(blocks)
     return f"server {{\n    listen 80;\n    server_name {domain};\n\n{body}}}\n"
+
+
+def hardened_config(content):
+    """모든 proxy_pass location 이 전달 헤더를 덮어쓰게 한다. 다시 돌려도 결과가 같다."""
+    result = []
+    position = 0
+    for item in extract_locations(content):
+        block = content[item["start"] : item["end"]]
+        if "proxy_pass" not in block:
+            continue
+        cleaned = _FORWARDED_LINE.sub("", block)
+        line = _PROXY_PASS_LINE.search(cleaned)
+        if line is None:
+            continue
+        headers = "".join(f"        {header}\n" for header in FORWARDED_HEADERS)
+        result.append(content[position : item["start"]])
+        result.append(cleaned[: line.end()] + headers + cleaned[line.end() :])
+        position = item["end"]
+    result.append(content[position:])
+    return "".join(result)
+
+
+def needs_hardening(content):
+    return hardened_config(content) != content
 
 
 def with_path_added(content, path, port):
@@ -247,8 +308,9 @@ def _run(command, timeout=COMMAND_TIMEOUT):
     timer = threading.Timer(timeout, process.kill)
     timer.start()
     try:
-        for line in process.stdout:
-            _emit(line.rstrip())
+        with process.stdout:
+            for line in process.stdout:
+                _emit(line.rstrip())
         code = process.wait()
     finally:
         timer.cancel()
@@ -370,6 +432,50 @@ def _quiet_restore_reload():
         _emit(f"경고: 되돌린 뒤 reload 실패: {error}")
 
 
+def _managed_sites():
+    return sorted(
+        name
+        for name in os.listdir(SITES_AVAILABLE)
+        if is_valid_domain(name) and os.path.isfile(_available(name))
+    )
+
+
+def cmd_harden():
+    """이미 있는 사이트에 전달 헤더를 넣고 모르는 도메인의 HTTPS 를 막는다. 실패하면 전부 되돌린다."""
+    originals = {name: _read_config(name) for name in _managed_sites()}
+    changed = {
+        name: new
+        for name, old in originals.items()
+        if (new := hardened_config(old)) != old
+    }
+    conf_exists = os.path.lexists(REJECT_CONF)
+    if not changed and conf_exists:
+        _emit("이미 모두 적용되어 있습니다.")
+        return
+    backup = os.path.join(BACKUP_ROOT, time.strftime("%Y%m%d-%H%M%S"))
+    os.makedirs(backup, mode=0o700, exist_ok=True)
+    for name in changed:
+        _write_config(os.path.join(backup, name), originals[name])
+    _emit(f"[1/3] 사이트 {len(changed)}개 갱신 (백업: {backup})")
+    try:
+        for name, content in changed.items():
+            _write_config(_available(name), content)
+        if not conf_exists:
+            _write_config(REJECT_CONF, REJECT_CONTENT)
+        _emit("[2/3] 설정 검사")
+        _test_config()
+        _emit("[3/3] nginx reload")
+        _reload()
+    except (HelperError, OSError):
+        _emit("실패해서 전부 원래대로 되돌립니다.")
+        for name in changed:
+            _write_config(_available(name), originals[name])
+        if not conf_exists:
+            _unlink(REJECT_CONF)
+        raise
+    _emit("적용했습니다.")
+
+
 def cmd_add(domain, email, port, path):
     _need_domain(domain)
     _need_email(email)
@@ -484,16 +590,103 @@ COMMANDS = {
     "delete-path": (cmd_delete_path, 2),
     "rename": (cmd_rename, 3),
     "delete": (cmd_delete, 1),
+    "harden": (cmd_harden, 0),
 }
 
 
-def run(argv):
+# ── 변경 비밀번호 ─────────────────────────────────────────────────────
+def _read_passphrase():
+    if sys.stdin is not None and sys.stdin.isatty():
+        return getpass.getpass("변경 비밀번호: ")
+    line = sys.stdin.buffer.readline(MAX_PASSPHRASE + 1)
+    return line.decode("utf-8", "replace").rstrip("\n")
+
+
+def _load_failures():
+    try:
+        with open(FAILURES_FILE, encoding="utf-8") as handle:
+            data = json.load(handle)
+        return int(data["count"]), float(data["until"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return 0, 0.0
+
+
+def _save_failures(count, until):
+    _write_private(FAILURES_FILE, json.dumps({"count": count, "until": until}))
+
+
+def _write_private(path, content):
+    fd, temp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".nginx-helper-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        os.replace(temp, path)
+    except BaseException:
+        if os.path.lexists(temp):
+            os.unlink(temp)
+        raise
+
+
+def _passphrase_matches(passphrase):
+    try:
+        info = os.stat(PASSPHRASE_FILE)
+        if info.st_uid != os.geteuid() or info.st_mode & 0o077:
+            raise HelperError("변경 비밀번호 파일의 권한이 안전하지 않습니다.")
+        with open(PASSPHRASE_FILE, encoding="ascii") as handle:
+            kind, cost, salt, stored = handle.read().strip().split("$")
+        if kind != "scrypt":
+            raise ValueError
+        derived = hashlib.scrypt(
+            passphrase.encode("utf-8", "surrogateescape"),
+            salt=bytes.fromhex(salt),
+            n=2 ** int(cost),
+            r=8,
+            p=1,
+            maxmem=256 * 1024 * 1024,
+        )
+    except (OSError, ValueError) as error:
+        raise HelperError(
+            "변경 비밀번호가 설정되어 있지 않습니다. 설치 스크립트를 다시 실행해 주세요."
+        ) from error
+    return hmac.compare_digest(derived.hex(), stored)
+
+
+def _authorize():
+    """비밀번호를 확인한다. 틀리면 5번까지만 받고 15분 잠근다."""
+    if not REQUIRE_PASSPHRASE:
+        return
+    count, until = _load_failures()
+    if until > time.time():
+        raise HelperError(
+            "변경 비밀번호를 여러 번 틀려 잠겼습니다. 15분 뒤 다시 해 주세요.",
+            EXIT_PASSPHRASE,
+        )
+    if _passphrase_matches(_read_passphrase()):
+        if count:
+            _save_failures(0, 0.0)
+        return
+    count += 1
+    if count >= MAX_FAILURES:
+        _save_failures(0, time.time() + LOCK_SECONDS)
+    else:
+        _save_failures(count, 0.0)
+    raise HelperError("변경 비밀번호가 틀렸습니다.", EXIT_PASSPHRASE)
+
+
+def run(argv, on_authorized=None):
     if argv == ["check"]:
         return 0
     spec = COMMANDS.get(argv[0]) if argv else None
     if spec is None or len(argv) - 1 != spec[1]:
         _emit("실패: 지원하지 않는 명령입니다.")
         return EXIT_FAILED
+    try:
+        _authorize()
+    except HelperError as error:
+        _emit(f"실패: {error}")
+        return error.code
+    if on_authorized:
+        on_authorized()
     lock = os.open(SITES_AVAILABLE, os.O_RDONLY | os.O_DIRECTORY)
     try:
         try:
@@ -518,9 +711,6 @@ def main():
     if os.geteuid() != 0:
         print("root 로 실행해야 합니다.", file=sys.stderr)
         return EXIT_FAILED
-    # 끊겨도 되돌리기까지 마치도록 시작한 작업은 끝까지 돈다
-    for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-        signal.signal(number, signal.SIG_IGN)
     os.environ.clear()
     os.environ.update(
         PATH="/usr/sbin:/usr/bin:/sbin:/bin", LC_ALL="C.UTF-8", HOME="/root"
@@ -528,7 +718,13 @@ def main():
     os.umask(0o022)
     os.chdir("/")
     sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
-    return run(sys.argv[1:])
+
+    def keep_running():
+        # 끊겨도 되돌리기까지 마치도록 시작한 작업은 끝까지 돈다
+        for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            signal.signal(number, signal.SIG_IGN)
+
+    return run(sys.argv[1:], keep_running)
 
 
 if __name__ == "__main__":

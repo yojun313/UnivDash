@@ -1,5 +1,6 @@
 """root 헬퍼를 임시 폴더와 가짜 nginx · certbot · systemctl 로 시험한다. 실제 /etc/nginx 는 건드리지 않는다."""
 
+import hashlib
 import os
 import stat
 import tempfile
@@ -57,10 +58,30 @@ class HelperTest(unittest.TestCase):
             "NGINX": self.nginx,
             "CERTBOT": self.certbot,
             "SYSTEMCTL": self.systemctl,
+            "REJECT_CONF": str(self.root / "reject.conf"),
+            "BACKUP_ROOT": str(self.root / "backup"),
+            "PASSPHRASE_FILE": str(self.root / "passphrase"),
+            "FAILURES_FILE": str(self.root / "failures"),
         }.items():
             patcher = patch.object(helper, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
+        self.passphrase = "correct horse battery"
+        salt = b"0123456789abcdef"
+        key = hashlib.scrypt(
+            self.passphrase.encode(),
+            salt=salt,
+            n=2**4,
+            r=8,
+            p=1,
+            maxmem=64 * 1024 * 1024,
+        )
+        secret = self.root / "passphrase"
+        secret.write_text(f"scrypt$4${salt.hex()}${key.hex()}")
+        secret.chmod(0o600)
+        typed = patch.object(helper, "_read_passphrase", lambda: self.passphrase)
+        typed.start()
+        self.addCleanup(typed.stop)
         (self.available / "a.example.com").write_text(CERTBOT_CONFIG)
         (self.enabled / "a.example.com").symlink_to(self.available / "a.example.com")
 
@@ -224,6 +245,76 @@ class HelperTest(unittest.TestCase):
         self.assertTrue((self.enabled / "a.example.com").is_symlink())
         self.assertFalse(any(line.startswith("certbot") for line in self.called()))
 
+    def test_changes_need_the_passphrase(self):
+        self.passphrase = "wrong"
+        for argv in (
+            ["delete", "a.example.com"],
+            ["edit-path", "a.example.com", "/", "1"],
+            ["add", "b.example.com", "m@x.com", "1", "/"],
+            ["rename", "a.example.com", "n.example.com", "m@x.com"],
+            ["harden"],
+        ):
+            (self.root / "failures").unlink(missing_ok=True)
+            self.assertEqual(helper.run(argv), helper.EXIT_PASSPHRASE, argv)
+        self.assertEqual(self.config(), CERTBOT_CONFIG)
+        self.assertEqual(self.called(), [])
+        self.assertEqual(helper.run(["check"]), 0)
+
+    def test_missing_or_open_secret_fails_closed(self):
+        secret = self.root / "passphrase"
+        secret.chmod(0o640)
+        self.assertEqual(helper.run(["delete", "a.example.com"]), 1)
+        secret.unlink()
+        self.assertEqual(helper.run(["delete", "a.example.com"]), 1)
+        self.assertEqual(self.config(), CERTBOT_CONFIG)
+
+    def test_repeated_failures_lock_even_the_right_passphrase(self):
+        right = self.passphrase
+        self.passphrase = "wrong"
+        for _ in range(helper.MAX_FAILURES):
+            self.assertEqual(helper.run(["delete", "a.example.com"]), 4)
+        self.passphrase = right
+        self.assertEqual(helper.run(["delete", "a.example.com"]), 4)
+        self.assertEqual(self.config(), CERTBOT_CONFIG)
+        self.assertEqual(os.stat(self.root / "failures").st_mode & 0o777, 0o600)
+
+    def test_new_blocks_overwrite_forwarded_headers(self):
+        block = helper.location_block("/", "1")
+        for line in helper.FORWARDED_HEADERS:
+            self.assertIn(line, block)
+        self.assertNotIn("proxy_add_x_forwarded_for", block)
+        for path in ("/", "/api"):
+            self.assertFalse(helper.needs_hardening(helper.location_block(path, "1")))
+
+    def test_harden_is_idempotent_and_replaces_append_style(self):
+        config = CERTBOT_CONFIG.replace(
+            "proxy_set_header Host $host;",
+            "proxy_set_header Host $host;\n"
+            "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
+        )
+        (self.available / "a.example.com").write_text(config)
+        self.assertEqual(helper.run(["harden"]), 0)
+        hardened = self.config()
+        self.assertEqual(hardened.count("X-Forwarded-For $remote_addr"), 2)
+        self.assertEqual(hardened.count("X-Real-IP $remote_addr"), 2)
+        self.assertNotIn("proxy_add_x_forwarded_for", hardened)
+        self.assertIn("ssl_certificate /etc/letsencrypt", hardened)
+        self.assertIn("listen 443 ssl; # managed by Certbot", hardened)
+        self.assertFalse(helper.needs_hardening(hardened))
+        self.assertIn(
+            "ssl_reject_handshake on", (self.root / "reject.conf").read_text()
+        )
+        calls = len(self.called())
+        self.assertEqual(helper.run(["harden"]), 0)
+        self.assertEqual(self.config(), hardened)
+        self.assertEqual(len(self.called()), calls)
+
+    def test_harden_rolls_back_everything(self):
+        self.fail_on("nginx -t")
+        self.assertEqual(helper.run(["harden"]), 1)
+        self.assertEqual(self.config(), CERTBOT_CONFIG)
+        self.assertFalse((self.root / "reject.conf").exists())
+
     def test_symlinked_config_is_refused(self):
         target = self.root / "secret"
         target.write_text("x")
@@ -294,6 +385,12 @@ class RealConfigTest(unittest.TestCase):
                 path.name,
             )
             helper.with_path_added(content, "/univdash-test", "65002")
+            hardened = helper.hardened_config(content)
+            self.assertEqual(helper.hardened_config(hardened), hardened, path.name)
+            stripped = hardened
+            for line in helper.FORWARDED_HEADERS:
+                stripped = stripped.replace(f"        {line}\n", "")
+            self.assertEqual(stripped, content, path.name)
             helper.renamed_config(content, "new.example.com")
 
 

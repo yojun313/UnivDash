@@ -23,11 +23,13 @@ class PathRequest(BaseModel):
     domain: str = Field(max_length=253)
     path: str = Field(max_length=200)
     port: str = Field(max_length=5)
+    passphrase: str = Field(max_length=1024)
 
 
 class PathDeleteRequest(BaseModel):
     domain: str = Field(max_length=253)
     path: str = Field(max_length=200)
+    passphrase: str = Field(max_length=1024)
 
 
 class RenameCheckRequest(BaseModel):
@@ -100,7 +102,7 @@ async def add_path(body: PathRequest):
     logger.info("도메인 경로 추가 · %s%s -> :%s", body.domain, body.path, body.port)
     try:
         await asyncio.to_thread(
-            domain_service.add_path, body.domain, body.path, body.port
+            domain_service.add_path, body.domain, body.path, body.port, body.passphrase
         )
     except ValueError as error:
         raise _bad_request(error) from error
@@ -112,7 +114,11 @@ async def edit_path(body: PathRequest):
     logger.info("도메인 경로 수정 · %s%s -> :%s", body.domain, body.path, body.port)
     try:
         await asyncio.to_thread(
-            domain_service.edit_path, body.domain, body.path, body.port
+            domain_service.edit_path,
+            body.domain,
+            body.path,
+            body.port,
+            body.passphrase,
         )
     except ValueError as error:
         raise _bad_request(error) from error
@@ -124,7 +130,7 @@ async def delete_path(body: PathDeleteRequest):
     logger.info("도메인 경로 삭제 · %s%s", body.domain, body.path)
     try:
         last = await asyncio.to_thread(
-            domain_service.delete_path, body.domain, body.path
+            domain_service.delete_path, body.domain, body.path, body.passphrase
         )
     except ValueError as error:
         raise _bad_request(error) from error
@@ -169,6 +175,7 @@ async def domain_console(websocket: WebSocket):
         if not isinstance(data, dict):
             raise ValueError("잘못된 요청입니다.")
         arguments = domain_service.console_arguments(data)
+        passphrase = domain_service.clean_passphrase(data.pop("passphrase", None))
         if not (await asyncio.to_thread(domain_service.helper_status))["ready"]:
             raise ValueError("먼저 Nginx 헬퍼를 설치해 주세요.")
     except (ValueError, TimeoutError, WebSocketDisconnect, RuntimeError) as error:
@@ -182,11 +189,15 @@ async def domain_console(websocket: WebSocket):
     logger.info("도메인 작업 시작 · %s", " ".join(arguments[:2]))
     process = await asyncio.create_subprocess_exec(
         *domain_service.helper_command(*arguments),
-        stdin=asyncio.subprocess.DEVNULL,
+        stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         limit=1024 * 1024,
     )
+    process.stdin.write(passphrase.encode() + b"\n")
+    await process.stdin.drain()
+    process.stdin.close()
+    del passphrase
     # 브라우저가 끊겨도 헬퍼는 끝까지 돌리고(인증서 발급 · 되돌리기가 중간에 멈추면 안 된다) 결과를 반영한다
     while line := await process.stdout.readline():
         await send({"line": line.decode("utf-8", "replace").rstrip()})
