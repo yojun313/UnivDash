@@ -329,6 +329,22 @@ async def api_rename_session(body: RenameSessionRequest):
     return {"old": old, "name": new, "preferences": prefs.model_dump()}
 
 
+class MoveSessionRequest(BaseModel):
+    session: str = Field(min_length=2, max_length=10)
+    path: str = Field(min_length=1, max_length=1024)
+
+
+@router.post("/api/sessions/move", dependencies=api_auth)
+async def api_move_session(body: MoveSessionRequest):
+    """세션의 작업 폴더를 바꾸고, 실행 중인 에이전트를 새 폴더에서 같은 대화로 다시 켠다."""
+    from app.services import session_move
+
+    try:
+        return await asyncio.to_thread(session_move.move, body.session, body.path)
+    except (TmuxError, KeyError, ValueError) as error:
+        _raise_for(error)
+
+
 class WindowRequest(BaseModel):
     window: str = Field(min_length=2, max_length=10)
 

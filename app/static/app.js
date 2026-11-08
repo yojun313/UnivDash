@@ -579,6 +579,41 @@
     });
   }
 
+  // 작업 폴더 바꾸기: 세션의 기본 폴더를 바꾸고, 돌고 있는 Claude · Codex 는 새 폴더에서 같은 대화로 다시 켠다
+  function moveSessionForm(w) {
+    const siblings = state.windows.filter((o) => o.session === w.session);
+    const agents = siblings.filter((o) => o.agent).length;
+    const busy = siblings.filter((o) => o.agent && (o.status === 'busy' || o.status === 'waiting'));
+    formSheet({
+      title: '작업 폴더 바꾸기',
+      subtitle: `${w.session} 세션을 다른 폴더로 옮겨요. 지금 폴더: ${w.path}`,
+      fields: [{ name: 'path', label: '새 작업 폴더', value: w.path, placeholder: '~/project', maxlength: 1024 }],
+      extraHtml: `${folderPickerHtml()}
+        <p class="text-[12px] opacity-70 leading-relaxed">${agents ? `Claude · Codex ${agents}개는 잠깐 꺼졌다가 새 폴더에서 <b>같은 대화</b>로 다시 켜져요 (입력창에 써 둔 글은 사라질 수 있어요). ` : ''}셸만 있는 창은 새 폴더로 이동만 하고, 서버처럼 다른 프로그램이 돌고 있는 창은 그대로 둬요. 파일은 옮기지 않아요.</p>
+        ${busy.length ? `<p class="text-[12px] text-amber-500"><i class="fas fa-triangle-exclamation mr-1"></i>${escapeHtml(busy.map(displayName).join(', '))} 이(가) 작업 중이거나 응답을 기다려서 지금은 옮길 수 없어요.</p>` : ''}`,
+      submitLabel: '옮기기',
+      onMount(body) {
+        const path = body.querySelector('input[name="path"]');
+        mountFolderPicker(body, path);
+        setTimeout(() => { path.focus(); path.select(); }, 30);
+      },
+      async onSubmit(values) {
+        const target = values.path.trim();
+        if (!target || target === w.path) return;
+        toast(`${w.session} 세션을 옮기는 중…`, 'info', null, 3000);
+        const result = await api('POST', '/api/sessions/move', { session: w.session_id, path: target });
+        const parts = [];
+        if (result.agents.length) parts.push(`에이전트 ${result.agents.length}개 다시 켬`);
+        if (result.shells) parts.push(`셸 ${result.shells}개 이동`);
+        if (result.skipped.length) parts.push(`그대로 둔 창: ${result.skipped.join(', ')}`);
+        toast(`${result.session} → ${result.path}${parts.length ? ` · ${parts.join(' · ')}` : ''}`, 'ok', null, 6000);
+        if (result.failed.length) toast(`다시 켜지 못한 창: ${result.failed.join(' / ')}`, 'error', null, 10000);
+        await refreshState();
+        socket.poke();
+      },
+    });
+  }
+
   // 창 이름 아래 설명을 직접 적는다 (비우면 에이전트가 붙인 작업 제목으로 돌아간다)
   function noteForm(w) {
     formSheet({
@@ -736,6 +771,7 @@
         { icon: 'fa-pen', label: '이름 변경 (tmux 세션)', onClick: () => renameForm(w) },
         { icon: 'fa-comment-dots', label: '설명 변경', sub: state.prefs.notes?.[w.key] ? '직접 적음' : '자동', onClick: () => noteForm(w) },
         { icon: 'fa-folder-open', label: '폴더로 이동', sub: folder ? folder.name : '없음', onClick: () => folderPicker(w) },
+        { icon: 'fa-right-left', label: '작업 폴더 바꾸기', sub: w.path, onClick: () => moveSessionForm(w) },
         ...(wsFiles ? [{ icon: 'fa-folder-tree', label: '작업 폴더 파일 보기', sub: w.path, onClick: () => wsFiles.reveal(w.path) }] : []),
         { icon: 'fa-arrow-up', label: '위로 이동', sub: sortMode() === 'manual' ? '' : '직접 지정으로 전환', onClick: () => moveWithinGroup(w.key, -1) },
         { icon: 'fa-arrow-down', label: '아래로 이동', onClick: () => moveWithinGroup(w.key, 1) },
@@ -748,20 +784,9 @@
     });
   }
 
-  // ── 새 세션 ──────────────────────────────────────────────────────────
-  function newSessionForm(startPath) {
-    // Codex 는 권한을 "Full access"(샌드박스 없음 · 승인 안 물음)로 켠다
-    const presets = { claude: 'claude --dangerously-skip-permissions', codex: 'codex --sandbox danger-full-access --ask-for-approval never', shell: '', custom: '' };
-    let preset = store.get('new-session-preset', 'claude');
-    if (!(preset in presets)) preset = 'claude';
-    formSheet({
-      title: '새 tmux 세션',
-      subtitle: '분리(detached) 세션을 만들고 시작 명령을 실행합니다.',
-      fields: [
-        { name: 'name', label: '세션 이름', placeholder: '예: my-project', maxlength: 50 },
-        { name: 'path', label: '작업 폴더', value: typeof startPath === 'string' ? startPath : '~', placeholder: '~/project', maxlength: 1024 },
-      ],
-      extraHtml: `<div class="fp">
+  // ── 작업 폴더 고르기 (새 세션 · 작업 폴더 바꾸기 공용) ──
+  function folderPickerHtml() {
+    return `<div class="fp">
           <div class="fp-actions">
             <button type="button" class="fp-toggle" data-fp-toggle><i class="fas fa-folder-open"></i> 폴더 고르기</button>
             ${store.get('recent-session-paths', []).slice(0, 5).map((p) => `<button type="button" class="fp-chip" data-fp-recent="${escapeHtml(p)}" title="${escapeHtml(p)}">${escapeHtml(p.replace(/\/+$/, '').split('/').pop() || p)}</button>`).join('')}
@@ -778,7 +803,122 @@
             <div class="fp-list"></div>
             <button type="button" class="fp-pick" data-fp-pick><i class="fas fa-check"></i> <span>이 폴더로</span></button>
           </div>
-        </div>
+        </div>`;
+  }
+  // 항상 홈에서 시작 — 폴더를 눌러 들어가거나, 이름으로 찾기. 고른 폴더는 path 입력칸에 들어간다.
+  function mountFolderPicker(body, path) {
+    // ── 작업 폴더 고르기 (항상 홈에서 시작 — 폴더를 눌러 들어가거나, 이름으로 찾기) ──
+    const panel = body.querySelector('.fp-panel');
+    const listEl = body.querySelector('.fp-list');
+    let home = '';
+    let current = null;
+    let showDot = store.get('fp-dot', false);
+    const tilde = (p) => (home && (p === home || p.startsWith(`${home}/`)) ? `~${p.slice(home.length)}` : p);
+    const setPath = (p) => { path.value = tilde(p); path.dispatchEvent(new Event('input')); };
+    const qInput = body.querySelector('[data-fp-q]');
+    const clearBtn = body.querySelector('[data-fp-clear]');
+    let searchSeq = 0;
+    let searchTimer = 0;
+    const folderRow = (e, sub = '') => `<div class="fp-row" data-fp-dir="${escapeHtml(e.path)}">
+        <i class="fas fa-folder"></i><span class="fp-name">${escapeHtml(e.name)}${sub ? `<small class="fp-sub">${escapeHtml(sub)}</small>` : ''}</span>
+        <button type="button" class="fp-use" data-fp-use="${escapeHtml(e.path)}" title="이 폴더 선택" aria-label="${escapeHtml(e.name)} 선택"><i class="fas fa-check"></i></button>
+        <i class="fas fa-chevron-right fp-go"></i></div>`;
+    async function search(query) {
+      const mine = ++searchSeq;
+      listEl.innerHTML = '<div class="fp-note"><i class="fas fa-circle-notch fa-spin"></i> 찾는 중…</div>';
+      try {
+        const data = await api('GET', `/api/fs/search-dirs?root=${encodeURIComponent(home || '~')}&q=${encodeURIComponent(query)}&hidden=${showDot ? 'true' : 'false'}`);
+        if (mine !== searchSeq) return;
+        const parentOf = (p) => tilde(p.replace(/\/[^/]+$/, '')) || '/';
+        listEl.innerHTML = data.results.length
+          ? data.results.map((e) => folderRow(e, parentOf(e.path))).join('') + (data.truncated ? '<div class="fp-note">결과가 많아 일부만 보여요. 더 자세히 입력해 보세요.</div>' : '')
+          : `<div class="fp-note">'${escapeHtml(query)}' 폴더를 찾지 못했어요.</div>`;
+      } catch (error) {
+        if (mine === searchSeq) listEl.innerHTML = `<div class="fp-note error">${escapeHtml(error.message)}</div>`;
+      }
+    }
+    function clearSearch() {
+      searchSeq += 1;
+      clearTimeout(searchTimer);
+      qInput.value = '';
+      clearBtn.classList.add('hidden');
+    }
+    qInput.addEventListener('input', () => {
+      const query = qInput.value.trim();
+      clearBtn.classList.toggle('hidden', !qInput.value);
+      clearTimeout(searchTimer);
+      if (!query.replace(/\//g, '')) { searchSeq += 1; if (current) browse(current.path); return; }
+      searchTimer = setTimeout(() => search(query), 250);
+    });
+    // 폼 안이라 Enter 가 '만들기' 를 누르지 않게 — 결과가 하나면 바로 그 폴더로 들어간다
+    qInput.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' || event.isComposing) return;
+      event.preventDefault();
+      const rows = listEl.querySelectorAll('[data-fp-dir]');
+      if (rows.length === 1) rows[0].click();
+    });
+    clearBtn.addEventListener('click', () => { clearSearch(); if (current) browse(current.path); qInput.focus(); });
+    async function browse(dir) {
+      clearSearch();
+      listEl.innerHTML = '<div class="fp-note"><i class="fas fa-circle-notch fa-spin"></i> 불러오는 중…</div>';
+      try {
+        const data = await api('GET', `/api/fs/list?path=${encodeURIComponent(dir)}`);
+        if (!home && dir === '~') home = data.path;
+        current = data;
+        body.querySelector('.fp-where').textContent = tilde(data.path);
+        body.querySelector('[data-fp-up]').disabled = !data.parent;
+        body.querySelector('[data-fp-dot]').classList.toggle('on', showDot);
+        body.querySelector('.fp-pick span').textContent = `이 폴더로: ${tilde(data.path)}`;
+        const dirs = data.entries.filter((e) => e.type === 'dir' && (showDot || !e.name.startsWith('.')))
+          .sort((a, b) => a.name.localeCompare(b.name, 'ko', { numeric: true, sensitivity: 'base' }));
+        listEl.innerHTML = dirs.length ? dirs.map((e) => folderRow(e)).join('')
+          : '<div class="fp-note">하위 폴더가 없습니다.</div>';
+      } catch (error) {
+        listEl.innerHTML = `<div class="fp-note error">${escapeHtml(error.message)}</div>`;
+      }
+    }
+    body.querySelector('[data-fp-toggle]').addEventListener('click', async () => {
+      const open = panel.classList.toggle('hidden') === false;
+      if (!open) return;
+      await browse('~');   // 항상 홈에서 시작
+      if (!coarsePointer) qInput.focus();
+    });
+    body.querySelector('[data-fp-up]').addEventListener('click', () => { if (current?.parent) browse(current.parent); });
+    body.querySelector('[data-fp-home]').addEventListener('click', () => browse('~'));
+    body.querySelector('[data-fp-dot]').addEventListener('click', () => {
+      showDot = !showDot;
+      store.set('fp-dot', showDot);
+      body.querySelector('[data-fp-dot]').classList.toggle('on', showDot);
+      if (qInput.value.trim()) search(qInput.value.trim());
+      else if (current) browse(current.path);
+    });
+    body.querySelector('[data-fp-pick]').addEventListener('click', () => { if (current) { setPath(current.path); panel.classList.add('hidden'); } });
+    listEl.addEventListener('click', (event) => {
+      const use = event.target.closest('[data-fp-use]');
+      if (use) { setPath(use.dataset.fpUse); panel.classList.add('hidden'); return; }
+      const row = event.target.closest('[data-fp-dir]');
+      if (row) browse(row.dataset.fpDir);
+    });
+    body.querySelectorAll('[data-fp-recent]').forEach((chip) => chip.addEventListener('click', () => {
+      path.value = chip.dataset.fpRecent;
+      path.dispatchEvent(new Event('input'));
+    }));
+  }
+
+  // ── 새 세션 ──────────────────────────────────────────────────────────
+  function newSessionForm(startPath) {
+    // Codex 는 권한을 "Full access"(샌드박스 없음 · 승인 안 물음)로 켠다
+    const presets = { claude: 'claude --dangerously-skip-permissions', codex: 'codex --sandbox danger-full-access --ask-for-approval never', shell: '', custom: '' };
+    let preset = store.get('new-session-preset', 'claude');
+    if (!(preset in presets)) preset = 'claude';
+    formSheet({
+      title: '새 tmux 세션',
+      subtitle: '분리(detached) 세션을 만들고 시작 명령을 실행합니다.',
+      fields: [
+        { name: 'name', label: '세션 이름', placeholder: '예: my-project', maxlength: 50 },
+        { name: 'path', label: '작업 폴더', value: typeof startPath === 'string' ? startPath : '~', placeholder: '~/project', maxlength: 1024 },
+      ],
+      extraHtml: `${folderPickerHtml()}
         <label>시작 명령<div class="seg" role="radiogroup">
           ${['claude', 'codex', 'shell', 'custom'].map((p) => `<button type="button" data-preset="${p}" class="${p === preset ? 'on' : ''}">${{ claude: 'Claude', codex: 'Codex', shell: '셸만', custom: '직접' }[p]}</button>`).join('')}
         </div></label>
@@ -796,102 +936,7 @@
         name.addEventListener('input', () => { name.dataset.touched = '1'; });
         if (typeof startPath === 'string') path.dispatchEvent(new Event('input'));
 
-        // ── 작업 폴더 고르기 (항상 홈에서 시작 — 폴더를 눌러 들어가거나, 이름으로 찾기) ──
-        const panel = body.querySelector('.fp-panel');
-        const listEl = body.querySelector('.fp-list');
-        let home = '';
-        let current = null;
-        let showDot = store.get('fp-dot', false);
-        const tilde = (p) => (home && (p === home || p.startsWith(`${home}/`)) ? `~${p.slice(home.length)}` : p);
-        const setPath = (p) => { path.value = tilde(p); path.dispatchEvent(new Event('input')); };
-        const qInput = body.querySelector('[data-fp-q]');
-        const clearBtn = body.querySelector('[data-fp-clear]');
-        let searchSeq = 0;
-        let searchTimer = 0;
-        const folderRow = (e, sub = '') => `<div class="fp-row" data-fp-dir="${escapeHtml(e.path)}">
-            <i class="fas fa-folder"></i><span class="fp-name">${escapeHtml(e.name)}${sub ? `<small class="fp-sub">${escapeHtml(sub)}</small>` : ''}</span>
-            <button type="button" class="fp-use" data-fp-use="${escapeHtml(e.path)}" title="이 폴더 선택" aria-label="${escapeHtml(e.name)} 선택"><i class="fas fa-check"></i></button>
-            <i class="fas fa-chevron-right fp-go"></i></div>`;
-        async function search(query) {
-          const mine = ++searchSeq;
-          listEl.innerHTML = '<div class="fp-note"><i class="fas fa-circle-notch fa-spin"></i> 찾는 중…</div>';
-          try {
-            const data = await api('GET', `/api/fs/search-dirs?root=${encodeURIComponent(home || '~')}&q=${encodeURIComponent(query)}&hidden=${showDot ? 'true' : 'false'}`);
-            if (mine !== searchSeq) return;
-            const parentOf = (p) => tilde(p.replace(/\/[^/]+$/, '')) || '/';
-            listEl.innerHTML = data.results.length
-              ? data.results.map((e) => folderRow(e, parentOf(e.path))).join('') + (data.truncated ? '<div class="fp-note">결과가 많아 일부만 보여요. 더 자세히 입력해 보세요.</div>' : '')
-              : `<div class="fp-note">'${escapeHtml(query)}' 폴더를 찾지 못했어요.</div>`;
-          } catch (error) {
-            if (mine === searchSeq) listEl.innerHTML = `<div class="fp-note error">${escapeHtml(error.message)}</div>`;
-          }
-        }
-        function clearSearch() {
-          searchSeq += 1;
-          clearTimeout(searchTimer);
-          qInput.value = '';
-          clearBtn.classList.add('hidden');
-        }
-        qInput.addEventListener('input', () => {
-          const query = qInput.value.trim();
-          clearBtn.classList.toggle('hidden', !qInput.value);
-          clearTimeout(searchTimer);
-          if (!query.replace(/\//g, '')) { searchSeq += 1; if (current) browse(current.path); return; }
-          searchTimer = setTimeout(() => search(query), 250);
-        });
-        // 폼 안이라 Enter 가 '만들기' 를 누르지 않게 — 결과가 하나면 바로 그 폴더로 들어간다
-        qInput.addEventListener('keydown', (event) => {
-          if (event.key !== 'Enter' || event.isComposing) return;
-          event.preventDefault();
-          const rows = listEl.querySelectorAll('[data-fp-dir]');
-          if (rows.length === 1) rows[0].click();
-        });
-        clearBtn.addEventListener('click', () => { clearSearch(); if (current) browse(current.path); qInput.focus(); });
-        async function browse(dir) {
-          clearSearch();
-          listEl.innerHTML = '<div class="fp-note"><i class="fas fa-circle-notch fa-spin"></i> 불러오는 중…</div>';
-          try {
-            const data = await api('GET', `/api/fs/list?path=${encodeURIComponent(dir)}`);
-            if (!home && dir === '~') home = data.path;
-            current = data;
-            body.querySelector('.fp-where').textContent = tilde(data.path);
-            body.querySelector('[data-fp-up]').disabled = !data.parent;
-            body.querySelector('[data-fp-dot]').classList.toggle('on', showDot);
-            body.querySelector('.fp-pick span').textContent = `이 폴더로: ${tilde(data.path)}`;
-            const dirs = data.entries.filter((e) => e.type === 'dir' && (showDot || !e.name.startsWith('.')))
-              .sort((a, b) => a.name.localeCompare(b.name, 'ko', { numeric: true, sensitivity: 'base' }));
-            listEl.innerHTML = dirs.length ? dirs.map((e) => folderRow(e)).join('')
-              : '<div class="fp-note">하위 폴더가 없습니다.</div>';
-          } catch (error) {
-            listEl.innerHTML = `<div class="fp-note error">${escapeHtml(error.message)}</div>`;
-          }
-        }
-        body.querySelector('[data-fp-toggle]').addEventListener('click', async () => {
-          const open = panel.classList.toggle('hidden') === false;
-          if (!open) return;
-          await browse('~');   // 항상 홈에서 시작
-          if (!coarsePointer) qInput.focus();
-        });
-        body.querySelector('[data-fp-up]').addEventListener('click', () => { if (current?.parent) browse(current.parent); });
-        body.querySelector('[data-fp-home]').addEventListener('click', () => browse('~'));
-        body.querySelector('[data-fp-dot]').addEventListener('click', () => {
-          showDot = !showDot;
-          store.set('fp-dot', showDot);
-          body.querySelector('[data-fp-dot]').classList.toggle('on', showDot);
-          if (qInput.value.trim()) search(qInput.value.trim());
-          else if (current) browse(current.path);
-        });
-        body.querySelector('[data-fp-pick]').addEventListener('click', () => { if (current) { setPath(current.path); panel.classList.add('hidden'); } });
-        listEl.addEventListener('click', (event) => {
-          const use = event.target.closest('[data-fp-use]');
-          if (use) { setPath(use.dataset.fpUse); panel.classList.add('hidden'); return; }
-          const row = event.target.closest('[data-fp-dir]');
-          if (row) browse(row.dataset.fpDir);
-        });
-        body.querySelectorAll('[data-fp-recent]').forEach((chip) => chip.addEventListener('click', () => {
-          path.value = chip.dataset.fpRecent;
-          path.dispatchEvent(new Event('input'));
-        }));
+        mountFolderPicker(body, path);
         body.querySelectorAll('[data-preset]').forEach((button) => button.addEventListener('click', () => {
           preset = button.dataset.preset;
           body.querySelectorAll('[data-preset]').forEach((b) => b.classList.toggle('on', b === button));

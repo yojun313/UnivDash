@@ -225,6 +225,37 @@
   });
   $('domPassCancel').addEventListener('click', () => settlePassphrase?.(null));
 
+  // ── 변경 비밀번호 바꾸기 ────────────────────────────────────────────
+  const changePassModal = $('domChangePassModal');
+  const changePassForm = $('domChangePassForm');
+  function closeChangePass() {
+    changePassForm.reset();
+    changePassModal.classList.add('hidden');
+  }
+  $('domainChangePass').addEventListener('click', () => {
+    if (!requireHelper()) return;
+    changePassForm.reset();
+    $('domChangePassReset').textContent = `${state.helper.command} --reset-passphrase`;
+    changePassModal.classList.remove('hidden');
+    changePassForm.current.focus();
+  });
+  $('domChangePassCancel').addEventListener('click', closeChangePass);
+  changePassForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (changePassForm.next.value !== changePassForm.confirm.value) {
+      toast('새 비밀번호 두 칸이 서로 달라요.', 'error');
+      return;
+    }
+    submitting(changePassForm, async () => {
+      await api('/api/domains/passphrase', {
+        method: 'POST',
+        body: { current: changePassForm.current.value, new: changePassForm.next.value },
+      });
+      closeChangePass();
+      toast('변경 비밀번호를 바꿨어요.');
+    });
+  });
+
   // ── 콘솔 ────────────────────────────────────────────────────────────
   function runConsole(payload) {
     const output = $('domConsoleOutput');

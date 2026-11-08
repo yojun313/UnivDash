@@ -32,6 +32,11 @@ class PathDeleteRequest(BaseModel):
     passphrase: str = Field(max_length=1024)
 
 
+class PassphraseChangeRequest(BaseModel):
+    current: str = Field(max_length=1024)
+    new: str = Field(max_length=1024)
+
+
 class RenameCheckRequest(BaseModel):
     old_domain: str = Field(max_length=253)
     new_domain: str = Field(max_length=253)
@@ -92,6 +97,18 @@ async def rename_folder(folder_id: str, body: FolderNameRequest):
 async def delete_folder(folder_id: str):
     try:
         await asyncio.to_thread(domain_service.delete_folder, folder_id)
+    except ValueError as error:
+        raise _bad_request(error) from error
+    return {"ok": True}
+
+
+@router.post("/api/domains/passphrase", dependencies=api_auth)
+async def change_passphrase(body: PassphraseChangeRequest):
+    logger.info("도메인 변경 비밀번호 변경 요청")
+    try:
+        await asyncio.to_thread(
+            domain_service.change_passphrase, body.current, body.new
+        )
     except ValueError as error:
         raise _bad_request(error) from error
     return {"ok": True}

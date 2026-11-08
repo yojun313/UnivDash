@@ -9,7 +9,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services import claude_login, codex_accounts
+from app.services import claude_login, codex_accounts, codex_auto_switch
 from app.services.ai_usage_service import AIUsageService
 from app.services.auth_service import AuthService
 
@@ -31,6 +31,10 @@ def _raise(error: Exception):
     ) from error
 
 
+class AutoSwitchRequest(BaseModel):
+    enabled: bool
+
+
 class SwitchRequest(BaseModel):
     id: str = Field(pattern=r"^[0-9a-f]{12}$")
 
@@ -41,6 +45,17 @@ async def codex_list():
         return await asyncio.to_thread(codex_accounts.list_accounts)
     except (KeyError, OSError, codex_accounts.AccountError) as error:
         _raise(error)
+
+
+@router.get("/api/accounts/codex/auto-switch", dependencies=api_auth)
+async def codex_auto_switch_status():
+    return await asyncio.to_thread(codex_auto_switch.status)
+
+
+@router.put("/api/accounts/codex/auto-switch", dependencies=api_auth)
+async def codex_auto_switch_save(body: AutoSwitchRequest):
+    logger.info("Codex 자동 전환 설정 · %s", body.enabled)
+    return await asyncio.to_thread(codex_auto_switch.set_enabled, body.enabled)
 
 
 @router.post("/api/accounts/codex/switch", dependencies=api_auth)

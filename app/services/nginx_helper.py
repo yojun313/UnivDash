@@ -41,6 +41,7 @@ FAILURES_FILE = "/run/univdash-nginx-failures"
 MAX_FAILURES = 5
 LOCK_SECONDS = 15 * 60
 MAX_PASSPHRASE = 1024
+PASSPHRASE_COST = 15
 
 EXIT_FAILED = 1
 EXIT_LAST_PATH = 3
@@ -583,6 +584,12 @@ def cmd_delete(domain):
     _emit(f"{domain} 삭제 완료")
 
 
+def cmd_change_passphrase():
+    """지금 비밀번호는 run() 이 이미 확인했다. 표준 입력의 다음 줄이 새 비밀번호다."""
+    _write_private(PASSPHRASE_FILE, _hash_passphrase(_read_new_passphrase()))
+    _emit("변경 비밀번호를 바꿨습니다.")
+
+
 COMMANDS = {
     "add": (cmd_add, 4),
     "add-path": (cmd_add_path, 3),
@@ -591,6 +598,7 @@ COMMANDS = {
     "rename": (cmd_rename, 3),
     "delete": (cmd_delete, 1),
     "harden": (cmd_harden, 0),
+    "change-passphrase": (cmd_change_passphrase, 0),
 }
 
 
@@ -600,6 +608,47 @@ def _read_passphrase():
         return getpass.getpass("변경 비밀번호: ")
     line = sys.stdin.buffer.readline(MAX_PASSPHRASE + 1)
     return line.decode("utf-8", "replace").rstrip("\n")
+
+
+def _read_new_passphrase():
+    if sys.stdin is not None and sys.stdin.isatty():
+        value = getpass.getpass("새 변경 비밀번호: ")
+        if value != getpass.getpass("한 번 더: "):
+            raise HelperError("두 번 입력한 값이 서로 다릅니다.")
+    else:
+        line = sys.stdin.buffer.readline(MAX_PASSPHRASE + 1)
+        if not line.endswith(b"\n"):  # 긴 값이 잘린 채 저장되면 다시는 맞출 수 없다
+            raise HelperError("새 변경 비밀번호가 너무 깁니다.")
+        try:
+            value = line[:-1].decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise HelperError(
+                "새 변경 비밀번호에 쓸 수 없는 글자가 있습니다."
+            ) from error
+    if not value:
+        raise HelperError("새 변경 비밀번호를 입력해 주세요.")
+    if any(ord(character) < 32 for character in value):
+        raise HelperError("새 변경 비밀번호에 쓸 수 없는 글자가 있습니다.")
+    try:
+        too_long = len(value.encode("utf-8")) > MAX_PASSPHRASE
+    except UnicodeEncodeError as error:
+        raise HelperError("새 변경 비밀번호에 쓸 수 없는 글자가 있습니다.") from error
+    if too_long:
+        raise HelperError("새 변경 비밀번호가 너무 깁니다.")
+    return value
+
+
+def _hash_passphrase(passphrase):
+    salt = os.urandom(16)
+    key = hashlib.scrypt(
+        passphrase.encode("utf-8"),
+        salt=salt,
+        n=2**PASSPHRASE_COST,
+        r=8,
+        p=1,
+        maxmem=256 * 1024 * 1024,
+    )
+    return f"scrypt${PASSPHRASE_COST}${salt.hex()}${key.hex()}"
 
 
 def _load_failures():

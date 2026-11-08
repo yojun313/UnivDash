@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Domains 페이지가 nginx 를 바꿀 수 있게 root 헬퍼를 설치한다. 관리자 비밀번호로 한 번만 실행한다.
 #   sudo bash tools/install_nginx_helper.sh
-# 헬퍼를 고친 뒤에도 다시 실행해야 적용된다. 지우려면 --uninstall, 변경 비밀번호를 바꾸려면 --reset-passphrase.
+# 헬퍼를 고친 뒤에도 다시 실행해야 적용된다. 지우려면 --uninstall, 변경 비밀번호를 잊었으면 --reset-passphrase (아는 경우엔 Domains 화면에서 바꾼다).
 set -euo pipefail
 
 TARGET=/usr/local/sbin/univdash-nginx
 SUDOERS=/etc/sudoers.d/univdash-nginx
 SECRET_DIR=/etc/univdash-nginx
 SECRET="$SECRET_DIR/passphrase"
+FAILURES=/run/univdash-nginx-failures
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "sudo 로 실행해 주세요: sudo bash $0" >&2
@@ -39,12 +40,13 @@ install -o root -g root -m 0440 "$TEMP" "$SUDOERS"
 # 변경 비밀번호: 도메인을 바꿀 때마다 묻는다. root 만 읽을 수 있는 곳에 해시로 둔다.
 if [ ! -f "$SECRET" ] || [ "${1:-}" = "--reset-passphrase" ]; then
   [ -t 0 ] || { echo "터미널에서 직접 실행해 주세요 (변경 비밀번호를 입력해야 합니다)." >&2; exit 1; }
-  echo "도메인을 바꿀 때 입력할 변경 비밀번호를 정합니다. 12자 이상, 다른 곳에 쓰지 않는 값으로 정해 주세요."
+  echo "도메인을 바꿀 때 입력할 변경 비밀번호를 정합니다. 다른 곳에 쓰지 않는 값으로 정해 주세요."
   while true; do
     read -rsp "변경 비밀번호: " FIRST; echo
     read -rsp "한 번 더: " SECOND; echo
     [ "$FIRST" = "$SECOND" ] || { echo "서로 다릅니다."; continue; }
-    [ "${#FIRST}" -ge 12 ] || { echo "12자 이상이어야 합니다."; continue; }
+    [ -n "$FIRST" ] || { echo "비어 있으면 안 됩니다."; continue; }
+    [ "$(printf '%s' "$FIRST" | wc -c)" -le 1024 ] || { echo "1024바이트를 넘으면 안 됩니다."; continue; }
     break
   done
   install -d -o root -g root -m 0700 "$SECRET_DIR"
@@ -57,6 +59,7 @@ fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
 os.write(fd, f"scrypt${cost}${salt.hex()}${key.hex()}".encode())
 os.close(fd)
 ' "$SECRET"
+  rm -f "$FAILURES"  # 비밀번호를 새로 정했으면 틀린 횟수와 잠금도 푼다
   unset FIRST SECOND
 fi
 echo "설치했습니다. $OWNER 는 sudo 로 $TARGET 만 실행할 수 있고, 바꾸는 작업에는 변경 비밀번호가 필요해요."

@@ -123,7 +123,7 @@ UnivDash can type into terminals and run PM2 / Git commands, so it is treated li
 * **Login**: 12+ character password or PBKDF2 hash, optional TOTP (codes cannot be reused), per-IP and global rate limits, generic error messages, audit logging with IP and user agent.
 * **Sessions**: random session IDs stored server-side (hashed); logout and *log out all devices* survive restarts; idle / absolute expiry; changing the password or TOTP secret invalidates every session; open WebSockets re-check the session.
 * **Browser**: no external CDN (Tailwind is prebuilt, Chart.js / SortableJS / Font Awesome / fonts are self-hosted) with a strict CSP `script-src 'self'`; same-origin `Origin` required for every state-changing request and WebSocket; `SameSite=Strict` cookies; `frame-ancestors 'none'`; no `/docs`, `/redoc`, `/openapi.json`.
-* **Domains**: the app runs one root-owned helper through a single sudo rule (`sudo bash tools/install_nginx_helper.sh`, once). The helper takes only validated domain, path, port and email values and writes the nginx config itself, so it never accepts config text. A failed `nginx -t` restores the previous config. Each change also needs a separate passphrase, set at install time and stored as a root-only scrypt hash, so other processes of the dashboard user cannot call it silently. `sudo /usr/local/sbin/univdash-nginx harden` updates existing sites so nginx overwrites `X-Forwarded-*` and rejects HTTPS for unknown hosts.
+* **Domains**: the app runs one root-owned helper through a single sudo rule (`sudo bash tools/install_nginx_helper.sh`, once). The helper takes only validated domain, path, port and email values and writes the nginx config itself, so it never accepts config text. A failed `nginx -t` restores the previous config. Each change also needs a separate passphrase, set at install time, changeable on the Domains page with the current one, and stored as a root-only scrypt hash, so other processes of the dashboard user cannot call it silently. `sudo /usr/local/sbin/univdash-nginx harden` updates existing sites so nginx overwrites `X-Forwarded-*` and rejects HTTPS for unknown hosts.
 * **Server commands**: tmux / PM2 / Git / node are run without a shell, only on IDs that exist, with an allow-list of keys. Uploads are authenticated before the body is read, size-limited and named by the server.
 
 > After adding new Tailwind classes to templates or scripts, rebuild the CSS with `tools/build_css.sh`.
@@ -164,6 +164,8 @@ app/
     ai_usage_service.py    Claude Code / Codex usage from local logs
     git_service.py         Git operations
     git_auto_pull.py       Scheduled fast-forward pull per repository
+    codex_auto_switch.py   Switches Codex accounts when usage runs out and resumes stopped windows
+    session_move.py        Moves a tmux session to another folder and resumes its agents there
     domain_service.py      Domain listing, display folders, helper calls
     nginx_helper.py        Root helper for nginx / certbot (installed as /usr/local/sbin/univdash-nginx)
   templates/               Jinja2 layout and pages

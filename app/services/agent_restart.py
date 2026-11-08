@@ -13,6 +13,7 @@ import os
 import re
 import secrets
 import shlex
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -175,16 +176,79 @@ BUSY_MESSAGE = (
 )
 
 
-def restart(pane_id: str, update: bool = True) -> dict:
+def claude_project_dir(directory: Path) -> Path:
+    """Claude Code 가 그 폴더의 대화를 두는 곳: ~/.claude/projects/<경로의 영문 · 숫자 외 글자를 - 로>."""
+    slug = re.sub(r"[^A-Za-z0-9]", "-", str(directory))
+    # Claude 는 긴 경로를 해시로 줄이는데 그 규칙은 따라 하지 않는다
+    if len(slug) > 200:
+        raise ValueError("폴더 경로가 너무 길어 Claude 대화를 옮길 수 없어요.")
+    root = transcript_service._data_root("CLAUDE_DATA_DIR", ".claude")
+    return root / "projects" / slug
+
+
+def carry_claude_log(session_id: str, directory: Path) -> None:
+    """Claude 는 지금 폴더의 대화만 이어 열 수 있어서, 대화 기록을 새 폴더 쪽에 복사해 둔다.
+
+    원래 기록은 지우지 않는다. 로그인 정보(~/.claude.json · .credentials.json)는 건드리지 않는다.
+    """
+    if not _UUID.fullmatch(session_id):
+        raise ValueError("대화 ID 가 올바르지 않습니다.")
+    target = claude_project_dir(directory)
+    root = target.parent
+    sources = sorted(
+        root.glob(f"*/{session_id}.jsonl"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if not sources:
+        raise ValueError("이어갈 Claude 대화 기록을 찾지 못했습니다.")
+    source = sources[0]
+    if source.parent == target:
+        return
+    target.mkdir(mode=0o700, parents=True, exist_ok=True)
+    copied = target / source.name
+    if not copied.exists() or copied.stat().st_mtime < source.stat().st_mtime:
+        shutil.copy2(source, copied)
+    extra = source.parent / session_id  # 서브에이전트 · 도구 결과
+    if extra.is_dir():
+        shutil.copytree(extra, target / session_id, dirs_exist_ok=True)
+
+
+def restart(pane_id: str, update: bool = True, cwd: Path | None = None) -> dict:
+    """같은 대화로 다시 켠다. cwd 가 있으면 그 폴더로 옮겨서 켠다."""
     info = plan(pane_id)
     if info["window"].status == "busy":
         raise ValueError(BUSY_MESSAGE)
+    if cwd is not None and info["agent"] == "claude":
+        carry_claude_log(info["session_id"], cwd)
+    # 끄고 다시 켜는 사이에 대시보드가 재시작돼도 창이 꺼진 채 남지 않게 적어 둔다
+    item = None
+    if info["agent"] == "codex":
+        item = {
+            "pane": pane_id,
+            "key": info["window"].key,
+            "session": info["session_id"],
+            "flags": max_permission(
+                "codex", keep_flags(info["proc"].cmdline()[1:], CODEX_KEEP)
+            ),
+        }
+        _write_relaunch(_read_relaunch() + [item])
     _stop(pane_id, info["proc"])
-    command = f"{info['update']}; {info['resume']}" if update else info["resume"]
+    resume = info["resume"]
+    if cwd is not None:
+        resume = f"cd -- {shlex.quote(str(cwd))} && {resume}"
+    command = f"{info['update']}; {resume}" if update else resume
     tmux_service.send_literal(pane_id, command)
     tmux_service.send_keys(pane_id, ["Enter"])
+    if item:
+        _write_relaunch([x for x in _read_relaunch() if x != item])
     # 업데이트는 설치가 끝난 뒤에 켜진다
-    watch_startup(pane_id, timeout=120.0 if update else 30.0, agent=info["agent"])
+    watch_startup(
+        pane_id,
+        timeout=120.0 if update else 30.0,
+        agent=info["agent"],
+        current_dir=cwd is not None,
+    )
     tmux_service.invalidate_cache()
     return {
         "agent": info["agent"],
@@ -623,6 +687,75 @@ def switch_agent(pane_id: str, target: str, carry: bool = False) -> dict:
     return {"from": current, "to": target, "command": command, "resumed": resumed}
 
 
+# 끄고 다시 켜는 사이에 대시보드가 재시작되면(pm2 watch 등) 다시 켜는 단계가 사라져 창이 꺼진 채로 남는다.
+# 그래서 끄기 전에 목록을 파일에 적어 두고, 다음에 이어서 켠다.
+def _relaunch_file() -> Path:
+    return data_dir() / "codex-relaunch.json"
+
+
+def _read_relaunch() -> list[dict]:
+    try:
+        data = json.loads(_relaunch_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return data if isinstance(data, list) else []
+
+
+def _write_relaunch(items: list[dict]) -> None:
+    path = _relaunch_file()
+    if not items:
+        path.unlink(missing_ok=True)
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump(items, handle, ensure_ascii=False)
+    os.replace(tmp, path)
+
+
+def _leftover_relaunch() -> list[dict]:
+    """지난번에 끈 뒤 다시 켜지 못한 창: 아직 같은 창에 셸만 떠 있는 것만."""
+    items = _read_relaunch()
+    if not items:
+        return []
+    panes = {
+        pane.id: (window, pane)
+        for window in tmux_service.list_windows()
+        for pane in window.panes
+    }
+    left = []
+    for item in items:
+        found = panes.get(item.get("pane"))
+        if (
+            found
+            and found[0].key == item.get("key")
+            and found[1].command in SHELLS
+            and _session_exists("codex", item.get("session"))
+        ):
+            left.append(item)
+    return left
+
+
+def _start_again(item: dict) -> None:
+    command = shlex.join(_launch_command("codex", item["session"], item["flags"]))
+    tmux_service.send_literal(item["pane"], command)
+    tmux_service.send_keys(item["pane"], ["Enter"])
+    watch_startup(item["pane"], agent="codex")
+
+
+def recover_relaunch(restart_daemon=None) -> list[str]:
+    """대시보드가 켜질 때: 지난번에 다시 켜지 못한 Codex 창을 같은 대화로 켠다."""
+    left = _leftover_relaunch()
+    if left and restart_daemon:
+        restart_daemon()
+    for item in left:
+        _start_again(item)
+    _write_relaunch([])
+    tmux_service.invalidate_cache()
+    return [item["key"] for item in left]
+
+
 def codex_panes() -> list[tuple]:
     return [
         (window, pane)
@@ -673,17 +806,20 @@ def relaunch_codex(after_stop=None) -> dict:
         flags = keep_flags(argv, CODEX_KEEP)
         _remember(window.key, "codex", ids[-1], flags, cwd)
         plans.append((window, pane, proc, ids[-1], flags))
+    items = _leftover_relaunch() + [
+        {"pane": pane.id, "key": window.key, "session": session_id, "flags": flags}
+        for window, pane, _, session_id, flags in plans
+    ]
+    _write_relaunch(items)
     for _, pane, proc, _, _ in plans:
         _stop(pane.id, proc)
     extra = after_stop() if after_stop else None
-    for _, pane, _, session_id, flags in plans:
-        command = shlex.join(_launch_command("codex", session_id, flags))
-        tmux_service.send_literal(pane.id, command)
-        tmux_service.send_keys(pane.id, ["Enter"])
-        watch_startup(pane.id, agent="codex")
+    for item in items:
+        _start_again(item)
+    _write_relaunch([])
     tmux_service.invalidate_cache()
     return {
-        "relaunched": [window.key for window, *_ in plans],
+        "relaunched": [item["key"] for item in items],
         "skipped": skipped,
         "after_stop": extra,
     }
@@ -756,6 +892,33 @@ async def auto_trust_loop() -> None:
             logger.debug("Codex 신뢰 질문 확인 실패", exc_info=True)
 
 
+_CWD_CHOICES = (
+    "Use session directory (",
+    "Use current directory (",
+    "Always use current directory (",
+)
+
+
+def _answer_codex_cwd(pane_id: str, lines: list[str]) -> str | None:
+    """Codex: 대화를 시작한 폴더와 지금 폴더가 다르면 어느 쪽에서 이어갈지 묻는다 → 지금 폴더(이번만)."""
+    bottom = [line for line in lines if line.strip()][-16:]
+    rows = []
+    for line in bottom:
+        text = re.sub(r"^\s*[❯›>]?\s*(?:\d\.\s+)?", "", line)
+        for index, label in enumerate(_CWD_CHOICES):
+            if text.startswith(label):
+                rows.append((index, bool(_CURSOR.match(line))))
+    if [index for index, _ in rows] != [0, 1, 2]:
+        return None
+    cursor = next((index for index, on in rows if on), None)
+    if cursor is None:
+        return None
+    step = 1 - cursor
+    keys = ["Down" if step > 0 else "Up"] * abs(step) + ["Enter"]
+    tmux_service.send_keys(pane_id, keys)
+    return "codex-cwd:current"
+
+
 def _answer_once(pane_id: str, lines: list[str]) -> str | None:
     """화면 맨 아래의 질문 창에 답한다 (채팅 글에 같은 문구가 있어도 반응하지 않게 줄 모양까지 본다)."""
     bottom = [line for line in lines if line.strip()][-16:]
@@ -783,17 +946,31 @@ def _answer_once(pane_id: str, lines: list[str]) -> str | None:
     answered = _answer_codex_trust(pane_id, lines)
     if answered:
         return answered
-    # Codex: "Update available · …" + "› 1. Update now" + 맨 아래 "enter continue · esc skip"
-    if (
-        (
-            _option_line(bottom, "Update now") is not None
-            or any(line.lstrip(" ›>").startswith("1. Update now") for line in bottom)
-        )
-        and any("Update available" in line for line in bottom)
-        and footer.endswith("esc skip")
-    ):
+    if update_prompt_version(lines) is not None:
         tmux_service.send_keys(pane_id, ["Escape"])
         return "codex-update:skip"
+    return None
+
+
+_UPDATE_VERSION = re.compile(r"Update available\s*·\s*\S+\s*→\s*v?([0-9][\w.\-]*)")
+
+
+def update_prompt_version(lines: list[str]) -> str | None:
+    """Codex 업데이트 안내 창이 맨 아래에 떠 있으면 새 버전(모르면 ""). 아니면 None.
+
+    "Update available · …" + "› 1. Update now" + 맨 아래 "enter continue · esc skip"
+    """
+    bottom = [line for line in lines if line.strip()][-16:]
+    footer = bottom[-1].strip() if bottom else ""
+    if not footer.endswith("esc skip") or not (
+        _option_line(bottom, "Update now") is not None
+        or any(line.lstrip(" ›>").startswith("1. Update now") for line in bottom)
+    ):
+        return None
+    for line in bottom:
+        if "Update available" in line:
+            match = _UPDATE_VERSION.search(line)
+            return match.group(1) if match else ""
     return None
 
 
@@ -809,10 +986,8 @@ def _ready(lines: list[str], agent: str | None) -> bool:
     bottom = _bottom(lines, 6)
     if agent == "claude":
         return sum(1 for line in bottom if re.match(r"^\s*─{20,}\s*$", line)) >= 2
-    if agent == "codex":
-        return any(line.lstrip().startswith("› ") for line in bottom) and any(
-            "for shortcuts" in line for line in bottom[-3:]
-        )
+    if agent == "codex":  # 창이 좁으면 "? for shortcuts" 가 잘린다
+        return tmux_service.has_input_box(lines, "codex")
     tail = "\n".join(bottom)
     return "for shortcuts" in tail or "⏵⏵" in tail
 
@@ -834,11 +1009,13 @@ def watch_startup(
     timeout: float = 30.0,
     agent: str | None = None,
     ask_model: bool = False,
+    current_dir: bool = False,
 ) -> None:
     """켠 직후 화면을 지켜보며 폴더 신뢰 · 권한 경고 · 업데이트 질문에 답한다 (백그라운드).
 
     켜기 전부터 화면에 있던 내용(예: 방금 끈 에이전트의 아래 안내 줄)에는 반응하지 않는다.
     그 에이전트의 입력창이 뜨면 멈추고, ask_model 이면 그때 /model 을 보내 모델을 고르게 한다.
+    current_dir: 폴더를 옮겨 켰다 — Codex 가 대화의 원래 폴더와 지금 폴더 중 묻으면 지금 폴더를 고른다.
     """
     # 켜지는 동안(대화 다시 불러오기 등)의 '작업 중 → 끝' 은 알리지 않는다
     tmux_service.mark_starting(pane_id, timeout + STARTUP_GRACE)
@@ -862,7 +1039,9 @@ def watch_startup(
                 return
             if "\n".join(lines) == initial:
                 continue  # 아직 새 화면이 아니다
-            done = _answer_once(pane_id, lines)
+            done = (current_dir and _answer_codex_cwd(pane_id, lines)) or _answer_once(
+                pane_id, lines
+            )
             if done:
                 actions += 1
                 answered = True

@@ -55,7 +55,12 @@ _INJECTED_PREFIXES = (
     "# AGENTS.md instructions",
     "<model_switch",
     "<turn_aborted",
+    "<codex_internal_context",
     "Caveat: The messages below",
+)
+# Codex 목표 모드 등이 사용자 메시지에 넣는 내부 지시 (글 중간에 붙어 올 수도 있다)
+_CODEX_INTERNAL = re.compile(
+    r"<codex_internal_context\b[^>]*>.*?(?:</codex_internal_context>|\Z)", re.DOTALL
 )
 COMPACTED = "대화가 길어 압축(compact)됐어요"
 # 대시보드의 '대화 넘기기'로 새 에이전트에 보낸 첫 지시 (agent_restart._handoff_prompt)
@@ -399,7 +404,7 @@ def _tool_summary(name: str, data: Any) -> str:
 
 def _user_text(text: str) -> tuple[str, str] | None:
     """(kind, text) — 끼워 넣은 문맥이면 None. 슬래시 명령은 system 으로."""
-    stripped = text.strip()
+    stripped = _CODEX_INTERNAL.sub("", text).strip()
     if not stripped:
         return None
     command = _COMMAND_NAME.search(stripped)

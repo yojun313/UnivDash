@@ -1,6 +1,7 @@
 """root 헬퍼를 임시 폴더와 가짜 nginx · certbot · systemctl 로 시험한다. 실제 /etc/nginx 는 건드리지 않는다."""
 
 import hashlib
+import io
 import os
 import secrets
 import stat
@@ -38,6 +39,9 @@ server {
     return 404; # managed by Certbot
 }
 """
+
+
+REAL_READ_PASSPHRASE = helper._read_passphrase
 
 
 class HelperTest(unittest.TestCase):
@@ -255,6 +259,7 @@ class HelperTest(unittest.TestCase):
             ["add", "b.example.com", "m@x.com", "1", "/"],
             ["rename", "a.example.com", "n.example.com", "m@x.com"],
             ["harden"],
+            ["change-passphrase"],
         ):
             (self.root / "failures").unlink(missing_ok=True)
             self.assertEqual(helper.run(argv), helper.EXIT_PASSPHRASE, argv)
@@ -379,6 +384,68 @@ class HelperTest(unittest.TestCase):
                 calls["command"][3:], ["delete-path", "a.example.com", "/x"]
             )
             self.assertNotIn(self.passphrase, calls["command"])
+
+    def _change(self, stdin):
+        with patch.object(
+            helper.sys, "stdin", io.TextIOWrapper(io.BytesIO(stdin), encoding="utf-8")
+        ):
+            return helper.run(["change-passphrase"])
+
+    def _accepts(self, value):
+        return helper._passphrase_matches(value)
+
+    def test_change_passphrase_replaces_the_hash(self):
+        old = self.passphrase
+        self.assertEqual(self._change(b"a\n"), 0)  # 한 글자도 된다
+        self.assertTrue(self._accepts("a"))
+        self.assertFalse(self._accepts(old))
+        secret = self.root / "passphrase"
+        self.assertEqual(secret.stat().st_mode & 0o777, 0o600)
+        self.passphrase = "a"
+        self.assertEqual(self._change("새비밀번호 ok\n".encode()), 0)
+        self.assertTrue(self._accepts("새비밀번호 ok"))
+
+    def test_change_passphrase_reads_both_lines_from_stdin(self):
+        old = self.passphrase
+        with patch.object(helper, "_read_passphrase", REAL_READ_PASSPHRASE):
+            self.assertEqual(self._change(f"{old}\nnext-one\n".encode()), 0)
+            self.assertTrue(self._accepts("next-one"))
+            self.assertEqual(self._change(b"wrong\nattacker\n"), helper.EXIT_PASSPHRASE)
+        self.assertTrue(self._accepts("next-one"))
+        self.assertFalse(self._accepts("attacker"))
+
+    def test_change_passphrase_refuses_bad_values(self):
+        before = (self.root / "passphrase").read_text()
+        for stdin in (
+            b"\n",
+            b"",
+            b"no-newline",
+            b"tab\there\n",
+            b"\xff\xfe\n",
+            b"x" * helper.MAX_PASSPHRASE + b"y\n",
+        ):
+            self.assertEqual(self._change(stdin), 1, stdin)
+            self.assertEqual((self.root / "passphrase").read_text(), before, stdin)
+        self.assertEqual(self._change(b"x" * helper.MAX_PASSPHRASE + b"\n"), 0)
+        self.assertTrue(self._accepts("x" * helper.MAX_PASSPHRASE))
+
+    def test_app_sends_new_passphrase_only_through_stdin(self):
+        calls = {}
+
+        def fake_run(command, **options):
+            calls.update(command=command, stdin=options["input"])
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with (
+            patch.object(domain_service, "helper_status", lambda: {"ready": True}),
+            patch.object(domain_service.subprocess, "run", fake_run),
+        ):
+            domain_service.change_passphrase("old-value", "b")
+            self.assertEqual(calls["command"][3:], ["change-passphrase"])
+            self.assertEqual(calls["stdin"], "old-value\nb\n")
+            for bad in ("", "a\nb", "한" * 400):
+                with self.assertRaises(ValueError):
+                    domain_service.change_passphrase("old-value", bad)
 
     def test_list_reads_real_format(self):
         domains = domain_service.get_domains()

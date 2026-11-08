@@ -224,6 +224,7 @@ _apply_lock = threading.Lock()
 _apply: dict = {
     "state": "idle",
     "target": None,
+    "update": True,
     "waiting": [],
     "since": 0.0,
     "result": None,
@@ -269,8 +270,8 @@ def _ensure_live(target: str | None) -> None:
             _invalidate_usage_cache()
 
 
-def _after_stop(target: str | None) -> dict:
-    updated = _update_codex()
+def _after_stop(target: str | None, update: bool = True) -> dict:
+    updated = _update_codex() if update else None
     _ensure_live(target)
     return {"updated": updated, "daemon": _restart_daemon()}
 
@@ -284,6 +285,7 @@ def _apply_worker(seq: int) -> None:
             if _apply["seq"] != seq:
                 return  # 더 새로 예약된 적용이 이어받았다
             target = _apply["target"]
+            update = _apply["update"]
         tmux_service.invalidate_cache()
         busy = [w.key for w, _ in agent_restart.codex_panes() if w.status == "busy"]
         with _apply_lock:
@@ -292,7 +294,9 @@ def _apply_worker(seq: int) -> None:
         if not busy:
             try:
                 result = agent_restart.relaunch_codex(
-                    after_stop=lambda target=target: _after_stop(target)
+                    after_stop=lambda target=target, update=update: _after_stop(
+                        target, update
+                    )
                 )
             except ValueError:
                 time.sleep(APPLY_POLL)  # 그 사이 작업이 시작됐다 → 다시 기다린다
@@ -319,13 +323,17 @@ def _apply_worker(seq: int) -> None:
             )
 
 
-def schedule_apply(target: str | None = None) -> dict:
-    """모든 Codex 창이 쉬는 즉시(지금 쉬고 있으면 바로) 업데이트하고 새 계정으로 다시 켠다. 백그라운드로 돈다."""
+def schedule_apply(target: str | None = None, update: bool = True) -> dict:
+    """모든 Codex 창이 쉬는 즉시(지금 쉬고 있으면 바로) 업데이트하고 새 계정으로 다시 켠다. 백그라운드로 돈다.
+
+    update=False 면 Codex 를 업데이트하지 않는다 (사람이 없는 동안 자동 전환할 때).
+    """
     with _apply_lock:
         _apply["seq"] += 1
         _apply.update(
             state="waiting",
             target=target,
+            update=update,
             waiting=[],
             since=time.time(),
             result=None,
@@ -386,7 +394,7 @@ def _store_login(auth: dict, info: dict) -> bool:
         return True
 
 
-def switch(account_id: str) -> dict:
+def switch(account_id: str, update: bool = True) -> dict:
     with _lock:
         path = _profile_path(account_id)
         record = _read_json(path)
@@ -406,7 +414,7 @@ def switch(account_id: str) -> dict:
     return {
         "email": info["email"],
         "changed": True,
-        "applied": schedule_apply(account_id),
+        "applied": schedule_apply(account_id, update),
     }
 
 

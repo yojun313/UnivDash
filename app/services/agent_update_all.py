@@ -8,12 +8,18 @@
   `codex update` 뒤 쉬고 있는 창만 하나씩 다시 켠다.
 """
 
+import asyncio
+import json
 import logging
+import os
+import re
 import subprocess
+import tempfile
 import threading
 import time
+from pathlib import Path
 
-from app.paths import find_command
+from app.paths import data_dir, find_command
 from app.services import agent_restart, codex_accounts, tmux_service
 
 logger = logging.getLogger(__name__)
@@ -60,6 +66,170 @@ def _update_claude() -> bool | None:
 
 def _update_codex() -> bool | None:
     return codex_accounts._update_codex()
+
+
+# ── 업데이트 안내가 뜬 Codex 창: 묻지 않고 업데이트한 뒤 같은 대화로 다시 켠다 ──
+# 안내의 "Update now" 를 고르면 Codex 가 끝나 버리므로, 안내를 닫고 대시보드가 설치한 뒤 다시 켠다.
+# 안내는 켜진 직후에만 뜨므로 작업 중인 대화를 끊지 않는다.
+PROMPT_INTERVAL = 5.0
+UPDATE_RETRY = 3600.0
+_update_tried: dict[str, float] = {}
+_prompt_restarted: set[tuple[str, str]] = set()
+
+
+def _version_key(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in re.findall(r"\d+", version)[:3])
+
+
+def _installed_codex() -> str | None:
+    binary = find_command("codex")
+    if not binary:
+        return None
+    try:
+        result = subprocess.run(
+            [binary, "--version"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    found = re.findall(r"\d+\.\d+[\w.\-]*", result.stdout)
+    return found[-1] if found else None
+
+
+def _is_installed(version: str) -> bool:
+    installed = _installed_codex()
+    return bool(
+        installed and version and _version_key(installed) >= _version_key(version)
+    )
+
+
+def _dismiss_update_prompts() -> list[tuple[str, str, str]]:
+    """떠 있는 업데이트 안내를 닫는다. (pane id, 창 키, 새 버전) 목록."""
+    found = []
+    for window, pane in _agent_panes("codex"):
+        if window.status == "busy":
+            continue
+        version = agent_restart.update_prompt_version(
+            agent_restart._screen_lines(pane.id)
+        )
+        if version is None:
+            continue
+        tmux_service.send_keys(pane.id, ["Escape"])
+        found.append((pane.id, window.key, version))
+    if found:
+        time.sleep(0.5)
+        tmux_service.invalidate_cache()
+    return found
+
+
+def _ensure_installed(version: str) -> bool:
+    if _is_installed(version):
+        return True
+    now = time.monotonic()
+    tried = _update_tried.get(version)
+    if tried is not None and now - tried < UPDATE_RETRY:
+        return False
+    _update_tried[version] = now
+    logger.info("Codex %s 설치", version)
+    _update_codex()
+    return _is_installed(version)
+
+
+def _pending_file() -> Path:
+    return data_dir() / "codex-update-pending.json"
+
+
+def _read_pending() -> list[dict]:
+    try:
+        data = json.loads(_pending_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return data if isinstance(data, list) else []
+
+
+def _write_pending(items: list[dict]) -> None:
+    path = _pending_file()
+    if not items:
+        path.unlink(missing_ok=True)
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp = tempfile.mkstemp(dir=path.parent, prefix=".codex-update-pending.")
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump(items, handle, ensure_ascii=False)
+    os.chmod(temp, 0o600)
+    os.replace(temp, path)
+
+
+def _restart_pending(items: list[dict]) -> tuple[list[dict], list[str]]:
+    """쉬고 있는 창을 다시 켠다. 작업 중이면 끝날 때까지 남겨 둔다."""
+    panes = {pane.id: (window, pane) for window, pane in _agent_panes("codex")}
+    left, restarted = [], []
+    for item in items:
+        found = panes.get(item.get("pane"))
+        if found is None or found[0].key != item.get("key"):
+            continue  # 창을 닫았거나 Codex 를 껐다
+        if found[0].status != "idle":
+            left.append(item)
+            continue
+        try:
+            agent_restart.restart(item["pane"], update=False)
+        except ValueError as error:
+            if str(error) == agent_restart.BUSY_MESSAGE:
+                left.append(item)
+            else:
+                logger.warning(
+                    "Codex 창을 다시 켜지 못했어요 · %s · %s", item["key"], error
+                )
+        except Exception as error:  # noqa: BLE001 — 한 창이 실패해도 나머지는 계속한다
+            logger.warning(
+                "Codex 창을 다시 켜지 못했어요 · %s · %s", item["key"], error
+            )
+        else:
+            restarted.append(item["key"])
+            logger.info("Codex 업데이트 후 다시 켬 · %s", item["key"])
+    return left, restarted
+
+
+def sweep_update_prompts() -> list[str]:
+    """업데이트 안내가 뜬 창을 처리한다. 다시 켠 창 키 목록."""
+    with _lock:
+        if _job["state"] == "running":
+            return []  # 전체 업데이트가 직접 처리한다
+    if codex_accounts.apply_status()["state"] == "applying":
+        return []
+    items = _read_pending()
+    for pane_id, key, version in _dismiss_update_prompts():
+        if not _ensure_installed(version):
+            logger.warning(
+                "Codex %s 를 설치하지 못해 안내만 닫았어요 · %s", version, key
+            )
+            continue
+        if (pane_id, version) in _prompt_restarted:
+            continue  # 다시 켰는데 또 떴다 → 되풀이하지 않는다
+        _prompt_restarted.add((pane_id, version))
+        if not any(item.get("pane") == pane_id for item in items):
+            items.append({"pane": pane_id, "key": key})
+    if not items:
+        return []
+    _write_pending(items)  # 도중에 대시보드가 재시작돼도 이어서 켜도록
+    left, restarted = _restart_pending(items)
+    _write_pending(left)
+    return restarted
+
+
+async def update_prompt_loop() -> None:
+    while True:
+        await asyncio.sleep(PROMPT_INTERVAL)
+        try:
+            await asyncio.to_thread(sweep_update_prompts)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Codex 업데이트 안내 처리 실패")
 
 
 def _relaunch_all_codex() -> dict:
@@ -132,6 +302,8 @@ def _do_claude() -> dict:
 
 
 def _do_codex() -> dict:
+    # 업데이트 안내가 떠 있는 창은 "답을 기다리는 중" 이 아니라 쉬는 창이다
+    _dismiss_update_prompts()
     panes = _agent_panes("codex")
     if panes and all(window.status == "idle" for window, _ in panes):
         try:

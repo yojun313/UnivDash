@@ -79,9 +79,17 @@ _PANE_FIELDS = [
 ]
 _PANE_FORMAT = SEP.join(fmt for _, fmt in _PANE_FIELDS)
 
-_BUSY_TEXT = re.compile(
-    r"esc to interrupt|esc to cancel|ctrl\+c to interrupt", re.IGNORECASE
-)
+# 창이 좁으면 안내문 끝이 잘린다 ("esc to inte…")
+_BUSY_TEXT = re.compile(r"esc to int|esc to cancel|ctrl\+c to interrupt", re.IGNORECASE)
+# Claude Code 작업 줄: "✶ Scampering… (2m 50s · still thinking)" (끝난 뒤는 "✻ Worked for 2m 50s")
+_CLAUDE_SPINNER = re.compile(r"^\s*[✻✽✶✢✳✺✹✷·*]\s+\S.{0,80}?…\s*(?:\(|$)")
+# 선택 창의 커서 줄: "❯ 3. Yes" / "› 2. GPT-6-Sol"
+_CURSOR_OPTION = re.compile(r"^\s*[❯›]\s*\d{1,2}\.\s+\S")
+# Codex 작업 줄: "• Working (5s • esc to interrupt)" (좁으면 끝이 잘린다)
+_CODEX_WORKING = re.compile(r"\(\d+[hms][^)]*esc to i")
+_SEPARATOR = re.compile(r"^\s*─{20,}\s*$")
+# Codex 입력창 아래 안내 (좁으면 "? for sho" 로 잘린다)
+_CODEX_INPUT_HINT = re.compile(r"\? for|for shortcuts|for agents|context left|to queue")
 # Claude Code 는 사용량 한도에 도달해도 이전 스피너 문구나 tmux 제목이 잠시 남을 수 있다.
 # 이 안내가 보이면 더 이상 현재 요청을 처리 중인 상태가 아니므로 busy 판정보다 우선한다.
 _LIMIT_REACHED_TEXT = re.compile(
@@ -202,8 +210,37 @@ def _clean_title(title: str) -> str:
     return _TITLE_PREFIX.sub("", title).strip()
 
 
+def _input_box(rows: list[str], agent: str | None) -> tuple[int, int] | None:
+    """입력창이 화면 맨 아래에 있으면 (입력창 윗줄, 아랫줄) 위치. rows 는 빈 줄을 뺀 화면.
+
+    선택 · 권한 창이 뜨면 입력창이 사라진다. 그래서 입력창이 보이면 대화 글에 어떤 글자가 있어도
+    응답을 기다리는 상태가 아니다.
+    """
+    if agent == "claude":
+        seps = [i for i, line in enumerate(rows) if _SEPARATOR.match(line)]
+        if len(seps) < 2:
+            return None
+        top, bottom = seps[-2], seps[-1]
+        if len(rows) - 1 - bottom > 4 or bottom - top < 2:
+            return None
+        return (top, bottom) if rows[top + 1].lstrip().startswith(("❯", ">")) else None
+    if agent == "codex":
+        if not any(_CODEX_INPUT_HINT.search(line) for line in rows[-3:]):
+            return None
+        for i in range(len(rows) - 1, max(-1, len(rows) - 7), -1):
+            line = rows[i].lstrip()
+            if line.startswith("› ") and not _CURSOR_OPTION.match(rows[i]):
+                return i, i
+        return None
+    return None
+
+
+def has_input_box(lines: list[str], agent: str | None) -> bool:
+    return _input_box([line for line in lines if line.strip()], agent) is not None
+
+
 def detect_status(window: Window, tail: str) -> str:
-    """에이전트(claude/codex) 창의 상태를 화면 하단 텍스트로 추정한다."""
+    """에이전트(claude/codex) 창의 상태를 화면(보이는 부분 전체)으로 추정한다."""
     pane = next(
         (p for p in window.panes if p.active), window.panes[0] if window.panes else None
     )
@@ -211,12 +248,32 @@ def detect_status(window: Window, tail: str) -> str:
         return "dead"
     if window.agent is None:
         return "shell"
-    if _LIMIT_REACHED_TEXT.search(tail):
+    rows = [line.rstrip() for line in tail.splitlines() if line.strip()]
+    recent = "\n".join(rows[-12:])
+    if _LIMIT_REACHED_TEXT.search(recent):
         return "idle"
-    if _WAITING_TEXT.search(tail):
-        return "waiting"
-    raw_title = pane.title.strip()
-    if _BUSY_TEXT.search(tail) or _SPINNER_TITLE.match(raw_title):
+    box = _input_box(rows, window.agent)
+    if box is None:
+        # 입력창이 없다: 선택 · 권한 · 확인 창
+        if _WAITING_TEXT.search(recent) or any(_CURSOR_OPTION.match(r) for r in rows):
+            return "waiting"
+        if _BUSY_TEXT.search(recent):
+            return "busy"
+    else:
+        top, bottom = box
+        # 작업 줄은 입력창 바로 위(아래에 할 일 목록 · 팁이 붙을 수 있다), 안내는 입력창 아래만 본다
+        above = rows[max(0, top - 20) : top]
+        below = "\n".join(rows[bottom + 1 :])
+        if window.agent == "claude" and any(_CLAUDE_SPINNER.match(r) for r in above):
+            return "busy"
+        if _BUSY_TEXT.search(below):
+            return "busy"
+        # Codex 작업 줄 "• Working (5s • esc to interrupt)" 은 입력줄 바로 위에 있다
+        if window.agent == "codex" and any(
+            _CODEX_WORKING.search(r) for r in above[-3:]
+        ):
+            return "busy"
+    if _SPINNER_TITLE.match(pane.title.strip()):
         return "busy"
     return "idle"
 
@@ -298,11 +355,9 @@ def list_windows(with_status: bool = True) -> list[Window]:
             tail = ""
             if window.agent:
                 try:
-                    tail = "\n".join(
-                        _run(["capture-pane", "-p", "-t", (agent_pane or active).id])
-                        .rstrip()
-                        .splitlines()[-12:]
-                    )
+                    tail = _run(
+                        ["capture-pane", "-p", "-t", (agent_pane or active).id]
+                    ).rstrip()
                 except TmuxError:
                     tail = ""
             window.status = detect_status(window, tail)

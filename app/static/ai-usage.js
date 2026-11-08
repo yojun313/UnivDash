@@ -310,7 +310,10 @@
   const planName = (plan) => (plan ? plan.charAt(0).toUpperCase() + plan.slice(1) : '');
   async function codexAccounts() {
     let data;
-    try { data = await api('/api/accounts/codex'); } catch (error) { toast(error.message, 'error'); return; }
+    let auto = null;
+    try {
+      [data, auto] = await Promise.all([api('/api/accounts/codex'), api('/api/accounts/codex/auto-switch')]);
+    } catch (error) { toast(error.message, 'error'); return; }
     const others = data.accounts.filter((a) => !a.active);
     ui().actionSheet({
       title: 'Codex 계정',
@@ -322,12 +325,24 @@
           onClick: () => { if (!a.active) switchCodex(a); },
         })),
         ...(data.accounts.length ? ['sep'] : []),
+        {
+          icon: 'fa-shuffle', label: '사용량이 다 떨어지면 자동 전환', sub: auto.enabled ? '켜짐' : '꺼짐',
+          desc: auto.message || (data.accounts.length < 2 ? '계정이 2개 이상일 때 동작해요' : '남은 계정으로 바꾸고 멈춘 창을 이어서 진행해요'),
+          onClick: () => toggleAutoSwitch(!auto.enabled),
+        },
         { icon: 'fa-plus', label: '계정 추가', desc: '다른 ChatGPT 계정으로 로그인 (지금 로그인은 그대로)', onClick: () => addCodexAccount() },
         { icon: 'fa-rotate', label: '모든 Codex 창에 지금 계정 적용', desc: "'다른 계정으로 로그인했다' 토큰 오류가 날 때 · 같은 대화로 다시 켜기", onClick: applyCodexAccount },
         ...(others.length ? [{ icon: 'fa-trash', label: '저장된 계정 지우기', danger: true, onClick: () => removeCodexMenu(others) }] : []),
       ],
     });
   }
+  async function toggleAutoSwitch(enabled) {
+    try {
+      await api('/api/accounts/codex/auto-switch', { method: 'PUT', body: { enabled } });
+      toast(enabled ? '자동 전환을 켰어요.' : '자동 전환을 껐어요.', 'success');
+    } catch (error) { toast(error.message, 'error'); }
+  }
+
   async function switchCodex(account) {
     const ok = await ui().confirmSheet({
       title: 'Codex 계정 바꾸기',

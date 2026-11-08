@@ -71,13 +71,18 @@ def clean_passphrase(value) -> str:
     return value
 
 
-def _run_helper(*args: str, passphrase: str) -> tuple[int, str]:
+def _run_helper(
+    *args: str, passphrase: str, new_passphrase: str | None = None
+) -> tuple[int, str]:
     if not helper_status()["ready"]:
         raise ValueError("도메인을 바꾸려면 먼저 Nginx 헬퍼를 설치해 주세요.")
+    lines = [clean_passphrase(passphrase)]
+    if new_passphrase is not None:
+        lines.append(clean_passphrase(new_passphrase))
     try:
         result = subprocess.run(
             helper_command(*args),
-            input=clean_passphrase(passphrase) + "\n",
+            input="".join(f"{line}\n" for line in lines),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -339,6 +344,16 @@ def rename_in_folders(old_domain: str, new_domain: str) -> None:
                     )
                 )
         _save_folders(folders)
+
+
+def change_passphrase(current: str, new: str) -> None:
+    if len(new.encode("utf-8")) > nginx_helper.MAX_PASSPHRASE:
+        raise ValueError("새 변경 비밀번호가 너무 깁니다.")
+    code, output = _run_helper(
+        "change-passphrase", passphrase=current, new_passphrase=new
+    )
+    if code != 0:
+        raise ValueError(_helper_message(output))
 
 
 # ── 경로 (인증서를 다시 받지 않는 작업) ─────────────────────────────────

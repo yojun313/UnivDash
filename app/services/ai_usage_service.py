@@ -456,6 +456,7 @@ class AIUsageService:
                         "primary": window(snapshot.get("primary")),
                         "secondary": window(snapshot.get("secondary")),
                         "plan_type": snapshot.get("planType"),
+                        "rate_limit_reached_type": snapshot.get("rateLimitReachedType"),
                         "credits": {
                             "has_credits": credits.get("hasCredits"),
                             "unlimited": credits.get("unlimited"),
@@ -1055,6 +1056,7 @@ class AIUsageService:
         return {
             "plan": plan.capitalize() if isinstance(plan, str) and plan else None,
             "updated_at": observed_at.isoformat(),
+            "reached_type": rate_limits.get("rate_limit_reached_type"),
             "windows": windows,
             "breakdown": [],
             "credits": {
