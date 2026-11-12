@@ -16,6 +16,7 @@ import os
 import re
 import secrets
 import threading
+import time
 from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
@@ -158,6 +159,8 @@ def _rollout_meta(path: Path) -> dict | None:
             "parent": payload.get("parent_thread_id"),
             "agent_path": payload.get("agent_path"),
             "cwd": payload.get("cwd"),
+            "forked_from": payload.get("forked_from_id"),
+            "created": payload.get("timestamp"),
             # 서브에이전트(thread_spawn)의 대화: 같은 작업 폴더에 따로 생기지만 사용자의 대화가 아니다
             "sub": bool(payload.get("parent_thread_id"))
             or (isinstance(source, dict) and "subagent" in source),
@@ -173,6 +176,41 @@ def _is_subagent(path: Path) -> bool:
     return bool(meta and meta["sub"])
 
 
+_fork_cache: dict[tuple[int, float], Path] = {}
+
+
+def _codex_forked_log(proc: psutil.Process, source_id: str, root: Path) -> Path | None:
+    """`codex fork <ID>` 로 켜진 창의 새 대화: 그 프로세스가 켜진 뒤 ID 에서 갈라져 나온 첫 기록."""
+    try:
+        started = proc.create_time()
+    except psutil.Error:
+        return None
+    key = (proc.pid, started)
+    cached = _fork_cache.get(key)
+    if cached is not None and cached.exists():
+        return cached
+    earliest = time.strftime("rollout-%Y-%m-%dT%H-%M-%S", time.localtime(started - 60))
+    # 파일 이름이 시각순이라 이름순으로 보면 먼저 생긴 것부터 나온다
+    for path in sorted(
+        (root / "sessions").glob("*/*/*/rollout-*.jsonl"), key=lambda p: p.name
+    ):
+        if path.name < earliest or not _inside(path, root):
+            continue
+        meta = _rollout_meta(path)
+        if not meta or meta["sub"] or meta["forked_from"] != source_id:
+            continue
+        try:
+            created = datetime.fromisoformat(meta["created"]).timestamp()
+        except (TypeError, ValueError):
+            continue
+        if created >= started - 1:
+            if len(_fork_cache) > 256:
+                _fork_cache.clear()
+            _fork_cache[key] = path
+            return path
+    return None
+
+
 def _codex_log(proc: psutil.Process, cwd: str) -> Path | None:
     root = _data_root("CODEX_DATA_DIR", ".codex")
     # `codex resume <ID>` 로 켜진 창은 그 대화의 로그가 확실하다 (공유 데몬이 파일을 열고 있어 아래 방법으로는 못 찾을 때가 많다)
@@ -180,6 +218,14 @@ def _codex_log(proc: psutil.Process, cwd: str) -> Path | None:
         argv = proc.cmdline()
     except psutil.Error:
         argv = []
+    if "fork" in argv[:3]:
+        index = argv.index("fork")
+        source_id = next(
+            (a for a in argv[index + 1 : index + 2] if _RESUME_ID.match(a)), None
+        )
+        if source_id:
+            # 같은 폴더의 최근 대화로 추측하면 원본 창의 대화를 자기 것으로 착각한다 → 아직 없으면 없는 대로
+            return _codex_forked_log(proc, source_id, root)
     if "resume" in argv:
         index = argv.index("resume")
         wanted = next(
@@ -202,7 +248,12 @@ def _codex_log(proc: psutil.Process, cwd: str) -> Path | None:
                     return path
         except psutil.Error:
             continue
-    # 파일을 잠시 닫고 있는 경우: 같은 작업 폴더의 가장 최근 세션
+    # 파일을 잠시 닫고 있는 경우: 같은 작업 폴더의 가장 최근 세션 (폴더 이름이 바뀌었으면 켤 때의 경로로도 찾는다)
+    folders = {cwd}
+    try:
+        folders.add(proc.environ().get("PWD") or cwd)
+    except psutil.Error:
+        pass
     sessions = root / "sessions"
     if not sessions.is_dir() or not cwd:
         return None
@@ -213,7 +264,7 @@ def _codex_log(proc: psutil.Process, cwd: str) -> Path | None:
     )[:40]
     for path in recent:
         meta = _rollout_meta(path)
-        if meta and meta["cwd"] == cwd and not meta["sub"]:
+        if meta and meta["cwd"] in folders and not meta["sub"]:
             return path
     return None
 

@@ -84,6 +84,7 @@ class CreateSessionRequest(BaseModel):
     name: str = Field(min_length=1, max_length=50)
     path: str = Field(default="~", max_length=1024)
     command: str = Field(default="", max_length=500)
+    fork_pane: str | None = Field(default=None, max_length=32)
 
 
 class NavigationOrderRequest(BaseModel):
@@ -102,18 +103,30 @@ async def api_save_navigation_order(body: NavigationOrderRequest):
 
 @router.post("/api/sessions", dependencies=api_auth)
 async def api_create_session(body: CreateSessionRequest):
-    try:
-        pane = await asyncio.to_thread(
-            tmux_service.create_session, body.name, body.path, body.command
-        )
-    except (TmuxError, ValueError) as error:
-        _raise_for(error)
-    logger.info("세션 생성 · %s", body.name)
-    if body.command.strip().split(" ")[0] in tmux_service.AGENTS:
-        from app.services import agent_restart
+    from app.services import agent_restart
 
-        # 신뢰 · 권한 질문에 자동으로 "예"
-        agent_restart.watch_startup(pane, agent=body.command.strip().split(" ")[0])
+    command = body.command
+    try:
+        if body.fork_pane:
+            # 시작 명령은 서버가 원본 창에서 만든다 (브라우저가 보낸 command 는 쓰지 않는다)
+            directory = await asyncio.to_thread(
+                tmux_service.check_new_session, body.name, body.path
+            )
+            _, command = await asyncio.to_thread(
+                agent_restart.fork_command, body.fork_pane, directory
+            )
+        pane = await asyncio.to_thread(
+            tmux_service.create_session, body.name, body.path, command
+        )
+    except (TmuxError, ValueError, KeyError) as error:
+        _raise_for(error)
+    logger.info(
+        "세션 생성 · %s%s", body.name, " (대화 이어받기)" if body.fork_pane else ""
+    )
+    agent = command.strip().split(" ")[0]
+    if agent in tmux_service.AGENTS:
+        # 신뢰 · 권한 질문에 자동으로 "예". 대화를 시작한 폴더와 달라도 지금 폴더에서 이어간다
+        agent_restart.watch_startup(pane, agent=agent, current_dir=bool(body.fork_pane))
     return {"pane": pane}
 
 

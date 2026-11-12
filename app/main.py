@@ -29,6 +29,7 @@ from app.services import (
     agent_restart,
     agent_update_all,
     codex_auto_switch,
+    folder_rename,
     git_auto_pull,
     push_service,
     session_restore,
@@ -49,6 +50,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(push_service.watch_loop()),
         asyncio.create_task(agent_restart.auto_trust_loop()),
         asyncio.create_task(git_auto_pull.loop()),
+        asyncio.create_task(folder_rename.loop()),
         asyncio.create_task(codex_auto_switch.loop()),
         asyncio.create_task(agent_update_all.update_prompt_loop()),
     ]

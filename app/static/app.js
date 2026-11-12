@@ -923,6 +923,8 @@
           ${['claude', 'codex', 'shell', 'custom'].map((p) => `<button type="button" data-preset="${p}" class="${p === preset ? 'on' : ''}">${{ claude: 'Claude', codex: 'Codex', shell: '셸만', custom: '직접' }[p]}</button>`).join('')}
         </div></label>
         <p data-codex-note class="text-[11px] opacity-60 -mt-1 ${preset === 'codex' || preset === 'claude' ? '' : 'hidden'}"><i class="fas fa-unlock mr-1"></i><span data-perm-text>${preset === 'claude' ? 'Claude 는 권한 확인 없이 켭니다 (Bypass permissions)' : 'Codex 는 권한 Full access 로 켭니다 (샌드박스 없음 · 승인 묻지 않음)'}</span></p>
+        <label data-fork class="hidden">이어받을 대화 (선택)<select name="fork"></select></label>
+        <p data-fork-note class="text-[11px] opacity-60 -mt-1 hidden"><i class="fas fa-code-branch mr-1"></i>고른 창의 지금까지 대화를 복사해 시작해요. 원래 창은 그대로 돌아가요.</p>
         <label data-custom class="${preset === 'custom' ? '' : 'hidden'}">명령어<input name="command" maxlength="500" placeholder="예: claude --continue" autocomplete="off" autocapitalize="off" spellcheck="false"></label>`,
       submitLabel: '만들기',
       onMount(body) {
@@ -937,17 +939,36 @@
         if (typeof startPath === 'string') path.dispatchEvent(new Event('input'));
 
         mountFolderPicker(body, path);
+
+        // 다른 창의 대화 이어받기: 지금 고른 에이전트가 돌고 있는 창만 보여 준다
+        const forkField = body.querySelector('[data-fork]');
+        const forkSelect = forkField.querySelector('select');
+        const forkNote = body.querySelector('[data-fork-note]');
+        const forkSources = () => state.windows
+          .filter((w) => w.agent === preset && agentPaneOf(w))
+          .sort((a, b) => (b.activity || 0) - (a.activity || 0));
+        const renderForkSources = () => {
+          const sources = forkSources();
+          forkSelect.innerHTML = `<option value="">새 대화로 시작</option>${sources.map((w) => `<option value="${escapeHtml(agentPaneOf(w))}">${escapeHtml(`${displayName(w)} (${w.session}:${w.index})`)}</option>`).join('')}`;
+          forkField.classList.toggle('hidden', !sources.length);
+          forkNote.classList.add('hidden');
+        };
+        renderForkSources();
+        // 대화만 복사한다: 세션 이름 · 작업 폴더는 원본과 상관없이 사용자가 정한 대로
+        forkSelect.addEventListener('change', () => forkNote.classList.toggle('hidden', !forkSelect.value));
         body.querySelectorAll('[data-preset]').forEach((button) => button.addEventListener('click', () => {
           preset = button.dataset.preset;
           body.querySelectorAll('[data-preset]').forEach((b) => b.classList.toggle('on', b === button));
           body.querySelector('[data-custom]').classList.toggle('hidden', preset !== 'custom');
           body.querySelector('[data-codex-note]').classList.toggle('hidden', preset !== 'codex' && preset !== 'claude');
           body.querySelector('[data-perm-text]').textContent = preset === 'claude' ? 'Claude 는 권한 확인 없이 켭니다 (Bypass permissions)' : 'Codex 는 권한 Full access 로 켭니다 (샌드박스 없음 · 승인 묻지 않음)';
+          renderForkSources();
         }));
       },
       async onSubmit(values) {
         const command = preset === 'custom' ? (values.command || '') : presets[preset];
-        const result = await api('POST', '/api/sessions', { name: values.name.trim(), path: values.path.trim() || '~', command });
+        const forkPane = (preset === 'claude' || preset === 'codex') ? (values.fork || '') : '';
+        const result = await api('POST', '/api/sessions', { name: values.name.trim(), path: values.path.trim() || '~', command, ...(forkPane ? { fork_pane: forkPane } : {}) });
         store.set('new-session-path', values.path.trim() || '~');
         const used = values.path.trim() || '~';
         store.set('recent-session-paths', [used, ...store.get('recent-session-paths', []).filter((p) => p !== used)].slice(0, 8));
@@ -2075,7 +2096,7 @@
       const gauges = [['세션', session], ['주간', weekly]].filter(([, x]) => x);
       if (!gauges.length) return '';
       const when = (iso) => (iso ? new Date(iso).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' }) : '');
-      const sessionReset = (iso) => {
+      const resetText = (iso) => {
         if (!iso) return '';
         const date = new Date(iso);
         if (Number.isNaN(date.getTime())) return '';
@@ -2094,10 +2115,11 @@
         + `<span class="um-who hidden" data-account="${escapeHtml(account)}" data-provider="${escapeHtml(agent === 'codex' ? 'Codex' : 'Claude')}"></span>` + gauges.map(([name, x]) => {
         const left = Math.round(x.remaining_percent);
         const tone = left > 50 ? 'ok' : left > 20 ? 'mid' : 'low';
-        const reset = name === '세션' ? sessionReset(x.resets_at) : '';
+        const reset = resetText(x.resets_at);
+        const resetClass = name === '주간' ? 'um-reset um-reset-week' : 'um-reset';
         return `<div class="um ${tone}" title="${escapeHtml(`${x.label} ${left}% 남음${x.resets_at ? ` · ${when(x.resets_at)} 초기화` : ''}`)}">
             <span class="um-label">${name}</span><span class="um-bar"><i style="width:${left}%"></i></span><span class="um-val">${left}%</span>
-            ${reset ? `<span class="um-reset"><span class="um-reset-label">초기화 </span>${escapeHtml(reset)}</span>` : ''}</div>`;
+            ${reset ? `<span class="${resetClass}"><span class="um-reset-label">초기화 </span>${escapeHtml(reset)}</span>` : ''}</div>`;
       }).join('');
     }
     setInterval(() => { if (document.visibilityState === 'visible' && state.selectedKey) refreshLimits().then(renderUsage); }, 60000);

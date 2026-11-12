@@ -166,6 +166,7 @@ app/
     git_auto_pull.py       Scheduled fast-forward pull per repository
     codex_auto_switch.py   Switches Codex accounts when usage runs out and resumes stopped windows
     session_move.py        Moves a tmux session to another folder and resumes its agents there
+    folder_rename.py       Relaunches an agent at the new path when its working folder is renamed
     domain_service.py      Domain listing, display folders, helper calls
     nginx_helper.py        Root helper for nginx / certbot (installed as /usr/local/sbin/univdash-nginx)
   templates/               Jinja2 layout and pages

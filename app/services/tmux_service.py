@@ -573,7 +573,8 @@ def fit_window(pane_id: str, cols: int, rows: int) -> bool:
     return True
 
 
-def create_session(name: str, path: str, command: str) -> str:
+def check_new_session(name: str, path: str) -> Path:
+    """새 세션을 만들 수 있는지 확인하고 작업 폴더를 돌려준다."""
     if not SESSION_NAME.match(name or ""):
         raise ValueError("세션 이름은 글자, 숫자, -, _ 로 50자 이하여야 합니다.")
     directory = Path(os.path.expanduser(path or "~")).resolve()
@@ -582,6 +583,11 @@ def create_session(name: str, path: str, command: str) -> str:
     existing = set(_run(["list-sessions", "-F", "#{session_name}"]).split("\n"))
     if name in existing:
         raise ValueError("같은 이름의 세션이 이미 있습니다.")
+    return directory
+
+
+def create_session(name: str, path: str, command: str) -> str:
+    directory = check_new_session(name, path)
     command = (command or "").strip()
     if len(command) > 500 or "\n" in command:
         raise ValueError("시작 명령이 올바르지 않습니다.")

@@ -97,8 +97,7 @@ def _find(pane_id: str):
     raise KeyError("존재하지 않는 pane 입니다.")
 
 
-def plan(pane_id: str) -> dict:
-    """다시 켤 명령을 만든다 (아직 아무것도 하지 않음)."""
+def _agent_of(pane_id: str):
     window, pane = _find(pane_id)
     agent = pane.command if pane.command in tmux_service.AGENTS else window.agent
     if agent not in tmux_service.AGENTS:
@@ -106,6 +105,37 @@ def plan(pane_id: str) -> dict:
     proc = transcript_service._agent_process(pane.pid, agent)
     if proc is None:
         raise ValueError("에이전트 프로세스를 찾지 못했습니다.")
+    return window, pane, agent, proc
+
+
+def _conversation_id(pane, agent: str) -> str:
+    log = transcript_service.find_log(pane.pid, agent, os.path.expanduser(pane.path))
+    ids = _UUID.findall(log.name) if log else []
+    if not ids:
+        raise ValueError("이어갈 대화(세션 ID)를 찾지 못했습니다.")
+    return ids[-1]
+
+
+def fork_command(pane_id: str, directory: Path) -> tuple[str, str]:
+    """다른 창의 대화를 복제해 새 대화로 시작하는 명령. 원본 창과 원본 대화는 건드리지 않는다."""
+    _, pane, agent, proc = _agent_of(pane_id)
+    session_id = _conversation_id(pane, agent)
+    try:
+        argv = proc.cmdline()[1:]
+    except psutil.Error as error:
+        raise ValueError("에이전트 프로세스 정보를 읽지 못했습니다.") from error
+    flags = max_permission(agent, keep_flags(argv, KEEP[agent]))
+    if agent == "claude":
+        carry_claude_log(session_id, directory)
+        command = ["claude", *flags, "--resume", session_id, "--fork-session"]
+    else:
+        command = ["codex", "fork", session_id, *flags]
+    return agent, shlex.join(command)
+
+
+def plan(pane_id: str) -> dict:
+    """다시 켤 명령을 만든다 (아직 아무것도 하지 않음)."""
+    window, pane, agent, proc = _agent_of(pane_id)
     try:
         parent = proc.parent()
         parent_name = parent.name() if parent else ""
@@ -116,11 +146,7 @@ def plan(pane_id: str) -> dict:
         raise ValueError(
             "셸에서 실행한 에이전트만 다시 켤 수 있어요 (종료하면 창이 닫히는 구조입니다)."
         )
-    log = transcript_service.find_log(pane.pid, agent, os.path.expanduser(pane.path))
-    ids = _UUID.findall(log.name) if log else []
-    if not ids:
-        raise ValueError("이어갈 대화(세션 ID)를 찾지 못했습니다.")
-    session_id = ids[-1]
+    session_id = _conversation_id(pane, agent)
     if agent == "claude":
         resume = [
             "claude",
