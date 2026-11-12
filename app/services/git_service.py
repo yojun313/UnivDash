@@ -133,13 +133,53 @@ class GitService:
         for root in roots:
             try:
                 resolved_root = root.resolve()
-                candidates.append(resolved_root)
-                candidates.extend(
-                    path for path in resolved_root.iterdir() if path.is_dir()
-                )
             except (OSError, RuntimeError):
                 continue
+            candidates.append(resolved_root)
+            candidates.extend(cls._find_repositories(resolved_root))
         return candidates
+
+    SCAN_DEPTH = 3  # 홈/Competition/ArenaConnect 처럼 폴더 안의 폴더에 있는 저장소까지
+    SCAN_LIMIT = (
+        4000  # 살펴볼 폴더 수 상한 (큰 데이터 폴더가 있어도 목록이 느려지지 않게)
+    )
+    SCAN_SKIP = frozenset(
+        {"node_modules", "__pycache__", "site-packages", "venv", "env"}
+    )
+
+    @classmethod
+    def _find_repositories(cls, root: Path) -> list[Path]:
+        """root 아래 SCAN_DEPTH 단계까지 .git 이 있는 폴더. 저장소 안으로는 더 들어가지 않는다.
+
+        숨김 폴더 · 가상환경 · 심볼릭 링크 폴더 안으로는 들어가지 않는다 (git 명령 없이 폴더만 훑는다).
+        """
+        found: list[Path] = []
+        level = [root]
+        visited = 0
+        for _ in range(cls.SCAN_DEPTH):
+            following: list[Path] = []
+            for directory in level:
+                try:
+                    with os.scandir(directory) as entries:
+                        children = [
+                            entry
+                            for entry in entries
+                            if entry.name not in cls.SCAN_SKIP
+                            and entry.is_dir(follow_symlinks=False)
+                        ]
+                except OSError:
+                    continue
+                for entry in sorted(children, key=lambda entry: entry.name):
+                    visited += 1
+                    if visited > cls.SCAN_LIMIT:
+                        return found
+                    path = Path(entry.path)
+                    if os.path.lexists(path / ".git"):
+                        found.append(path)
+                    elif not entry.name.startswith("."):
+                        following.append(path)
+            level = following
+        return found
 
     @staticmethod
     def _mask(text: str) -> str:

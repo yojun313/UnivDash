@@ -901,13 +901,18 @@ def _trust_waiting_codex() -> None:
         pane = next((p for p in window.panes if p.active), None)
         if pane is None:
             continue
-        answered = _answer_codex_trust(pane.id, _screen_lines(pane.id))
-        if answered:
+        lines = _screen_lines(pane.id)
+        if _answer_codex_trust(pane.id, lines):
             logger.info("Codex 폴더 신뢰 질문 자동 수락: %s", window.key)
+        elif _answer_codex_cwd(pane.id, lines, only_if_gone=True):
+            logger.info("Codex 작업 폴더 질문 → 옮겨진 지금 폴더로: %s", window.key)
 
 
 async def auto_trust_loop() -> None:
-    """어떻게 켠 Codex 창이든 "Trust and continue" 질문이 뜨면 바로 수락한다."""
+    """어떻게 켠 Codex 창이든 "Trust and continue" 질문이 뜨면 바로 수락한다.
+
+    대화의 원래 폴더가 옮겨져 사라졌는데 어느 폴더에서 이어갈지 물으면 지금(옮겨진) 폴더를 고른다.
+    """
     while True:
         await asyncio.sleep(AUTO_TRUST_INTERVAL)
         try:
@@ -918,25 +923,47 @@ async def auto_trust_loop() -> None:
             logger.debug("Codex 신뢰 질문 확인 실패", exc_info=True)
 
 
-_CWD_CHOICES = (
-    "Use session directory (",
-    "Use current directory (",
-    "Always use current directory (",
-)
+_CWD_ROW = re.compile(r"^\s*(?:[❯›>]\s*)?(?:\d\.\s+)?(.+?)\s*$")
+_CWD_SESSION = re.compile(r"^Use session directory \((.+)\)$")
+_CWD_CURRENT = re.compile(r"^Use current directory \((.+)\)$")
 
 
-def _answer_codex_cwd(pane_id: str, lines: list[str]) -> str | None:
-    """Codex: 대화를 시작한 폴더와 지금 폴더가 다르면 어느 쪽에서 이어갈지 묻는다 → 지금 폴더(이번만)."""
+def _answer_codex_cwd(
+    pane_id: str, lines: list[str], *, only_if_gone: bool = False
+) -> str | None:
+    """Codex: 대화를 시작한 폴더와 지금 폴더가 다르면 어느 쪽에서 이어갈지 묻는다 → 지금 폴더(이번만).
+
+    "› 1. Use session directory (…)" / "2. Use current directory (…)" / "3. Always use …" …
+    선택지가 3개든 4개든(Codex 버전마다 다르다) 앞 두 줄 모양으로 알아본다.
+    only_if_gone: 대화의 원래 폴더가 사라졌을 때만 (폴더를 옮겼다 → 원래 폴더로는 이어갈 수 없다).
+    """
     bottom = [line for line in lines if line.strip()][-16:]
     rows = []
     for line in bottom:
-        text = re.sub(r"^\s*[❯›>]?\s*(?:\d\.\s+)?", "", line)
-        for index, label in enumerate(_CWD_CHOICES):
-            if text.startswith(label):
-                rows.append((index, bool(_CURSOR.match(line))))
-    if [index for index, _ in rows] != [0, 1, 2]:
+        text = _CWD_ROW.match(line).group(1)
+        if (
+            _CWD_SESSION.match(text)
+            or _CWD_CURRENT.match(text)
+            or text.startswith("Always use ")
+        ):
+            rows.append((line, text))
+    if len(rows) < 3:
         return None
-    cursor = next((index for index, on in rows if on), None)
+    session = _CWD_SESSION.match(rows[0][1])
+    current = _CWD_CURRENT.match(rows[1][1])
+    if (
+        not session
+        or not current
+        or not all(text.startswith("Always use ") for _, text in rows[2:])
+    ):
+        return None
+    if only_if_gone:
+        old, new = session.group(1), current.group(1)
+        if "…" in old or "…" in new or os.path.exists(old) or not os.path.isdir(new):
+            return None  # 잘린 경로거나 원래 폴더가 그대로 있으면 사용자에게 맡긴다
+    cursor = next(
+        (index for index, (line, _) in enumerate(rows) if _CURSOR.match(line)), None
+    )
     if cursor is None:
         return None
     step = 1 - cursor
