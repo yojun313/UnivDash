@@ -1077,13 +1077,58 @@
       uploadDropped(event.dataTransfer, dropDir(event));
     });
 
-    // 폴더 다운로드: 서버가 zip 을 만든 뒤(너무 크면 여기서 오류 안내) 브라우저가 바로 내려받는다.
+    // 폴더 다운로드: 서버가 zip 을 만드는 동안 진행률을 보여 주고(너무 크면 오류 안내) 끝나면 브라우저가 바로 내려받는다.
     async function downloadFolder(entry, skipIgnored) {
-      toast(`${entry.name} 폴더를 압축하는 중…${skipIgnored ? ' (.gitignore 제외)' : ''}`, 'info');
-      const made = await op2('/api/fs/zip', { path: entry.path, skip_ignored: skipIgnored });
-      if (!made) return;
-      toast(`${made.name} (${formatSize(made.size)}) 다운로드를 시작합니다.`, 'success');
-      window.location.href = `/api/fs/zip/${encodeURIComponent(made.token)}`;
+      const started = await op2('/api/fs/zip', { path: entry.path, skip_ignored: skipIgnored });
+      if (!started) return;
+      const jobUrl = `/api/fs/zip/job/${encodeURIComponent(started.job)}`;
+      let cancelled = false;
+      const bar = progressToast(`${entry.name} 폴더 압축${skipIgnored ? ' (.gitignore 제외)' : ''}`, () => {
+        cancelled = true;
+        api(jobUrl, { method: 'DELETE' }).catch(() => {});
+      });
+      for (;;) {
+        await new Promise((resolve) => { setTimeout(resolve, 500); });
+        let job;
+        try { job = await api(jobUrl); } catch (error) { bar.close(); toast(error.message, 'error'); return; }
+        if (job.state === 'running') {
+          if (job.stage !== 'zip') bar.update(`파일 찾는 중… ${Number(job.files || 0).toLocaleString('ko-KR')}개`, null);
+          else {
+            const ratio = job.total_bytes ? job.done_bytes / job.total_bytes : (job.files_total ? job.files / job.files_total : 0);
+            bar.update(`${Math.floor(ratio * 100)}% · ${formatSize(job.done_bytes || 0)} / ${formatSize(job.total_bytes || 0)} · 파일 ${Number(job.files || 0).toLocaleString('ko-KR')} / ${Number(job.files_total || 0).toLocaleString('ko-KR')}`, ratio);
+          }
+          continue;
+        }
+        bar.close();
+        if (job.state === 'error') { toast(cancelled ? '압축을 취소했어요.' : job.error, cancelled ? 'info' : 'error'); return; }
+        toast(`${job.name} (${formatSize(job.size)}) 다운로드를 시작합니다.`, 'success');
+        window.location.href = `/api/fs/zip/${encodeURIComponent(job.token)}`;
+        return;
+      }
+    }
+    // 진행률 알림: 오래 걸리는 작업 동안 화면 위에 남아 있다 (다른 알림에 밀려나면 다시 붙는다)
+    function progressToast(title, onCancel) {
+      const host = document.getElementById('toastHost');
+      const item = document.createElement('div');
+      item.className = 'toast info ex-progress';
+      item.innerHTML = `<i class="fas fa-file-zipper"></i>
+        <div class="min-w-0 flex-1"><div class="ex-progress-title truncate"></div><div class="ex-progress-bar"><span></span></div><div class="ex-progress-text">준비 중…</div></div>
+        <button type="button" aria-label="취소">취소</button>`;
+      item.querySelector('.ex-progress-title').textContent = title;
+      const fill = item.querySelector('.ex-progress-bar span');
+      const text = item.querySelector('.ex-progress-text');
+      const cancel = item.querySelector('button');
+      cancel.addEventListener('click', () => { cancel.disabled = true; text.textContent = '취소하는 중…'; onCancel?.(); });
+      host?.appendChild(item);
+      return {
+        update(message, ratio) {
+          if (host && !item.isConnected) host.appendChild(item);
+          if (!cancel.disabled) text.textContent = message;
+          item.classList.toggle('indeterminate', ratio == null);
+          if (ratio != null) fill.style.width = `${Math.max(0, Math.min(1, ratio)) * 100}%`;
+        },
+        close() { item.remove(); },
+      };
     }
     async function op2(url, body) {
       try { return await api(url, { method: 'POST', body }); } catch (error) { toast(error.message, 'error'); return null; }
@@ -2282,6 +2327,7 @@
       } else if (file.preview === 'image') {
         bodyEl.innerHTML = `${metaHtml(file, ' · 서버에서 변환')}<div class="exv-image"><img src="/api/fs/preview/image?${q}&v=${file.mtime}" alt="${escapeHtml(entry.name)}"></div>`;
         bodyEl.querySelector('.exv-image img').addEventListener('load', () => { if (seq === renderSeq) sizeImage(); }, { once: true });
+        mountGallery(entry, seq);
         showZoom();
       }
     }
@@ -2413,6 +2459,78 @@
       const fit = Math.min(1, (bodyEl.clientWidth - 32) / img.naturalWidth, (window.innerHeight * 0.8) / img.naturalHeight);
       img.style.width = `${Math.round(img.naturalWidth * fit * zoom)}px`;
     }
+    // ── 같은 폴더 그림 넘겨 보기: 아래 이전 · 다음 버튼, 휴대폰은 좌우로 밀기, 키보드는 ← → ──
+    // 넘길 때는 탭을 새로 만들지 않고 지금 탭을 바꾼다 (탭이 쌓이지 않게)
+    const GALLERY_EXT = new Set([...IMAGE_EXT, 'heic', 'heif', 'tif', 'tiff']);
+    const galleryCache = new Map();   // 폴더 → { at, list }
+    let gallery = null;               // { path, list, index }
+    async function galleryOf(path) {
+      const dir = path.slice(0, path.lastIndexOf('/')) || '/';
+      const hit = galleryCache.get(dir);
+      if (hit && Date.now() - hit.at < 15000) return hit.list;
+      const data = await api(`/api/fs/list?path=${encodeURIComponent(dir)}`);
+      const list = (data.entries || [])
+        .filter((e) => e.type === 'file' && GALLERY_EXT.has(e.ext) && !e.name.startsWith('.'))
+        .sort((a, b) => a.name.localeCompare(b.name, 'ko', { numeric: true, sensitivity: 'base' }));
+      galleryCache.set(dir, { at: Date.now(), list });
+      return list;
+    }
+    async function mountGallery(entry, seq) {
+      gallery = null;
+      let list;
+      try { list = await galleryOf(entry.path); } catch (error) { return; }
+      if (seq !== renderSeq || current?.path !== entry.path) return;
+      const index = list.findIndex((e) => e.path === entry.path);
+      if (index < 0 || list.length < 2) return;
+      gallery = { path: entry.path, list, index };
+      bodyEl.querySelector('.exv-gallery')?.remove();
+      const bar = document.createElement('div');
+      bar.className = 'exv-gallery';
+      bar.innerHTML = `<button type="button" data-gallery="-1" aria-label="이전 그림" ${index ? '' : 'disabled'}><i class="fas fa-chevron-left"></i></button>
+        <span>${index + 1} / ${list.length}</span>
+        <button type="button" data-gallery="1" aria-label="다음 그림" ${index < list.length - 1 ? '' : 'disabled'}><i class="fas fa-chevron-right"></i></button>`;
+      bar.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-gallery]');
+        if (button) galleryGo(Number(button.dataset.gallery));
+      });
+      bodyEl.appendChild(bar);
+    }
+    function galleryGo(delta) {
+      if (!gallery || !current || gallery.path !== current.path) return false;
+      const next = gallery.list[gallery.index + delta];
+      if (!next) return false;
+      const tab = { path: next.path, name: next.name, ext: next.ext || '' };
+      if (!tabState.tabs.some((t) => t.path === tab.path)) {
+        const at = tabState.tabs.findIndex((t) => t.path === current.path);
+        if (at < 0) tabState.tabs.push(tab);
+        else tabState.tabs.splice(at, 1, tab);
+        pruneViews();
+      }
+      tabState.active = tab.path;
+      saveTabs();
+      renderTabs();
+      show(tabState.tabs.find((t) => t.path === tab.path));
+      return true;
+    }
+    // 그림을 화면에 맞춰 보는 중일 때만 (확대 · 원본 크기면 밀기는 그림 이동)
+    const galleryFit = () => gallery && current && gallery.path === current.path && !editing
+      && (viewOf(current.path).zoom || 1) === 1 && !viewOf(current.path).actual;
+    const swipe = { x: 0, y: 0, t: 0, on: false };
+    bodyEl.addEventListener('touchstart', (event) => {
+      swipe.on = event.touches.length === 1 && !!galleryFit();
+      if (!swipe.on) return;
+      const t = event.touches[0];
+      Object.assign(swipe, { x: t.clientX, y: t.clientY, t: Date.now() });
+    }, { passive: true });
+    bodyEl.addEventListener('touchmove', (event) => { if (event.touches.length !== 1) swipe.on = false; }, { passive: true });
+    bodyEl.addEventListener('touchend', (event) => {
+      if (!swipe.on || event.touches.length) return;
+      swipe.on = false;
+      const t = event.changedTouches[0];
+      const dx = t.clientX - swipe.x;
+      const dy = t.clientY - swipe.y;
+      if (Date.now() - swipe.t < 700 && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) galleryGo(dx < 0 ? 1 : -1);
+    });
     const pinch = { target: null, base: 1, zoom: 1, cx: 0, cy: 0, acc: 1, timer: 0, gesture: false, dist: 0 };
     function pinchStart(cx, cy) {
       const target = zoomable();
@@ -3044,6 +3162,7 @@
           const img = bodyEl.querySelector('img');
           showZoom();
           img.addEventListener('load', () => { if (seq === renderSeq) { sizeImage(); restoreScroll(entry); } }, { once: true });
+          mountGallery(entry, seq);
           img.addEventListener('click', () => {
             const view = viewOf(entry.path);
             if ((view.zoom || 1) !== 1) { view.actual = false; bodyEl.querySelector('.exv-image').classList.remove('actual'); applyZoom(1); return; }   // 확대해 둔 그림은 누르면 맞춤으로
@@ -3347,6 +3466,8 @@
       canZoom: () => !!current && !editing && !!zoomable(),
       step: (delta) => setZoom(delta),
       reset() { const box = bodyEl.getBoundingClientRect(); zoomAt(1, box.left + box.width / 2, box.top + box.height / 3); },
+      canGallery: () => !!gallery && !!current && gallery.path === current.path && !editing,
+      gallery: (delta) => galleryGo(delta),
     });
     // Ctrl/⌘+W 는 브라우저 창 닫기라 가로채지 않는다. Alt+W 로 현재 탭 닫기.
     container.addEventListener('keydown', (event) => {
@@ -3438,6 +3559,11 @@
   const zoomTarget = () => [lastViewer, ...zoomViewers].find((v) => v && visible(v) && v.canZoom());
   [['view.zoomIn', (v) => v.step(1)], ['view.zoomOut', (v) => v.step(-1)], ['view.zoomReset', (v) => v.reset()]].forEach(([id, act]) => {
     window.UnivDashKeys?.register(id, () => { const target = zoomTarget(); if (!target) return false; act(target); return true; }, () => !!zoomTarget());
+  });
+  // 같은 폴더 그림 넘기기 (기본 , 이전 · . 다음)
+  const galleryTarget = () => [lastViewer, ...zoomViewers].find((v) => v && visible(v) && v.canGallery());
+  [['view.prevImage', -1], ['view.nextImage', 1]].forEach(([id, delta]) => {
+    window.UnivDashKeys?.register(id, () => { const target = galleryTarget(); return !!target && target.gallery(delta); }, () => !!galleryTarget());
   });
 
   window.UnivDashExplorer = { mountTree, mountViewer, copyText, loadPrefs, shared, renderMarkdownHtml };

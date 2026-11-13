@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import secrets
+import threading
 import time
 from pathlib import Path
 from urllib.parse import quote, unquote
@@ -201,9 +202,12 @@ async def pdf_search(
         _fail(error)
 
 
-# 폴더 다운로드: POST 로 zip 을 만들고(오류는 JSON 으로) → 받은 토큰으로 GET 해서 브라우저가 바로 내려받는다.
+# 폴더 다운로드: POST 로 압축 작업을 시작하고 → 진행률을 물어보다가(오류는 JSON 으로) →
+# 끝나면 받은 토큰으로 GET 해서 브라우저가 바로 내려받는다.
 _zips: dict[str, tuple[Path, str, float]] = {}
 ZIP_TTL = 600
+_zip_jobs: dict[str, dict] = {}
+ZIP_JOBS_MAX = 4  # 동시에 압축하는 작업 수
 
 
 def _drop_zip(token: str) -> None:
@@ -217,21 +221,97 @@ class ZipRequest(BaseModel):
     skip_ignored: bool = False
 
 
+def _run_zip_job(job: dict, path: str, skip_ignored: bool) -> None:
+    def progress(state: dict) -> bool:
+        job.update(state)
+        # 화면이 30초 넘게 진행률을 묻지 않으면(창을 닫음) 멈춘다
+        return job["cancel"] or time.monotonic() - job["seen"] > 30
+
+    try:
+        archive, name = fs_service.zip_folder(path, skip_ignored, progress)
+    except (FsError, OSError) as error:
+        job.update(state="error", error=str(error) or "압축하지 못했어요.")
+        return
+    except Exception:  # 작업 스레드가 조용히 죽지 않게
+        logger.exception("폴더 압축 실패 · %s", path)
+        job.update(state="error", error="압축하지 못했어요.")
+        return
+    token = secrets.token_urlsafe(24)
+    _zips[token] = (archive, name, time.monotonic())
+    size = archive.stat().st_size
+    logger.info("폴더 다운로드 준비 · %s · %d bytes", path, size)
+    job.update(state="done", token=token, name=name, size=size)
+
+
 @router.post("/api/fs/zip", dependencies=api_auth)
 async def make_zip(body: ZipRequest):
     now = time.monotonic()
     for token in [t for t, (_, _, made) in _zips.items() if now - made > ZIP_TTL]:
         _drop_zip(token)
+    for job_id in [
+        j
+        for j, job in _zip_jobs.items()
+        if job["state"] != "running" and now - job["seen"] > ZIP_TTL
+    ]:
+        _zip_jobs.pop(job_id, None)
     try:
-        archive, name = await asyncio.to_thread(
-            fs_service.zip_folder, body.path, body.skip_ignored
-        )
+        fs_service.resolve(body.path)  # 경로 문제는 바로 알린다
     except (FsError, OSError) as error:
         _fail(error)
-    token = secrets.token_urlsafe(24)
-    _zips[token] = (archive, name, now)
-    logger.info("폴더 다운로드 준비 · %s · %d bytes", body.path, archive.stat().st_size)
-    return {"token": token, "name": name, "size": archive.stat().st_size}
+    if sum(job["state"] == "running" for job in _zip_jobs.values()) >= ZIP_JOBS_MAX:
+        raise HTTPException(
+            status_code=429, detail="압축 중인 작업이 많아요. 잠시 뒤 다시 시도하세요."
+        )
+    job_id = secrets.token_urlsafe(18)
+    job = {
+        "state": "running",
+        "stage": "scan",
+        "files": 0,
+        "cancel": False,
+        "seen": now,
+    }
+    _zip_jobs[job_id] = job
+    threading.Thread(
+        target=_run_zip_job,
+        args=(job, body.path, body.skip_ignored),
+        daemon=True,
+        name="zip-folder",
+    ).start()
+    return {"job": job_id}
+
+
+_ZIP_JOB_FIELDS = (
+    "state",
+    "stage",
+    "files",
+    "files_total",
+    "done_bytes",
+    "total_bytes",
+    "token",
+    "name",
+    "size",
+    "error",
+)
+
+
+@router.get("/api/fs/zip/job/{job_id}", dependencies=api_auth)
+async def zip_job(job_id: str):
+    job = _zip_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="압축 작업을 찾을 수 없어요.")
+    job["seen"] = time.monotonic()
+    result = {key: job[key] for key in _ZIP_JOB_FIELDS if key in job}
+    if job["state"] != "running":
+        _zip_jobs.pop(job_id, None)  # 결과는 한 번만 알려 준다
+    return result
+
+
+@router.delete("/api/fs/zip/job/{job_id}", dependencies=api_auth)
+async def cancel_zip_job(job_id: str):
+    job = _zip_jobs.get(job_id)
+    if job is not None:
+        job["cancel"] = True
+    return {"ok": True}
 
 
 @router.get("/api/fs/zip/{token}", dependencies=api_auth)

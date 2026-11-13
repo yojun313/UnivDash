@@ -472,10 +472,14 @@ async def watch_loop() -> None:
             by_key = {w.key: w for w in windows}
             for key, (due, event) in list(held.items()):
                 window = by_key.get(key)
-                if window is None or window.status != "idle" or window.compacted:
-                    del held[
-                        key
-                    ]  # 다시 작업 중 · 창이 사라짐 · 압축만 끝남 → 알리지 않는다
+                if (
+                    window is None
+                    or window.status != "idle"
+                    or window.compacted
+                    or window.starting
+                ):
+                    # 다시 작업 중 · 창이 사라짐 · 압축만 끝남 · 다시 켜는 중 → 알리지 않는다
+                    del held[key]
                 elif now >= due:
                     del held[key]
                     ready.append(event)

@@ -504,9 +504,35 @@ def _git_files(directory: Path) -> list[Path] | None:
     ]
 
 
-def zip_folder(path: str, skip_ignored: bool = False) -> tuple[Path, str]:
+ZIP_CHUNK = 1024 * 1024
+
+
+def _zip_write(archive: zipfile.ZipFile, file: Path, name: str, on_bytes) -> None:
+    """파일 하나를 조금씩 읽어 넣는다 (큰 파일도 진행률이 매끄럽게 오르게)."""
+    info = zipfile.ZipInfo.from_file(file, name)
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info._compresslevel = 6  # ZipFile.write 와 같은 압축 정도
+    with (
+        open(file, "rb") as source,
+        archive.open(
+            info, "w", force_zip64=info.file_size >= zipfile.ZIP64_LIMIT
+        ) as target,
+    ):
+        while chunk := source.read(ZIP_CHUNK):
+            target.write(chunk)
+            on_bytes(len(chunk))
+
+
+def zip_folder(
+    path: str, skip_ignored: bool = False, progress=None
+) -> tuple[Path, str]:
     """폴더를 zip 으로 묶어 임시 파일 경로와 받을 파일 이름을 돌려준다 (호출한 쪽이 보낸 뒤 지운다).
-    링크는 따라가지 않고, 허용 범위 밖을 가리키는 것은 뺀다."""
+    링크는 따라가지 않고, 허용 범위 밖을 가리키는 것은 뺀다.
+
+    progress(상태): 진행 상황을 dict 로 알린다 — stage("scan" · "zip"), files · files_total ·
+    done_bytes · total_bytes. 돌려준 값이 True 면 멈춘다(취소).
+    """
+    report = progress or (lambda state: False)
     directory = resolve(path)
     if not directory.is_dir():
         raise FsError("폴더가 아닙니다.")
@@ -519,6 +545,8 @@ def zip_folder(path: str, skip_ignored: bool = False) -> tuple[Path, str]:
                 files.append(Path(current) / name)
                 if len(files) > ZIP_MAX_FILES:
                     raise FsError(f"파일이 너무 많습니다 (최대 {ZIP_MAX_FILES:,}개).")
+            if report({"stage": "scan", "files": len(files)}):
+                raise FsError("압축을 취소했어요.")
     total = 0
     chosen = []
     for file in files:
@@ -540,7 +568,25 @@ def zip_folder(path: str, skip_ignored: bool = False) -> tuple[Path, str]:
             raise FsError(
                 "폴더가 너무 큽니다 (최대 4GB). .gitignore 제외 옵션이나 하위 폴더로 받아 보세요."
             )
-        chosen.append(file)
+        chosen.append((file, st.st_size))
+    state = {
+        "stage": "zip",
+        "files": 0,
+        "files_total": len(chosen),
+        "done_bytes": 0,
+        "total_bytes": total,
+    }
+    report(dict(state))
+    last = [0.0]
+
+    def on_bytes(count: int) -> None:
+        state["done_bytes"] += count
+        now = time.monotonic()
+        if now - last[0] >= 0.2:  # 너무 자주 알리지 않게
+            last[0] = now
+            if report(dict(state)):
+                raise FsError("압축을 취소했어요.")
+
     temp_dir = Path.home() / ".univdash" / "cache" / "zip"
     temp_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd, temp = tempfile.mkstemp(dir=temp_dir, suffix=".zip")
@@ -554,13 +600,21 @@ def zip_folder(path: str, skip_ignored: bool = False) -> tuple[Path, str]:
             compresslevel=6,
             allowZip64=True,
         ) as archive:
-            for file in chosen:
+            for file, size in chosen:
+                before = state["done_bytes"]
                 try:
-                    archive.write(
-                        file, f"{base}/{file.relative_to(directory).as_posix()}"
+                    _zip_write(
+                        archive,
+                        file,
+                        f"{base}/{file.relative_to(directory).as_posix()}",
+                        on_bytes,
                     )
                 except (OSError, ValueError):
-                    continue
+                    pass
+                # 읽다 크기가 바뀌었거나 못 읽은 파일도 계획한 만큼 진행한 것으로 친다
+                state["done_bytes"] = before + size
+                state["files"] += 1
+            report(dict(state))
     except BaseException:
         Path(temp).unlink(missing_ok=True)
         raise

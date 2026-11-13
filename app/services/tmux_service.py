@@ -304,6 +304,21 @@ def _starting_panes() -> set[str]:
         return set(_starting)
 
 
+# Codex 백그라운드 서버(app-server-daemon)는 스스로 업데이트하고 재시작한다. 그러면 모든 Codex 창이 서버에
+# 다시 붙으며 대화를 다시 불러와 잠깐 '작업 중'이 되었다가 끝난다 → 그동안은 Codex 창을 켜는 중으로 본다.
+CODEX_DAEMON_GRACE = 90.0
+
+
+def _codex_daemon_restarted_recently() -> bool:
+    root = os.getenv("CODEX_DATA_DIR")
+    home = Path(root).expanduser() if root else Path.home() / ".codex"
+    try:
+        started = (home / "app-server-daemon" / "daemon.pid").stat().st_mtime
+    except OSError:
+        return False
+    return 0 <= time.time() - started < CODEX_DAEMON_GRACE
+
+
 def list_windows(with_status: bool = True) -> list[Window]:
     raw = _run(["list-panes", "-a", "-F", _PANE_FORMAT])
     windows: dict[str, Window] = {}
@@ -344,11 +359,14 @@ def list_windows(with_status: bool = True) -> list[Window]:
 
     result = sorted(windows.values(), key=lambda w: (w.session, w.index))
     starting = _starting_panes()
+    codex_restarting = _codex_daemon_restarted_recently()
     for window in result:
         window.starting = any(p.id in starting for p in window.panes)
         active = next((p for p in window.panes if p.active), window.panes[0])
         agent_pane = next((p for p in window.panes if p.command in AGENTS), None)
         window.agent = agent_pane.command if agent_pane else None
+        if codex_restarting and window.agent == "codex":
+            window.starting = True
         window.title = _clean_title((agent_pane or active).title)
         window.path = active.path
         if with_status:

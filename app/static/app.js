@@ -906,6 +906,27 @@
   }
 
   // ── 새 세션 ──────────────────────────────────────────────────────────
+  // 새 세션을 넣을 사이드바 폴더: 만든 창이 목록에 나타나면 옮긴다 (다른 페이지에서 만들어 이동해도 이어지게 저장)
+  const PENDING_GROUP_TTL = 60000;
+  function placePendingGroup(windows) {
+    const pending = store.get('pending-session-group', null);
+    if (!pending) return;
+    if (!pending.pane || Date.now() - (pending.at || 0) > PENDING_GROUP_TTL) { store.set('pending-session-group', null); return; }
+    const created = windows.find((w) => w.panes.some((p) => p.id === pending.pane));
+    if (!created || !state.prefs.folders.some((f) => f.id === pending.folder)) return;
+    store.set('pending-session-group', null);
+    if (!folderOf(created.key)) moveToFolder(created.key, pending.folder);
+  }
+  function sessionGroupHtml() {
+    const folders = state.prefs.folders;
+    if (!folders.length) return '';
+    const last = store.get('new-session-group', '');
+    return `<label>사이드바 폴더<select name="group">
+      <option value="">폴더 없음</option>
+      ${folders.map((f) => `<option value="${escapeHtml(f.id)}" ${f.id === last ? 'selected' : ''}>${escapeHtml(f.name)}</option>`).join('')}
+    </select></label>`;
+  }
+
   function newSessionForm(startPath) {
     // Codex 는 권한을 "Full access"(샌드박스 없음 · 승인 안 물음)로 켠다
     const presets = { claude: 'claude --dangerously-skip-permissions', codex: 'codex --sandbox danger-full-access --ask-for-approval never', shell: '', custom: '' };
@@ -919,6 +940,7 @@
         { name: 'path', label: '작업 폴더', value: typeof startPath === 'string' ? startPath : '~', placeholder: '~/project', maxlength: 1024 },
       ],
       extraHtml: `${folderPickerHtml()}
+        ${sessionGroupHtml()}
         <label>시작 명령<div class="seg" role="radiogroup">
           ${['claude', 'codex', 'shell', 'custom'].map((p) => `<button type="button" data-preset="${p}" class="${p === preset ? 'on' : ''}">${{ claude: 'Claude', codex: 'Codex', shell: '셸만', custom: '직접' }[p]}</button>`).join('')}
         </div></label>
@@ -973,6 +995,9 @@
         const used = values.path.trim() || '~';
         store.set('recent-session-paths', [used, ...store.get('recent-session-paths', []).filter((p) => p !== used)].slice(0, 8));
         store.set('new-session-preset', preset);
+        const group = state.prefs.folders.some((f) => f.id === values.group) ? values.group : '';
+        if (state.prefs.folders.length) store.set('new-session-group', group);
+        store.set('pending-session-group', group && result.pane ? { pane: result.pane, folder: group, at: Date.now() } : null);
         toast(`${values.name} 세션을 만들었습니다.`, 'ok');
         state.pendingPane = result.pane;
         socket.poke();
@@ -1193,6 +1218,7 @@
       });
     }
 
+    placePendingGroup(windows);
     if (state.pendingPane) {
       const created = windows.find((w) => w.panes.some((p) => p.id === state.pendingPane));
       if (created) {
@@ -2577,7 +2603,8 @@
     $('#attachBtn').addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', () => { addFiles(Array.from(fileInput.files || [])); fileInput.value = ''; });
 
-    // 붙여넣기: 스크린샷 등 클립보드의 파일/이미지
+    // 붙여넣기: 스크린샷 등 클립보드의 파일/이미지 — 채팅 입력창에 커서가 있을 때만 첨부한다
+    // (파일 탐색기 등 다른 곳에 붙여 넣은 이미지가 채팅에도 같이 들어가지 않게)
     function pastedFiles(event) {
       const items = Array.from(event.clipboardData?.items || []);
       return items.filter((item) => item.kind === 'file').map((item) => item.getAsFile()).filter(Boolean);
@@ -2587,11 +2614,6 @@
       if (!files.length) return;
       event.preventDefault();
       addFiles(files);
-    });
-    document.addEventListener('paste', (event) => {
-      if (event.target === input || event.target.closest?.('input, textarea, .tdx-sheet') || !isTermVisible()) return;
-      const files = pastedFiles(event);
-      if (files.length) { event.preventDefault(); addFiles(files); }
     });
 
     // 드래그앤드롭: 터미널 영역에 놓으면 현재 창에, 목록의 창 위에 놓으면 그 창에 첨부

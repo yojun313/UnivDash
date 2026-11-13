@@ -84,6 +84,8 @@
     ['view.zoomIn', 'viewer', '확대', ['=', 'shift+=', 'numpad_add'], { repeat: true }],
     ['view.zoomOut', 'viewer', '축소', ['-', 'numpad_subtract'], { repeat: true }],
     ['view.zoomReset', 'viewer', '원래 크기', ['0', 'numpad0']],
+    ['view.prevImage', 'viewer', '이전 그림 (같은 폴더)', [','], { repeat: true }],
+    ['view.nextImage', 'viewer', '다음 그림 (같은 폴더)', ['.'], { repeat: true }],
     ['find.open', 'viewer', '파일 안에서 찾기', ['mod+f'], { typing: true }],
     ['find.replace', 'viewer', '파일 안에서 바꾸기', isMac ? ['meta+alt+f'] : ['ctrl+h'], { typing: true }],
     ['find.next', 'viewer', '다음 찾기', ['f3'], { typing: true, repeat: true }],
