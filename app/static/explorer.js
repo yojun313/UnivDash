@@ -1130,6 +1130,98 @@
         close() { item.remove(); },
       };
     }
+    // ── 공유 링크: 파일 · 폴더 하나를 정한 시간 동안 로그인 없이 받게 한다 (링크는 만들 때 한 번만 보여 줌) ──
+    const SHARE_TIMES = [[5, '5분'], [15, '15분'], [30, '30분'], [60, '1시간'], [180, '3시간'], [720, '12시간'], [1440, '1일'], [4320, '3일'], [10080, '7일']];
+    const SHARE_COUNTS = [[0, '제한 없음'], [1, '1번만'], [3, '3번'], [10, '10번']];
+    function shareSheet(entry) {
+      const isDir = entry.type === 'dir';
+      const opts = (list, value) => list.map(([v, label]) => `<option value="${v}"${v === value ? ' selected' : ''}>${label}</option>`).join('');
+      ui().formSheet({
+        title: '공유 링크 만들기', subtitle: shortHome(entry.path), submitLabel: '링크 만들기',
+        extraHtml: `<label>받을 수 있는 시간<select name="minutes">${opts(SHARE_TIMES, 15)}</select></label>
+          <label>받을 수 있는 횟수<select name="count">${opts(SHARE_COUNTS, 0)}</select></label>
+          ${isDir ? '<label class="check-row"><input type="checkbox" name="skip_ignored"> .gitignore 항목 빼기 (node_modules · .venv 등)</label>' : ''}
+          <p class="text-[11px] opacity-60 leading-5"><i class="fas fa-shield-halved mr-1"></i>링크를 받은 사람은 로그인 없이 ${isDir ? '이 폴더 하나만 zip 으로' : '이 파일 하나만'} 받을 수 있어요. 다른 파일 · 폴더는 볼 수 없고, 시간이 지나면 링크가 사라져요.${isDir ? ' 지금 내용을 묶어 두므로 나중에 바뀐 내용은 들어가지 않아요. .env · 개인 키 · .git 은 빠져요.' : ''}</p>`,
+        async onSubmit(values) {
+          const body = { path: entry.path, minutes: Number(values.minutes) || 15, max_downloads: Number(values.count) || 0, skip_ignored: !!values.skip_ignored };
+          const result = await api('/api/share', { method: 'POST', body });
+          if (result.state === 'done') { setTimeout(() => shareResult(result), 0); return false; }
+          setTimeout(() => waitShare(entry, result.job), 0);
+          return false;
+        },
+      });
+    }
+    async function waitShare(entry, jobId) {
+      const jobUrl = `/api/share/job/${encodeURIComponent(jobId)}`;
+      let cancelled = false;
+      const bar = progressToast(`${entry.name} 공유 준비 (압축)`, () => { cancelled = true; api(jobUrl, { method: 'DELETE' }).catch(() => {}); });
+      for (;;) {
+        await new Promise((resolve) => { setTimeout(resolve, 500); });
+        let job;
+        try { job = await api(jobUrl); } catch (error) { bar.close(); toast(error.message, 'error'); return; }
+        if (job.state === 'running') {
+          if (job.stage !== 'zip') bar.update(`파일 찾는 중… ${Number(job.files || 0).toLocaleString('ko-KR')}개`, null);
+          else {
+            const ratio = job.total_bytes ? job.done_bytes / job.total_bytes : (job.files_total ? job.files / job.files_total : 0);
+            bar.update(`${Math.floor(ratio * 100)}% · ${formatSize(job.done_bytes || 0)} / ${formatSize(job.total_bytes || 0)} · 파일 ${Number(job.files || 0).toLocaleString('ko-KR')} / ${Number(job.files_total || 0).toLocaleString('ko-KR')}`, ratio);
+          }
+          continue;
+        }
+        bar.close();
+        if (job.state === 'error') { toast(cancelled ? '공유를 취소했어요.' : job.error, cancelled ? 'info' : 'error'); return; }
+        shareResult(job);
+        return;
+      }
+    }
+    const shareWhen = (t) => new Date(t * 1000).toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    function shareLeft(share) {
+      const minutes = Math.max(0, Math.ceil((share.expires * 1000 - Date.now()) / 60000));
+      const time = minutes >= 1440 ? `${Math.floor(minutes / 1440)}일 ${Math.floor((minutes % 1440) / 60)}시간` : minutes >= 60 ? `${Math.floor(minutes / 60)}시간 ${minutes % 60}분` : `${minutes}분`;
+      const count = share.max_downloads ? `${share.downloads}/${share.max_downloads}번 받음` : `${share.downloads}번 받음`;
+      return `${time} 남음 · ${count}`;
+    }
+    function shareResult({ url, share }) {
+      const link = `${location.origin}${url}`;
+      ui().infoSheet({
+        title: '공유 링크를 만들었어요', subtitle: `${share.name} · ${formatSize(share.size)}`,
+        bodyHtml: `<div class="share-box"><div class="share-link"><input readonly value="${escapeHtml(link)}" aria-label="공유 링크" spellcheck="false">
+            <button type="button" class="btn-glow" data-copy><i class="fas fa-copy mr-1"></i>복사</button>
+            ${navigator.share ? '<button type="button" class="sheet-cancel" data-send><i class="fas fa-share-nodes mr-1"></i>보내기</button>' : ''}</div>
+          <p class="text-[12px] opacity-75 leading-5 mt-3">${escapeHtml(shareWhen(share.expires))}까지 받을 수 있어요 · ${escapeHtml(share.max_downloads ? `${share.max_downloads}번만` : '횟수 제한 없음')}</p>
+          <p class="text-[11px] opacity-60 leading-5 mt-1"><i class="fas fa-triangle-exclamation mr-1"></i>링크는 지금만 보여요. 링크를 아는 사람은 누구나 받을 수 있으니 받을 사람에게만 보내세요. 탐색기 ⋯ 메뉴 › 공유 중인 링크에서 언제든 끊을 수 있어요.</p></div>`,
+        onMount(body) {
+          const input = body.querySelector('input');
+          input.addEventListener('focus', () => input.select());
+          body.querySelector('[data-copy]').addEventListener('click', () => copyText(link, '공유 링크 복사'));
+          body.querySelector('[data-send]')?.addEventListener('click', () => navigator.share({ title: share.name, url: link }).catch(() => {}));
+        },
+      });
+    }
+    async function sharesSheet() {
+      let list;
+      try { list = (await api('/api/shares')).shares; } catch (error) { toast(error.message, 'error'); return; }
+      const rows = list.map((s) => `<li class="share-row" data-share="${escapeHtml(s.id)}">
+          <i class="fas ${s.kind === 'dir' ? 'fa-file-zipper' : 'fa-file'} opacity-70"></i>
+          <div class="min-w-0 flex-1"><div class="truncate font-semibold">${escapeHtml(s.name)}</div>
+            <div class="truncate text-[11px] opacity-60">${escapeHtml(shortHome(s.path))}</div>
+            <div class="text-[11px] opacity-75">${escapeHtml(shareLeft(s))} · ${escapeHtml(formatSize(s.size))}</div></div>
+          <button type="button" class="sheet-danger" data-revoke>끊기</button></li>`).join('');
+      ui().infoSheet({
+        title: '공유 중인 링크', subtitle: list.length ? `${list.length}개 · 시간이 지나면 저절로 사라져요` : '',
+        bodyHtml: `<div class="share-box">${list.length ? `<ul class="share-list">${rows}</ul>` : '<p class="opacity-70 text-sm">공유 중인 링크가 없어요. 파일이나 폴더를 우클릭해 만들 수 있어요.</p>'}</div>`,
+        onMount(body) {
+          body.querySelectorAll('[data-revoke]').forEach((button) => button.addEventListener('click', async () => {
+            const row = button.closest('[data-share]');
+            button.disabled = true;
+            try {
+              await api(`/api/shares/${encodeURIComponent(row.dataset.share)}`, { method: 'DELETE' });
+              row.remove();
+              toast('링크를 끊었어요. 이제 받을 수 없어요.', 'success');
+            } catch (error) { button.disabled = false; toast(error.message, 'error'); }
+          }));
+        },
+      });
+    }
     async function op2(url, body) {
       try { return await api(url, { method: 'POST', body }); } catch (error) { toast(error.message, 'error'); return null; }
     }
@@ -1213,6 +1305,7 @@
           !isDir && { icon: 'fa-download', label: '다운로드', onClick: () => { window.location.href = `/api/fs/raw?download=1&path=${encodeURIComponent(entry.path)}`; } },
           isDir && { icon: 'fa-file-zipper', label: '폴더 다운로드 (.zip)', onClick: () => downloadFolder(entry, false) },
           isDir && { icon: 'fa-filter', label: '다운로드 (.gitignore 항목 제외)', sub: 'node_modules · .venv 등 빼고', onClick: () => downloadFolder(entry, true) },
+          { icon: 'fa-link', label: '공유 링크 만들기', sub: '정한 시간 동안 로그인 없이 받기', onClick: () => shareSheet(entry) },
           isDir && { icon: 'fa-terminal', label: '여기서 Terminal 열기', onClick: () => { if (window.UnivDashWs?.newTerminal) window.UnivDashWs.newTerminal(entry.path); else location.href = `/?newterm=1&cwd=${encodeURIComponent(entry.path)}`; } },
           isDir && ui().newSession && { icon: 'fa-layer-group', label: '여기서 새 tmux 세션', onClick: () => ui().newSession(entry.path) },
           isDir && { icon: 'fa-arrow-right-to-bracket', label: '이 폴더를 루트로 보기', onClick: () => setRoot(entry.path) },
@@ -1253,6 +1346,7 @@
           shared.clipboard && { icon: 'fa-paste', label: '루트에 붙여넣기', sub: clipLabel(), onClick: () => paste(root) },
           { icon: 'fa-copy', label: '루트 경로 복사', onClick: () => copyText(root, '경로 복사') },
           { icon: 'fa-trash-arrow-up', label: '휴지통 열기', onClick: () => setRoot(`${shared.home}/.univdash/trash`) },
+          { icon: 'fa-link', label: '공유 중인 링크', onClick: () => sharesSheet() },
         ],
       });
     }

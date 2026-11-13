@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<title>{% if name %}{{ name }} · {% endif %}파일 받기</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f4f6fb; --card: #fff; --text: #111827; --muted: #6b7280; --line: #e5e7eb; --accent: #2563eb; --accent-text: #fff; --warn: #b45309; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0b1020; --card: #141a2e; --text: #e5e7eb; --muted: #9ca3af; --line: #253049; --accent: #3b82f6; --warn: #fbbf24; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px; background: var(--bg); color: var(--text);
+    font: 15px/1.6 system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+  .card { width: 100%; max-width: 420px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 28px 24px; text-align: center; }
+  .icon { font-size: 40px; line-height: 1; margin-bottom: 12px; }
+  h1 { font-size: 18px; margin: 0 0 6px; word-break: break-all; }
+  .meta { color: var(--muted); font-size: 13px; margin: 0; }
+  .note { color: var(--muted); font-size: 12px; margin: 18px 0 0; }
+  .warn { color: var(--warn); }
+  button { margin-top: 22px; width: 100%; border: 0; border-radius: 10px; padding: 13px 16px; font: inherit; font-weight: 600; background: var(--accent); color: var(--accent-text); cursor: pointer; }
+  button:hover { filter: brightness(1.08); }
+</style>
+</head>
+<body>
+<main class="card">
+{% if missing %}
+  <div class="icon" aria-hidden="true">🔒</div>
+  <h1>링크가 없거나 만료되었어요</h1>
+  <p class="meta">받을 수 있는 시간이 지났거나, 보낸 사람이 링크를 지웠어요.</p>
+{% elif locked %}
+  <div class="icon" aria-hidden="true">⏳</div>
+  <h1>잠시 뒤 다시 시도해 주세요</h1>
+  <p class="meta">잘못된 링크를 너무 많이 열었어요.</p>
+{% elif busy %}
+  <div class="icon" aria-hidden="true">⏳</div>
+  <h1>받는 사람이 많아요</h1>
+  <p class="meta">조금 뒤 이 페이지를 새로 고쳐 다시 받아 주세요.</p>
+{% else %}
+  <div class="icon" aria-hidden="true">{% if is_dir %}🗂️{% else %}📄{% endif %}</div>
+  <h1>{{ name }}</h1>
+  <p class="meta">{% if is_dir %}폴더 (zip) · {% endif %}{{ size }}</p>
+  <form method="post" action="{{ action }}">
+    <button type="submit">내려받기</button>
+  </form>
+  <p class="note">{{ expires }}까지 받을 수 있어요 (약 {{ minutes }}분 남음){% if left is not none %} · <span class="warn">{{ left }}번 더 받을 수 있어요</span>{% endif %}</p>
+{% endif %}
+</main>
+</body>
+</html>

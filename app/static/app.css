@@ -1847,3 +1847,12 @@ html[data-ui-theme-mode="light"] .dom-modal-actions button:hover { background: r
 html[data-ui-theme-mode="light"] .dom-modal-actions .dom-primary, html[data-ui-theme-mode="light"] .dom-modal-actions .dom-danger { color: #fff; }
 html[data-ui-theme-mode="light"] .dom-modal-actions .dom-primary { background: #0891b2; }
 html[data-ui-theme-mode="light"] .dom-modal-actions .dom-danger { background: #dc2626; }
+
+/* 공유 링크 */
+.share-box { padding: 4px 18px 8px; }
+.share-link { display: flex; gap: 8px; flex-wrap: wrap; }
+.share-link input { flex: 1 1 220px; min-width: 0; font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(148,163,184,0.25); background: rgba(148,163,184,0.10); color: inherit; }
+.share-link button { flex: 0 0 auto; min-height: 42px; padding: 0 16px; border-radius: 12px; font-size: 13px; font-weight: 800; }
+.share-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.share-row { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 10px; border: 1px solid rgba(148,163,184,0.2); }
+.share-row button { flex: 0 0 auto; min-height: 34px; padding: 0 14px; border-radius: 10px; font-size: 12px; font-weight: 800; }

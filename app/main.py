@@ -21,6 +21,7 @@ from app.routes import (
     push_routes,
     server_routes,
     settings_routes,
+    share_routes,
     tmux_routes,
     upload_routes,
 )
@@ -33,6 +34,7 @@ from app.services import (
     git_auto_pull,
     push_service,
     session_restore,
+    share_service,
     tool_install,
     upload_service,
 )
@@ -53,6 +55,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(folder_rename.loop()),
         asyncio.create_task(codex_auto_switch.loop()),
         asyncio.create_task(agent_update_all.update_prompt_loop()),
+        asyncio.create_task(share_service.cleanup_loop()),
     ]
     try:
         yield
@@ -107,3 +110,4 @@ app.include_router(fs_routes.router)
 app.include_router(pty_routes.router)
 app.include_router(settings_routes.router)
 app.include_router(push_routes.router)
+app.include_router(share_routes.router)

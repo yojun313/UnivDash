@@ -507,41 +507,82 @@ def _git_files(directory: Path) -> list[Path] | None:
 ZIP_CHUNK = 1024 * 1024
 
 
-def _zip_write(archive: zipfile.ZipFile, file: Path, name: str, on_bytes) -> None:
+def open_confined(file: Path, root: Path):
+    """root 안의 일반 파일만 연다. 링크를 따라 root 밖으로 나가거나, 확인과 여는 사이에
+    경로 중간이 링크로 바뀌어도(/proc 의 실제 열린 경로로 다시 확인) 막는다. (파일 객체, stat)"""
+    target = file.resolve(strict=True)
+    if target != root and root not in target.parents:
+        raise PermissionError("공유한 범위 밖을 가리킵니다.")
+    fd = os.open(target, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
+    try:
+        st = os.fstat(fd)
+        opened = Path(os.readlink(f"/proc/self/fd/{fd}"))
+        if not statmod.S_ISREG(st.st_mode) or (
+            opened != root and root not in opened.parents
+        ):
+            raise PermissionError("공유한 범위 밖을 가리킵니다.")
+    except BaseException:
+        os.close(fd)
+        raise
+    return os.fdopen(fd, "rb"), st
+
+
+def _zip_write(
+    archive: zipfile.ZipFile, file: Path, name: str, on_bytes, confine: Path | None
+) -> None:
     """파일 하나를 조금씩 읽어 넣는다 (큰 파일도 진행률이 매끄럽게 오르게)."""
-    info = zipfile.ZipInfo.from_file(file, name)
-    info.compress_type = zipfile.ZIP_DEFLATED
-    info._compresslevel = 6  # ZipFile.write 와 같은 압축 정도
-    with (
-        open(file, "rb") as source,
-        archive.open(
+    if confine is not None:
+        source, st = open_confined(file, confine)
+    else:
+        source = open(file, "rb")  # noqa: SIM115 — 아래 with 에서 닫는다
+        st = os.fstat(source.fileno())
+    with source:
+        stamp = time.localtime(st.st_mtime)[:6]
+        info = zipfile.ZipInfo(name, max(stamp, (1980, 1, 1, 0, 0, 0)))
+        info.external_attr = (st.st_mode & 0xFFFF) << 16
+        info.file_size = st.st_size
+        info.compress_type = zipfile.ZIP_DEFLATED
+        info._compresslevel = 6  # ZipFile.write 와 같은 압축 정도
+        with archive.open(
             info, "w", force_zip64=info.file_size >= zipfile.ZIP64_LIMIT
-        ) as target,
-    ):
-        while chunk := source.read(ZIP_CHUNK):
-            target.write(chunk)
-            on_bytes(len(chunk))
+        ) as target:
+            while chunk := source.read(ZIP_CHUNK):
+                target.write(chunk)
+                on_bytes(len(chunk))
 
 
 def zip_folder(
-    path: str, skip_ignored: bool = False, progress=None
+    path: str,
+    skip_ignored: bool = False,
+    progress=None,
+    *,
+    confine: bool = False,
+    exclude=None,
 ) -> tuple[Path, str]:
     """폴더를 zip 으로 묶어 임시 파일 경로와 받을 파일 이름을 돌려준다 (호출한 쪽이 보낸 뒤 지운다).
     링크는 따라가지 않고, 허용 범위 밖을 가리키는 것은 뺀다.
 
     progress(상태): 진행 상황을 dict 로 알린다 — stage("scan" · "zip"), files · files_total ·
     done_bytes · total_bytes. 돌려준 값이 True 면 멈춘다(취소).
+    confine: 링크는 이 폴더 안을 가리킬 때만 넣는다 (공유 링크용, 허용 범위 전체가 아니라).
+    exclude(이름): True 면 그 이름의 파일 · 폴더(안의 모든 것)를 뺀다.
     """
     report = progress or (lambda state: False)
+    skip = exclude or (lambda name: False)
     directory = resolve(path)
     if not directory.is_dir():
         raise FsError("폴더가 아닙니다.")
+    jail = directory.resolve() if confine else None
     files = _git_files(directory) if skip_ignored else None
-    if files is None:
+    if files is not None:
+        files = [f for f in files if not any(map(skip, f.relative_to(directory).parts))]
+    else:
         files = []
         for current, dirs, names in os.walk(directory, followlinks=False):
-            dirs.sort()
+            dirs[:] = sorted(d for d in dirs if not skip(d))
             for name in sorted(names):
+                if skip(name):
+                    continue
                 files.append(Path(current) / name)
                 if len(files) > ZIP_MAX_FILES:
                     raise FsError(f"파일이 너무 많습니다 (최대 {ZIP_MAX_FILES:,}개).")
@@ -556,7 +597,10 @@ def zip_folder(
             continue
         if statmod.S_ISLNK(st.st_mode):
             try:
-                if not file.is_file() or not _inside(file.resolve()):
+                target = file.resolve()
+                if not file.is_file() or not _inside(target):
+                    continue
+                if jail and target != jail and jail not in target.parents:
                     continue
                 st = file.stat()
             except OSError:
@@ -608,6 +652,7 @@ def zip_folder(
                         file,
                         f"{base}/{file.relative_to(directory).as_posix()}",
                         on_bytes,
+                        jail,
                     )
                 except (OSError, ValueError):
                     pass
