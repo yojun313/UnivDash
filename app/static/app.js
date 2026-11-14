@@ -946,7 +946,7 @@
         </div></label>
         <p data-codex-note class="text-[11px] opacity-60 -mt-1 ${preset === 'codex' || preset === 'claude' ? '' : 'hidden'}"><i class="fas fa-unlock mr-1"></i><span data-perm-text>${preset === 'claude' ? 'Claude 는 권한 확인 없이 켭니다 (Bypass permissions)' : 'Codex 는 권한 Full access 로 켭니다 (샌드박스 없음 · 승인 묻지 않음)'}</span></p>
         <label data-fork class="hidden">이어받을 대화 (선택)<select name="fork"></select></label>
-        <p data-fork-note class="text-[11px] opacity-60 -mt-1 hidden"><i class="fas fa-code-branch mr-1"></i>고른 창의 지금까지 대화를 복사해 시작해요. 원래 창은 그대로 돌아가요.</p>
+        <p data-fork-note class="text-[11px] opacity-60 -mt-1 hidden"><i class="fas fa-code-branch mr-1"></i><span data-fork-text></span></p>
         <label data-custom class="${preset === 'custom' ? '' : 'hidden'}">명령어<input name="command" maxlength="500" placeholder="예: claude --continue" autocomplete="off" autocapitalize="off" spellcheck="false"></label>`,
       submitLabel: '만들기',
       onMount(body) {
@@ -962,22 +962,32 @@
 
         mountFolderPicker(body, path);
 
-        // 다른 창의 대화 이어받기: 지금 고른 에이전트가 돌고 있는 창만 보여 준다
+        // 다른 창의 대화 이어받기: Claude · Codex 창 모두 (같은 에이전트 창이 먼저)
         const forkField = body.querySelector('[data-fork]');
         const forkSelect = forkField.querySelector('select');
         const forkNote = body.querySelector('[data-fork-note]');
         const forkSources = () => state.windows
-          .filter((w) => w.agent === preset && agentPaneOf(w))
-          .sort((a, b) => (b.activity || 0) - (a.activity || 0));
+          .filter((w) => (w.agent === 'claude' || w.agent === 'codex') && agentPaneOf(w))
+          .sort((a, b) => (b.agent === preset) - (a.agent === preset) || (b.activity || 0) - (a.activity || 0));
+        const renderForkNote = () => {
+          const source = state.windows.find((w) => agentPaneOf(w) === forkSelect.value);
+          forkNote.classList.toggle('hidden', !source);
+          if (!source) return;
+          body.querySelector('[data-fork-text]').textContent = source.agent === preset
+            ? '고른 창의 지금까지 대화를 복사해 시작해요. 원래 창은 그대로 돌아가요.'
+            : `고른 ${AGENT_NAMES[source.agent]} 창의 대화 기록을 파일로 넘겨, 새 ${AGENT_NAMES[preset]} 가 읽고 맥락을 정리한 뒤 다음 지시를 기다려요. 원래 창은 그대로 돌아가요.`;
+        };
         const renderForkSources = () => {
           const sources = forkSources();
-          forkSelect.innerHTML = `<option value="">새 대화로 시작</option>${sources.map((w) => `<option value="${escapeHtml(agentPaneOf(w))}">${escapeHtml(`${displayName(w)} (${w.session}:${w.index})`)}</option>`).join('')}`;
-          forkField.classList.toggle('hidden', !sources.length);
-          forkNote.classList.add('hidden');
+          const picked = forkSelect.value;
+          forkSelect.innerHTML = `<option value="">새 대화로 시작</option>${sources.map((w) => `<option value="${escapeHtml(agentPaneOf(w))}">${escapeHtml(`${w.agent === preset ? '' : `[${AGENT_NAMES[w.agent]}] `}${displayName(w)} (${w.session}:${w.index})`)}</option>`).join('')}`;
+          if (sources.some((w) => agentPaneOf(w) === picked)) forkSelect.value = picked;
+          forkField.classList.toggle('hidden', !sources.length || (preset !== 'claude' && preset !== 'codex'));
+          renderForkNote();
         };
         renderForkSources();
-        // 대화만 복사한다: 세션 이름 · 작업 폴더는 원본과 상관없이 사용자가 정한 대로
-        forkSelect.addEventListener('change', () => forkNote.classList.toggle('hidden', !forkSelect.value));
+        // 대화만 이어받는다: 세션 이름 · 작업 폴더는 원본과 상관없이 사용자가 정한 대로
+        forkSelect.addEventListener('change', renderForkNote);
         body.querySelectorAll('[data-preset]').forEach((button) => button.addEventListener('click', () => {
           preset = button.dataset.preset;
           body.querySelectorAll('[data-preset]').forEach((b) => b.classList.toggle('on', b === button));
@@ -990,7 +1000,7 @@
       async onSubmit(values) {
         const command = preset === 'custom' ? (values.command || '') : presets[preset];
         const forkPane = (preset === 'claude' || preset === 'codex') ? (values.fork || '') : '';
-        const result = await api('POST', '/api/sessions', { name: values.name.trim(), path: values.path.trim() || '~', command, ...(forkPane ? { fork_pane: forkPane } : {}) });
+        const result = await api('POST', '/api/sessions', { name: values.name.trim(), path: values.path.trim() || '~', command, ...(forkPane ? { fork_pane: forkPane, fork_agent: preset } : {}) });
         store.set('new-session-path', values.path.trim() || '~');
         const used = values.path.trim() || '~';
         store.set('recent-session-paths', [used, ...store.get('recent-session-paths', []).filter((p) => p !== used)].slice(0, 8));

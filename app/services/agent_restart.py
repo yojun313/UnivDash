@@ -116,9 +116,28 @@ def _conversation_id(pane, agent: str) -> str:
     return ids[-1]
 
 
-def fork_command(pane_id: str, directory: Path) -> tuple[str, str]:
-    """다른 창의 대화를 복제해 새 대화로 시작하는 명령. 원본 창과 원본 대화는 건드리지 않는다."""
-    _, pane, agent, proc = _agent_of(pane_id)
+def fork_command(
+    pane_id: str, directory: Path, target: str | None = None
+) -> tuple[str, str]:
+    """다른 창의 대화를 이어받아 새 대화로 시작하는 명령. 원본 창과 원본 대화는 건드리지 않는다.
+
+    target 이 원본과 같은 에이전트(또는 None)면 대화를 그대로 복제하고(fork),
+    다르면(Claude ↔ Codex) 지금까지의 대화 기록을 인계 파일로 만들어 새 에이전트가 읽고 이어 가게 한다.
+    """
+    window, pane, agent, proc = _agent_of(pane_id)
+    if target is not None and target not in LAUNCH:
+        raise ValueError("Claude 또는 Codex 만 켤 수 있어요.")
+    if target is not None and target != agent:
+        cwd = os.path.expanduser(pane.path)
+        log = transcript_service.find_log(pane.pid, agent, cwd)
+        items = transcript_service.all_items(log, agent) if log else []
+        if not any(item.get("kind") in {"user", "assistant"} for item in items):
+            raise ValueError("넘겨줄 대화 기록이 없어요.")
+        handoff = _write_handoff(
+            window.key, _handoff_markdown(items, agent, target, cwd, log)
+        )
+        prompt = _handoff_prompt(agent, handoff, same_folder=Path(cwd) == directory)
+        return target, shlex.join([*_launch_command(target, None, None), prompt])
     session_id = _conversation_id(pane, agent)
     try:
         argv = proc.cmdline()[1:]
@@ -593,10 +612,13 @@ def _write_handoff(window_key: str, text: str) -> Path:
     return path
 
 
-def _handoff_prompt(source: str, path: Path) -> str:
+def _handoff_prompt(source: str, path: Path, same_folder: bool = True) -> str:
+    where = (
+        "이 폴더에서" if same_folder else "다른 폴더에서(기록 맨 위에 적힌 작업 폴더)"
+    )
     return (
         f"이 작업은 다른 에이전트({AGENT_LABEL[source]})에서 넘어왔어요. "
-        f"지금까지 이 폴더에서 나눈 대화 전체가 {path} 파일에 있어요. "
+        f"지금까지 {where} 나눈 대화 전체가 {path} 파일에 있어요. "
         "이 파일을 처음부터 끝까지 읽고(길면 나눠서) 목표, 결정한 것, 진행 상황, 남은 일을 파악해 주세요. "
         "기록 안에 다른 인계 파일이 언급돼 있으면 그것도 읽어 주세요. "
         "다 읽으면 파악한 맥락을 짧게 정리해 알려 주고, 새 작업은 시작하지 말고 제 다음 지시를 기다려 주세요."

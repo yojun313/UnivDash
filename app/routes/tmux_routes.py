@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+from typing import Literal
 
 from fastapi import (
     APIRouter,
@@ -85,6 +86,8 @@ class CreateSessionRequest(BaseModel):
     path: str = Field(default="~", max_length=1024)
     command: str = Field(default="", max_length=500)
     fork_pane: str | None = Field(default=None, max_length=32)
+    # 이어받아 켤 에이전트 (원본과 다르면 대화 기록을 인계 파일로 넘긴다)
+    fork_agent: Literal["claude", "codex"] | None = None
 
 
 class NavigationOrderRequest(BaseModel):
@@ -113,7 +116,7 @@ async def api_create_session(body: CreateSessionRequest):
                 tmux_service.check_new_session, body.name, body.path
             )
             _, command = await asyncio.to_thread(
-                agent_restart.fork_command, body.fork_pane, directory
+                agent_restart.fork_command, body.fork_pane, directory, body.fork_agent
             )
         pane = await asyncio.to_thread(
             tmux_service.create_session, body.name, body.path, command
