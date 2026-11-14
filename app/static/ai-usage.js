@@ -60,6 +60,7 @@
                 ${provider.account ? `<p class="ai-account text-[11px] font-semibold text-white/60 break-all"><i class="far fa-user text-[9px] mr-1 opacity-70"></i>${escapeHtml(provider.account)}</p>` : '<p class="text-[11px] text-white/35">로그인 계정 정보 없음</p>'}
                 <div class="ai-account-actions">
                   ${provider.id === 'codex' && provider.active !== false ? '<button type="button" class="ai-accounts-btn" data-codex-accounts><i class="fas fa-right-left"></i> 계정 전환 · 추가</button>' : ''}
+                  ${provider.id === 'claude' ? '<button type="button" class="ai-accounts-btn" data-claude-accounts><i class="fas fa-right-left"></i> 계정 전환 · 추가</button>' : ''}
                   ${canRelogin(provider) ? `<button type="button" class="ai-accounts-btn" data-relogin="${provider.id}" data-email="${escapeHtml(provider.account || '')}"><i class="fas fa-right-to-bracket"></i> 다시 로그인</button>` : ''}
                 </div>
                 ${provider.id === 'codex' && provider.active ? '<p class="text-[10px] font-bold text-emerald-400">현재 사용 중</p>' : ''}
@@ -382,7 +383,56 @@
       })),
     });
   }
-  function reloginClaude() {
+  // ── Claude Code 계정 여러 개: 전환 · 추가 · 지우기 ──
+  // 서버는 계정마다 로그인 토큰 복사본을 보관하고, 전환하면 ~/.claude/.credentials.json 의 로그인만 바꿔 끼운다.
+  // 실행 중인 Claude Code 는 파일이 바뀐 것을 알아채고 새 계정으로 이어진다 (토큰은 브라우저로 오지 않는다).
+  async function claudeAccounts() {
+    let data;
+    try { data = await api('/api/accounts/claude'); } catch (error) { toast(error.message, 'error'); return; }
+    const others = data.accounts.filter((a) => !a.active);
+    const label = (a) => [a.email, a.org && !a.org.includes(a.email || '\u0000') ? a.org : ''].filter(Boolean).join(' · ');
+    ui().actionSheet({
+      title: 'Claude Code 계정',
+      subtitle: data.accounts.length ? '고르면 그 계정으로 바뀌어요. 실행 중인 Claude Code 창도 다시 켜지 않고 새 계정으로 이어져요.' : '계정을 추가하면 여기서 바꿀 수 있어요.',
+      actions: [
+        ...data.accounts.map((a) => ({
+          icon: 'fa-user', label: label(a) || '이름 없는 계정', current: a.active, sub: a.active ? '사용 중' : a.expired ? '만료' : '',
+          desc: [planName(a.plan), a.active ? '지금 로그인된 계정' : a.expired ? '로그인이 만료됐어요 · 다시 추가하세요' : `저장 ${relativeTime(new Date(a.saved_at * 1000).toISOString())}`].filter(Boolean).join(' · '),
+          onClick: () => { if (!a.active) switchClaude(a); },
+        })),
+        ...(data.accounts.length ? ['sep'] : []),
+        { icon: 'fa-plus', label: '계정 추가', desc: '다른 Claude 계정으로 로그인 (지금 로그인은 그대로)', onClick: () => reloginClaude(true) },
+        ...(others.length ? [{ icon: 'fa-trash', label: '저장된 계정 지우기', danger: true, onClick: () => removeClaudeMenu(others) }] : []),
+      ],
+    });
+  }
+  async function switchClaude(account) {
+    const ok = await ui().confirmSheet({
+      title: 'Claude Code 계정 바꾸기',
+      message: `${account.email} 로 바꿀까요?\n실행 중인 Claude Code 창은 끄지 않아요. 다음 요청부터 새 계정을 써요. 지금 계정은 최신 로그인을 저장해 두므로 언제든 다시 고를 수 있어요.`,
+      confirmLabel: '바꾸기',
+    });
+    if (!ok) return;
+    try {
+      const result = await api('/api/accounts/claude/switch', { method: 'POST', body: { id: account.id } });
+      toast(result.changed ? `Claude Code 계정을 ${result.email} 로 바꿨어요.` : '이미 그 계정이에요.', 'success');
+      refreshAfterLogin();
+    } catch (error) { toast(error.message, 'error'); }
+  }
+  function removeClaudeMenu(others) {
+    ui().actionSheet({
+      title: '저장된 계정 지우기', subtitle: '지운 계정은 다시 쓰려면 로그인해서 추가해야 해요.',
+      actions: others.map((a) => ({
+        icon: 'fa-trash', danger: true, label: a.email || '이름 없는 계정',
+        onClick: async () => {
+          const ok = await ui().confirmSheet({ title: '계정 지우기', message: `${a.email} 의 저장된 로그인 정보를 지울까요?`, confirmLabel: '지우기', danger: true });
+          if (!ok) return;
+          try { await api(`/api/accounts/claude/${a.id}`, { method: 'DELETE' }); toast('지웠어요.', 'success'); load(); } catch (error) { toast(error.message, 'error'); }
+        },
+      })),
+    });
+  }
+  function reloginClaude(add = false) {
     let login = null;
     let timer = null;
     let finished = false;
@@ -395,7 +445,9 @@
       const el = box();
       if (!el || !login) return;
       if (login.state === 'done') {
-        el.innerHTML = `<p class="cx-done"><i class="fas fa-circle-check"></i> ${escapeHtml(login.email || 'Claude')} 로 로그인했어요.</p><p class="cx-note">실행 중인 Claude Code 창에도 곧 적용돼요.</p>`;
+        el.innerHTML = add && !login.live
+          ? `<p class="cx-done"><i class="fas fa-circle-check"></i> ${escapeHtml(login.email || 'Claude')} 계정을 저장했어요.</p><p class="cx-note">지금 쓰는 계정은 그대로예요. 계정 전환에서 골라 바꿀 수 있어요.</p>`
+          : `<p class="cx-done"><i class="fas fa-circle-check"></i> ${escapeHtml(login.email || 'Claude')} 로 로그인했어요.</p><p class="cx-note">${add ? '지금 쓰는 계정과 같은 계정이라 목록의 로그인 정보만 새로 했어요.' : '실행 중인 Claude Code 창에도 곧 적용돼요.'}</p>`;
         return;
       }
       if (login.state === 'error' || login.state === 'cancelled') {
@@ -410,7 +462,7 @@
           <li><span>이 링크를 열고 Claude 계정으로 로그인하세요</span><a href="${escapeHtml(login.url)}" target="_blank" rel="noopener noreferrer" class="cx-link">로그인 페이지 열기 <i class="fas fa-arrow-up-right-from-square"></i></a></li>
           <li><span>화면에 나온 코드를 복사해 붙여 넣으세요</span>
             <form class="cx-code-form" data-claude-code><input type="text" class="input-glass" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" placeholder="코드 붙여넣기" aria-label="로그인 코드" required><button type="submit" class="btn-glow">확인</button></form></li>
-        </ol><p class="cx-note">로그인이 끝나기 전에는 지금 로그인이 그대로 유지돼요. 다른 계정으로 로그인하면 Claude Code 전체가 그 계정으로 바뀌어요.</p>`;
+        </ol><p class="cx-note">${add ? '추가할 계정으로 로그인하세요. 지금 로그인은 바뀌지 않아요. 로그인하려는 계정이 맞는지 확인하세요.' : '로그인이 끝나기 전에는 지금 로그인이 그대로 유지돼요. 다른 계정으로 로그인하면 Claude Code 전체가 그 계정으로 바뀌어요.'}</p>`;
     };
     const poll = () => {
       clearInterval(timer);
@@ -420,7 +472,7 @@
           if (['done', 'error', 'cancelled'].includes(login.state)) {
             stop();
             paint();
-            if (login.state === 'done') { toast('Claude Code 에 다시 로그인했어요.', 'success'); refreshAfterLogin(); }
+            if (login.state === 'done') { toast(add && !login.live ? `${login.email || 'Claude'} 계정을 저장했어요.` : 'Claude Code 에 다시 로그인했어요.', 'success'); refreshAfterLogin(); }
           } else if (login.state === 'verifying') paint();
         } catch (error) { stop(); }
       }, 1500);
@@ -430,7 +482,7 @@
       login = null;
       const el = box();
       if (el) el.innerHTML = '<p class="cx-wait"><i class="fas fa-circle-notch fa-spin"></i> 로그인 링크를 받는 중…</p>';
-      api('/api/accounts/claude/login', { method: 'POST' }).then((result) => {
+      api(add ? '/api/accounts/claude/add' : '/api/accounts/claude/login', { method: 'POST' }).then((result) => {
         login = result;
         if (!body()) { api(endpoint(), { method: 'DELETE' }).catch(() => {}); return; }
         paint();
@@ -442,7 +494,7 @@
       });
     };
     ui().infoSheet({
-      title: 'Claude Code 다시 로그인',
+      title: add ? 'Claude Code 계정 추가' : 'Claude Code 다시 로그인',
       subtitle: '이 기기(휴대폰 · PC)의 브라우저에서 로그인하고 코드를 붙여 넣으세요.',
       bodyHtml: '<div class="cx-login"></div>',
       onClose: () => { clearInterval(timer); if (login && !finished) api(endpoint(), { method: 'DELETE' }).catch(() => {}); },
@@ -531,6 +583,7 @@
   }
   $('aiLimits').addEventListener('click', (event) => {
     if (event.target.closest('[data-codex-accounts]')) { codexAccounts(); return; }
+    if (event.target.closest('[data-claude-accounts]')) { claudeAccounts(); return; }
     const relogin = event.target.closest('[data-relogin]');
     if (!relogin) return;
     if (relogin.dataset.relogin === 'claude') reloginClaude();

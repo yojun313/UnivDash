@@ -1914,7 +1914,7 @@
       const agent = w && agentOf(w);
       modelBtn.classList.toggle('hidden', !agent);
       $('#agentUpdateBtn')?.classList.toggle('hidden', !agent);
-      $('#codexAccountBtn')?.classList.toggle('hidden', agent !== 'codex');
+      $('#codexAccountBtn')?.classList.toggle('hidden', agent !== 'codex' && agent !== 'claude');
       const switchBtn = $('#agentSwitchBtn');
       if (switchBtn) {
         switchBtn.classList.toggle('hidden', !agent);
@@ -2042,7 +2042,9 @@
     }
     modelBtn.addEventListener('pointerdown', (event) => event.preventDefault());
     async function openCodexAccounts() {
-      if (agentOf(currentWindow()) !== 'codex') return;
+      const agent = agentOf(currentWindow());
+      if (agent === 'claude') { openClaudeAccounts(); return; }
+      if (agent !== 'codex') return;
       let data;
       try { data = await api('GET', '/api/accounts/codex'); }
       catch (error) { toast(error.message, 'error'); return; }
@@ -2073,6 +2075,39 @@
         toast(`Codex 계정을 ${result.email}로 변경했어요.`, 'ok');
         codexAccountChanged(result.limits);
         if (result.applied) window.UnivDash.followCodexApply(result.applied);
+      } catch (error) { toast(error.message, 'error'); }
+    }
+    // Claude Code: 로그인 파일만 바꿔 끼운다 — 실행 중인 창은 파일이 바뀐 것을 알아채고 새 계정으로 이어진다
+    async function openClaudeAccounts() {
+      let data;
+      try { data = await api('GET', '/api/accounts/claude'); }
+      catch (error) { toast(error.message, 'error'); return; }
+      actionSheet({
+        title: 'Claude Code 계정 변경',
+        subtitle: '다른 계정을 고르면 실행 중인 Claude Code 창도 끄지 않고 새 계정으로 이어집니다.',
+        actions: [
+          ...data.accounts.map((account) => ({
+            icon: 'fa-user', label: account.email || '이름 없는 계정',
+            current: account.active, sub: account.active ? '사용 중' : account.expired ? '만료' : '',
+            desc: account.plan ? `${account.plan} 요금제` : '',
+            onClick: () => { if (!account.active) switchClaudeAccount(account); },
+          })),
+          ...(data.accounts.length ? ['sep'] : []),
+          { icon: 'fa-plus', label: '계정 추가 · 관리', desc: 'AI 사용량 페이지에서 다른 계정 로그인', onClick: () => { location.href = '/ai-usage'; } },
+        ],
+      });
+    }
+    async function switchClaudeAccount(account) {
+      const confirmed = await confirmSheet({
+        title: 'Claude Code 계정 변경',
+        message: `${account.email} 계정으로 바꿀까요? 실행 중인 Claude Code 창은 끄지 않고, 다음 요청부터 새 계정을 써요.`,
+        confirmLabel: '계정 변경',
+      });
+      if (!confirmed) return;
+      try {
+        const result = await api('POST', '/api/accounts/claude/switch', { id: account.id });
+        toast(result.changed ? `Claude Code 계정을 ${result.email}로 변경했어요.` : '이미 그 계정이에요.', 'ok');
+        codexAccountChanged();
       } catch (error) { toast(error.message, 'error'); }
     }
     $('#codexAccountBtn')?.addEventListener('click', openCodexAccounts);

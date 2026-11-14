@@ -71,7 +71,7 @@
     ['term.sendShiftTab', 'workspace', '에이전트에 Shift+Tab 보내기 (모드 전환)', [], { click: '#keyBar [data-keys="BTab"]' }],
     ['term.sendCtrlC', 'workspace', '에이전트에 Ctrl+C 보내기', [], { click: '#keyBar [data-keys="C-c"]' }],
     ['term.update', 'workspace', '에이전트 업데이트 후 다시 켜기', [], { click: '#agentUpdateBtn' }],
-    ['term.codexAccount', 'workspace', 'Codex 계정 바꾸기', [], { click: '#codexAccountBtn' }],
+    ['term.codexAccount', 'workspace', '계정 바꾸기 (Claude · Codex)', [], { click: '#codexAccountBtn' }],
     ['term.agentSwitch', 'workspace', '다른 에이전트로 바꾸기', [], { click: '#agentSwitchBtn' }],
     ['term.back', 'workspace', '목록으로 돌아가기 (휴대폰)', [], { click: '#termBack, #ptyBack' }],
     ['pty.kill', 'workspace', '이 Terminal 끝내기', [], { click: '#ptyKill' }],

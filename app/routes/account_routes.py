@@ -1,4 +1,4 @@
-"""에이전트 계정 관리 API (지금은 Codex): 목록 · 전환 · 삭제 · 기기 인증 로그인으로 추가.
+"""에이전트 계정 관리 API (Codex · Claude Code): 목록 · 전환 · 삭제 · 로그인으로 추가.
 
 토큰은 서버 밖으로 내보내지 않는다 — 응답에는 메일 · 요금제 · 상태만.
 """
@@ -9,7 +9,12 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services import claude_login, codex_accounts, codex_auto_switch
+from app.services import (
+    claude_accounts,
+    claude_login,
+    codex_accounts,
+    codex_auto_switch,
+)
 from app.services.ai_usage_service import AIUsageService
 from app.services.auth_service import AuthService
 
@@ -23,7 +28,7 @@ def _raise(error: Exception):
         raise HTTPException(
             status_code=404, detail=str(error.args[0] if error.args else "없음")
         ) from error
-    if isinstance(error, codex_accounts.AccountError):
+    if isinstance(error, (codex_accounts.AccountError, claude_accounts.AccountError)):
         raise HTTPException(status_code=409, detail=str(error)) from error
     logger.warning("계정 처리 실패: %s", error)
     raise HTTPException(
@@ -148,6 +153,45 @@ async def claude_login_start():
     except (OSError, claude_login.LoginError) as error:
         _claude_error(error)
     logger.info("Claude 다시 로그인 시작")
+    return result
+
+
+# ── Claude Code 계정 여러 개 ──
+
+
+@router.get("/api/accounts/claude", dependencies=api_auth)
+async def claude_list():
+    try:
+        return await asyncio.to_thread(claude_accounts.list_accounts)
+    except (OSError, ValueError) as error:
+        _raise(error)
+
+
+@router.post("/api/accounts/claude/switch", dependencies=api_auth)
+async def claude_switch(body: SwitchRequest):
+    try:
+        result = await asyncio.to_thread(claude_accounts.switch, body.id)
+    except (KeyError, OSError, ValueError, claude_accounts.AccountError) as error:
+        _raise(error)
+    return result
+
+
+@router.delete("/api/accounts/claude/{account_id}", dependencies=api_auth)
+async def claude_remove(account_id: str):
+    try:
+        await asyncio.to_thread(claude_accounts.remove, account_id)
+    except (KeyError, OSError, claude_accounts.AccountError) as error:
+        _raise(error)
+    return {"ok": True}
+
+
+@router.post("/api/accounts/claude/add", dependencies=api_auth)
+async def claude_add_start():
+    try:
+        result = await asyncio.to_thread(claude_login.start_login, True)
+    except (OSError, claude_login.LoginError) as error:
+        _claude_error(error)
+    logger.info("Claude 계정 추가 로그인 시작")
     return result
 
 

@@ -1,11 +1,15 @@
-"""AI 사용량 페이지에서 Claude Code 다시 로그인.
+"""AI 사용량 페이지에서 Claude Code 다시 로그인 · 계정 추가.
 
 공식 `claude auth login` 을 그대로 돌린다: 링크를 화면에 보여 주고, 브라우저 로그인 뒤 받은 코드를
 입력받아 그 명령에 넘긴다. 로그인 정보는 Claude Code 가 직접, 로그인이 성공했을 때만 바꾼다
 — 취소 · 시간 초과 · 틀린 코드로는 지금 로그인이 그대로다. 토큰과 코드는 기록하지 않는다.
+
+계정 추가는 같은 명령을 임시 설정 폴더(CLAUDE_CONFIG_DIR)에서 돌려 결과만 계정 목록에 저장하고 폴더를 지운다
+— 지금 로그인 파일은 열지도 않는다.
 """
 
 import fcntl
+import logging
 import os
 import pty
 import re
@@ -16,9 +20,13 @@ import subprocess
 import termios
 import threading
 import time
+from pathlib import Path
 
 from app.paths import find_command
+from app.services import claude_accounts
 from app.services.ai_usage_service import AIUsageService
+
+logger = logging.getLogger(__name__)
 
 LOGIN_TIMEOUT = 15 * 60
 START_TIMEOUT = 20
@@ -37,8 +45,11 @@ class LoginError(RuntimeError):
 
 
 class _Login:
-    def __init__(self) -> None:
+    def __init__(self, folder: Path | None = None) -> None:
         self.id = secrets.token_hex(8)
+        self.folder = folder  # 계정 추가: 임시 설정 폴더 · 다시 로그인: None
+        self.account_id: str | None = None
+        self.live = folder is None
         self.state = (
             "starting"  # starting → waiting → verifying → done | error | cancelled
         )
@@ -56,6 +67,8 @@ class _Login:
             "url": self.url,
             "email": self.email,
             "error": self.error,
+            "add": self.folder is not None,
+            "live": self.live,
             "expires_in": max(
                 0, int(LOGIN_TIMEOUT - (time.monotonic() - self.started))
             ),
@@ -66,7 +79,7 @@ _logins: dict[str, _Login] = {}
 _lock = threading.Lock()
 
 
-def _child_env() -> dict[str, str]:
+def _child_env(folder: Path | None = None) -> dict[str, str]:
     from app.services.pty_service import _env  # 대시보드 비밀값을 뺀 환경
 
     env = _env()
@@ -82,7 +95,10 @@ def _child_env() -> dict[str, str]:
     env["BROWSER"] = "/bin/true"
     env["NO_COLOR"] = "1"
     env["TERM"] = "dumb"
-    if os.environ.get("CLAUDE_DATA_DIR"):
+    env.pop("CLAUDE_CONFIG_DIR", None)
+    if folder is not None:
+        env["CLAUDE_CONFIG_DIR"] = str(folder)
+    elif os.environ.get("CLAUDE_DATA_DIR"):
         env["CLAUDE_CONFIG_DIR"] = os.environ["CLAUDE_DATA_DIR"]
     return env
 
@@ -122,7 +138,8 @@ def _run(login: _Login, command: str) -> None:
         termios.tcsetattr(slave, termios.TCSANOW, attrs)
         login.proc = subprocess.Popen(
             [command, "auth", "login"],
-            env=_child_env(),
+            env=_child_env(login.folder),
+            cwd=str(login.folder) if login.folder else None,
             stdin=slave,
             stdout=slave,
             stderr=slave,
@@ -152,8 +169,20 @@ def _run(login: _Login, command: str) -> None:
         if login.state in {"cancelled", "error"}:
             return
         if code == 0 and not failed:
-            _invalidate_usage_cache()
-            login.email = AIUsageService.accounts().get("claude")
+            if login.folder is not None:
+                saved = claude_accounts.store_login(login.folder)
+                login.email, login.account_id, login.live = (
+                    saved["email"],
+                    saved["id"],
+                    saved["active"],
+                )
+            else:
+                _invalidate_usage_cache()
+                login.email = AIUsageService.accounts().get("claude")
+                try:
+                    claude_accounts.sync_current()  # 새 로그인을 계정 목록에도
+                except Exception:
+                    logger.exception("Claude 계정 목록 저장 실패")
             login.state = "done"
         else:
             login.state = "error"
@@ -162,11 +191,16 @@ def _run(login: _Login, command: str) -> None:
                 if failed
                 else "로그인이 끝나지 않았어요. 지금 로그인은 그대로예요. 다시 시도해 주세요."
             )
+    except claude_accounts.AccountError as error:
+        login.state = "error"
+        login.error = str(error)
     except Exception:  # noqa: BLE001 — 스레드 안: 상태로 알린다 (비밀값이 섞이지 않게 내용은 빼고)
         login.state = "error"
         login.error = "로그인을 진행하지 못했어요. 다시 시도해 주세요."
     finally:
         timer.cancel()
+        if login.folder is not None:
+            claude_accounts.discard(login.folder)
         login.master = None
         for fd in (master, slave):
             if fd >= 0:
@@ -176,7 +210,8 @@ def _run(login: _Login, command: str) -> None:
                     pass
 
 
-def start_login() -> dict:
+def start_login(add: bool = False) -> dict:
+    """add=False: 지금 로그인을 다시 · add=True: 지금 로그인은 그대로 두고 다른 계정을 목록에 추가."""
     command = find_command("claude")
     if not command:
         raise LoginError("claude 명령을 찾지 못했어요.")
@@ -184,7 +219,9 @@ def start_login() -> dict:
         for other in list(_logins.values()):  # 한 번에 하나만
             _stop(other, "cancel")
         _logins.clear()
-        login = _Login()
+        if add:
+            claude_accounts.cleanup_pending()  # 꺼지기 전에 남은 임시 폴더
+        login = _Login(claude_accounts.pending_dir() if add else None)
         _logins[login.id] = login
     threading.Thread(target=_run, args=(login, command), daemon=True).start()
     deadline = time.monotonic() + START_TIMEOUT
