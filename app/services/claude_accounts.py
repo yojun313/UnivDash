@@ -296,6 +296,172 @@ def list_accounts() -> dict:
         return {"accounts": accounts, "active": active}
 
 
+# ── 저장된(지금 로그인되지 않은) 계정의 남은 한도 ────────────────────────────────
+# 저장된 토큰으로 사용량 API 를 읽는다. 접근 토큰 기한이 지났으면 Claude Code 와 같은 방법으로 갱신하고
+# 새 토큰을 그 계정 파일에 바로 저장한다 (갱신하면 예전 갱신 토큰은 못 쓰게 되므로 저장이 곧 로그인 유지다).
+# 지금 로그인된 계정은 실행 중인 Claude 가 갱신하므로 여기서는 절대 갱신하지 않는다.
+
+TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
+CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"  # Claude Code
+SAVED_LIMITS_TTL = 60.0
+_saved_limits_cache: dict[str, tuple[float, str, dict | None]] = {}
+_saved_rejected: set[str] = set()  # 갱신을 거절당한 계정 (다시 로그인 필요)
+
+
+def _refresh_saved(account_id: str, record: dict) -> dict | None:
+    """(_lock 안에서) 저장된 계정 토큰을 갱신해 저장한다. 새 oauth · 실패하면 None."""
+    oauth = record["oauth"]
+    refresh = oauth.get("refreshToken")
+    if not isinstance(refresh, str) or not refresh:
+        return None
+    body = {
+        "grant_type": "refresh_token",
+        "refresh_token": refresh,
+        "client_id": CLIENT_ID,
+    }
+    scopes = oauth.get("scopes")
+    if isinstance(scopes, list) and all(isinstance(x, str) for x in scopes) and scopes:
+        body["scope"] = " ".join(scopes)
+    try:
+        import httpx
+
+        response = httpx.post(
+            TOKEN_URL,
+            json=body,
+            headers={"Content-Type": "application/json"},
+            timeout=15,
+            follow_redirects=False,
+        )
+    except Exception:  # noqa: BLE001 — 네트워크 오류: 다음에 다시
+        return None
+    if response.status_code in (400, 401, 403):
+        _saved_rejected.add(account_id)
+        logger.warning(
+            "저장된 Claude 계정 갱신 거절 · %s · %s",
+            record.get("email"),
+            response.status_code,
+        )
+        return None
+    if response.status_code != 200:
+        return None
+    try:
+        data = response.json()
+    except ValueError:
+        return None
+    token = data.get("access_token") if isinstance(data, dict) else None
+    expires_in = data.get("expires_in") if isinstance(data, dict) else None
+    if (
+        not isinstance(token, str)
+        or not token
+        or not isinstance(expires_in, (int, float))
+    ):
+        return None
+    now_ms = int(time.time() * 1000)
+    updated = {
+        **oauth,
+        "accessToken": token,
+        "refreshToken": data.get("refresh_token") or refresh,
+        "expiresAt": now_ms + int(expires_in * 1000),
+    }
+    if isinstance(data.get("refresh_token_expires_in"), (int, float)):
+        updated["refreshTokenExpiresAt"] = now_ms + int(
+            data["refresh_token_expires_in"] * 1000
+        )
+    if isinstance(data.get("scope"), str) and data["scope"].strip():
+        updated["scopes"] = data["scope"].split()
+    record = {**record, "oauth": updated, "saved_at": time.time()}
+    _write_file(_profile_path(account_id), json.dumps(record, ensure_ascii=False))
+    _saved_rejected.discard(account_id)
+    logger.info("저장된 Claude 계정 토큰 갱신 · %s", record.get("email"))
+    return updated
+
+
+def _saved_token(account_id: str, allow_refresh: bool) -> tuple[str | None, bool]:
+    """(쓸 수 있는 접근 토큰, 다시 로그인이 필요한지). 지금 로그인된 계정이 되면 (None, False)."""
+    with _lock:
+        record = _read_json(_profile_path(account_id))
+        oauth = _oauth({"claudeAiOauth": record.get("oauth")}) if record else None
+        if not oauth:
+            return None, False
+        live = _oauth(_read_json(live_file())) or {}
+        if live.get("refreshToken") and live.get("refreshToken") == oauth.get(
+            "refreshToken"
+        ):
+            return None, False  # 지금 로그인된 토큰 — 실행 중인 Claude 몫
+        if _usable(oauth):
+            return oauth["accessToken"], False
+        refresh_until = oauth.get("refreshTokenExpiresAt")
+        if (
+            isinstance(refresh_until, (int, float))
+            and refresh_until / 1000 < time.time()
+        ):
+            return None, True
+        # 바꾼 직후(되돌림 감시 중)에는 예전 계정 토큰을 실행 중인 Claude 가 아직 들고 있을 수 있어 갱신하지 않는다
+        if _guard["target"] and time.monotonic() < _guard["until"]:
+            return None, False
+        if account_id in _saved_rejected:
+            return None, True
+        if not allow_refresh:
+            return None, False
+        updated = _refresh_saved(account_id, {**record, "oauth": oauth})
+        if updated:
+            return updated["accessToken"], False
+        return None, account_id in _saved_rejected
+
+
+def saved_limits(now) -> list[dict]:
+    """지금 로그인되지 않은 저장 계정마다 {id, email, org, plan, limits, login_expired}. 토큰은 내보내지 않는다."""
+    with _lock:
+        active = sync_current()
+        records = {k: v for k, v in _profiles().items() if k != active}
+        # 지금 로그인이 어느 계정인지 모르면 갱신하지 않는다: 그 로그인의 예전 갱신 토큰을 쓰면
+        # 지금 로그인까지 풀릴 수 있다
+        allow_refresh = active is not None or _oauth(_read_json(live_file())) is None
+    result = []
+    for account_id, record in sorted(
+        records.items(), key=lambda kv: (kv[1].get("email") or "").lower()
+    ):
+        token, expired = _saved_token(account_id, allow_refresh)
+        limits = None
+        if token:
+            cached = _saved_limits_cache.get(account_id)
+            if (
+                cached
+                and cached[1] == token[-12:]
+                and time.monotonic() - cached[0] < SAVED_LIMITS_TTL
+            ):
+                limits = cached[2]
+            else:
+                status, usage = AIUsageService._request_claude_usage(token)
+                if status == 401:
+                    expired = account_id in _saved_rejected
+                if usage:
+                    limits = AIUsageService._claude_limits_from(
+                        {"utilization": usage, "fetchedAtMs": time.time() * 1000},
+                        f"subscription_{record.get('plan')}"
+                        if record.get("plan")
+                        else None,
+                        now,
+                    )
+                if status is not None:
+                    _saved_limits_cache[account_id] = (
+                        time.monotonic(),
+                        token[-12:],
+                        limits,
+                    )
+        result.append(
+            {
+                "id": account_id,
+                "email": record.get("email"),
+                "org": record.get("org_name"),
+                "plan": record.get("plan"),
+                "limits": limits,
+                "login_expired": expired,
+            }
+        )
+    return result
+
+
 def _backup(credentials_text: str | None, oauth_account) -> None:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     backup = _store() / "backups" / f"credentials-{stamp}-{secrets.token_hex(2)}.json"

@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import json
+import logging
 import os
 import re
 import select
@@ -112,10 +113,20 @@ class AIUsageService:
             codex["limits"] = cls._live_codex_limits(codex_root, now) or codex["limits"]
             codex["login_expired"] = accounts["codex"] in cls._codex_login_problems
             codex_summaries.append(codex)
+        try:
+            from app.services import claude_accounts
+
+            saved_claude = claude_accounts.saved_limits(now)
+        except Exception:  # 저장된 계정 한도는 없어도 페이지는 보여 준다
+            logging.getLogger(__name__).exception("저장된 Claude 계정 한도 조회 실패")
+            saved_claude = []
+        claude["active"] = True if saved_claude else None
         result = {
             "generated_at": now.isoformat(),
             "window_days": days,
             "providers": [claude, *codex_summaries],
+            # 지금 로그인되지 않은 Claude 계정: 한도만 (로컬 기록은 계정을 구분하지 않는다)
+            "claude_accounts": saved_claude,
         }
 
         with cls._cache_lock:
@@ -670,11 +681,18 @@ class AIUsageService:
                 cached = {"utilization": live, "fetchedAtMs": time.time() * 1000}
         if not isinstance(cached, dict):
             return None
+        if not tier or tier == "default_claude_ai":
+            tier = cls._claude_subscription(root) or tier
+        return cls._claude_limits_from(cached, tier, now)
+
+    @classmethod
+    def _claude_limits_from(
+        cls, cached: dict, tier: Any, now: datetime
+    ) -> dict[str, Any] | None:
+        """{utilization, fetchedAtMs} → 화면에 보여 줄 한도."""
         utilization = cached.get("utilization")
         if not isinstance(utilization, dict):
             return None
-        if not tier or tier == "default_claude_ai":
-            tier = cls._claude_subscription(root) or tier
 
         windows = []
         limits = utilization.get("limits")
@@ -811,7 +829,15 @@ class AIUsageService:
         cached = cls._claude_usage_cache
         if cached and cached[1] == key and time.monotonic() - cached[0] < 60:
             return cached[2]
-        result = None
+        status, result = cls._request_claude_usage(token)
+        if status is not None:
+            cls._claude_rejected_token = key if status == 401 else None
+        cls._claude_usage_cache = (time.monotonic(), key, result)
+        return result
+
+    @staticmethod
+    def _request_claude_usage(token: str) -> tuple[int | None, dict | None]:
+        """(HTTP 상태 · 네트워크 오류면 None, 사용량) — 토큰을 갱신하지 않고 읽기만 한다."""
         try:
             import httpx
 
@@ -825,14 +851,16 @@ class AIUsageService:
                 timeout=8,
                 follow_redirects=False,
             )
-            if response.status_code == 200:
-                data = response.json()
-                result = data if isinstance(data, dict) else None
-            cls._claude_rejected_token = key if response.status_code == 401 else None
         except Exception:  # noqa: BLE001 — 네트워크 오류면 표시만 안 한다
-            result = None
-        cls._claude_usage_cache = (time.monotonic(), key, result)
-        return result
+            return None, None
+        result = None
+        if response.status_code == 200:
+            try:
+                data = response.json()
+            except ValueError:
+                data = None
+            result = data if isinstance(data, dict) else None
+        return response.status_code, result
 
     @staticmethod
     def _claude_plan_label(tier: Any) -> str | None:

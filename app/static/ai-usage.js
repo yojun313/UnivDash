@@ -43,9 +43,19 @@
       </div>`;
   }
 
-  const canRelogin = (provider) => provider.id === 'claude' || (provider.id === 'codex' && !provider.account?.startsWith('계정 미확인'));
-  function renderLimits(providers) {
-    $('aiLimits').innerHTML = providers.map((provider) => {
+  const canRelogin = (provider) => (provider.id === 'claude' && !provider.saved) || (provider.id === 'codex' && !provider.account?.startsWith('계정 미확인'));
+  // 저장된(지금 로그인되지 않은) Claude 계정은 한도 카드만: 지금 Claude 카드 바로 뒤에 붙인다
+  function limitCards(providers, savedClaude) {
+    const claude = providers.find((p) => p.id === 'claude');
+    const saved = savedClaude.map((a) => ({
+      id: 'claude', saved: true, accountId: a.id, name: 'Claude Code', account: a.email,
+      accent: claude?.accent || '#d97757', limits: a.limits, login_expired: a.login_expired, active: false,
+    }));
+    const index = providers.findIndex((p) => p.id === 'claude');
+    return index < 0 ? [...providers, ...saved] : [...providers.slice(0, index + 1), ...saved, ...providers.slice(index + 1)];
+  }
+  function renderLimits(providers, savedClaude = []) {
+    $('aiLimits').innerHTML = limitCards(providers, savedClaude).map((provider) => {
       const limits = provider.limits;
       const windows = limits?.windows || [];
       const breakdown = (limits?.breakdown || []).filter((row) => row.percent > 0);
@@ -60,23 +70,28 @@
                 ${provider.account ? `<p class="ai-account text-[11px] font-semibold text-white/60 break-all"><i class="far fa-user text-[9px] mr-1 opacity-70"></i>${escapeHtml(provider.account)}</p>` : '<p class="text-[11px] text-white/35">로그인 계정 정보 없음</p>'}
                 <div class="ai-account-actions">
                   ${provider.id === 'codex' && provider.active !== false ? '<button type="button" class="ai-accounts-btn" data-codex-accounts><i class="fas fa-right-left"></i> 계정 전환 · 추가</button>' : ''}
-                  ${provider.id === 'claude' ? '<button type="button" class="ai-accounts-btn" data-claude-accounts><i class="fas fa-right-left"></i> 계정 전환 · 추가</button>' : ''}
+                  ${provider.id === 'claude' && !provider.saved ? '<button type="button" class="ai-accounts-btn" data-claude-accounts><i class="fas fa-right-left"></i> 계정 전환 · 추가</button>' : ''}
+                  ${provider.saved && !provider.login_expired ? `<button type="button" class="ai-accounts-btn" data-claude-switch="${escapeHtml(provider.accountId)}" data-email="${escapeHtml(provider.account || '')}"><i class="fas fa-right-left"></i> 이 계정으로 바꾸기</button>` : ''}
                   ${canRelogin(provider) ? `<button type="button" class="ai-accounts-btn" data-relogin="${provider.id}" data-email="${escapeHtml(provider.account || '')}"><i class="fas fa-right-to-bracket"></i> 다시 로그인</button>` : ''}
                 </div>
-                ${provider.id === 'codex' && provider.active ? '<p class="text-[10px] font-bold text-emerald-400">현재 사용 중</p>' : ''}
+                ${provider.active ? '<p class="text-[10px] font-bold text-emerald-400">현재 사용 중</p>' : ''}
                 <p class="text-[10px] text-white/40">${limits?.updated_at ? `기준 ${relativeTime(limits.updated_at)}` : '한도 정보 없음'}</p>
               </div>
             </div>
             ${limits?.plan ? `<span class="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-bold text-white/60">${escapeHtml(limits.plan)}</span>` : ''}
           </div>
-          ${provider.login_expired ? `
+          ${provider.saved && provider.login_expired ? `
+            <div class="ai-login-alert">
+              <p><i class="fas fa-triangle-exclamation"></i> 저장된 로그인이 만료됐어요.</p>
+              <button type="button" class="btn-glow" data-claude-accounts>계정 추가로 다시 로그인</button>
+            </div>` : provider.login_expired ? `
             <div class="ai-login-alert">
               <p><i class="fas fa-triangle-exclamation"></i> 로그인이 만료됐어요.</p>
               <button type="button" class="btn-glow" data-relogin="${provider.id}" data-email="${escapeHtml(provider.account || '')}">다시 로그인</button>
             </div>` : ''}
           ${windows.length ? `<div class="space-y-2.5">${windows.map(renderWindow).join('')}</div>` : provider.login_expired ? '' : `
             <div class="rounded-xl border border-dashed border-white/15 p-4 text-center text-xs text-white/40">
-              ${provider.id === 'claude' && provider.login_stale && !provider.login_expired ? '한도를 읽지 못했어요. 로그인 기한이 지났어요. Claude Code 를 실행하면 대개 자동으로 이어지고, 안 되면 다시 로그인하세요.' : provider.id === 'claude' ? 'Claude Code 를 실행하면 ~/.claude.json 에 한도 정보가 기록됩니다.' : provider.account?.startsWith('계정 미확인') ? '이전 기록에는 계정 정보가 없어 한도를 연결할 수 없습니다.' : '이 계정의 한도 정보를 불러오지 못했습니다.'}
+              ${provider.saved ? '이 계정의 한도를 불러오지 못했어요. 잠시 뒤 새로 고쳐 보세요.' : provider.id === 'claude' && provider.login_stale && !provider.login_expired ? '한도를 읽지 못했어요. 로그인 기한이 지났어요. Claude Code 를 실행하면 대개 자동으로 이어지고, 안 되면 다시 로그인하세요.' : provider.id === 'claude' ? 'Claude Code 를 실행하면 ~/.claude.json 에 한도 정보가 기록됩니다.' : provider.account?.startsWith('계정 미확인') ? '이전 기록에는 계정 정보가 없어 한도를 연결할 수 없습니다.' : '이 계정의 한도 정보를 불러오지 못했습니다.'}
             </div>`}
           ${breakdown.length ? `
             <div class="mt-4 border-t border-white/10 pt-3">
@@ -256,7 +271,7 @@
     const data = state.data;
     if (!data) return;
     const providers = data.providers;
-    renderLimits(providers);
+    renderLimits(providers, data.claude_accounts || []);
     renderKpis(providers);
     renderCompare(providers);
     renderComposition(providers);
@@ -584,6 +599,8 @@
   $('aiLimits').addEventListener('click', (event) => {
     if (event.target.closest('[data-codex-accounts]')) { codexAccounts(); return; }
     if (event.target.closest('[data-claude-accounts]')) { claudeAccounts(); return; }
+    const pick = event.target.closest('[data-claude-switch]');
+    if (pick) { switchClaude({ id: pick.dataset.claudeSwitch, email: pick.dataset.email }); return; }
     const relogin = event.target.closest('[data-relogin]');
     if (!relogin) return;
     if (relogin.dataset.relogin === 'claude') reloginClaude();
