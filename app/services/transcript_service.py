@@ -941,6 +941,79 @@ def all_items(path: Path, agent: str) -> list[dict]:
         return [dict(item) for item in _cached_log(path, agent).items]
 
 
+SEARCH_MAX_TERMS = 8
+SEARCH_SNIPPET = 140
+
+
+def _final_answer_ids(items: list[dict]) -> set[int]:
+    """에이전트 최종 답변: 사용자 프롬프트 사이마다 마지막 답변 하나 (중간 진행 안내는 뺀다)."""
+    finals: set[int] = set()
+    last: int | None = None
+    for item in items:
+        kind = item.get("kind")
+        if kind == "user":
+            if last is not None:
+                finals.add(last)
+            last = None
+        elif kind == "assistant":
+            last = item["id"]
+    if last is not None:
+        finals.add(last)
+    return finals
+
+
+def _snippet(text: str, terms: list[str]) -> tuple[str, int]:
+    """첫 번째로 맞은 곳 앞뒤만 (한 줄로). (조각, 조각 안에서 맞은 위치)"""
+    flat = " ".join(text.split())
+    lower = flat.lower()
+    hits = [lower.find(term) for term in terms if term in lower]
+    at = min(hits) if hits else 0
+    begin = max(0, at - SEARCH_SNIPPET // 3)
+    end = min(len(flat), begin + SEARCH_SNIPPET)
+    begin = max(0, min(begin, end - SEARCH_SNIPPET))
+    piece = flat[begin:end]
+    return ("…" if begin else "") + piece + ("…" if end < len(flat) else ""), at
+
+
+def search(path: Path, agent: str, query: str, limit: int = 100) -> dict:
+    """대화 전체에서 사용자 프롬프트와 에이전트 최종 답변만 찾는다 (도구 · 중간 안내 · 서브에이전트 제외).
+
+    띄어쓰기로 나눈 낱말이 모두 들어 있는 메시지 (대소문자 무시). 최신 것부터.
+    """
+    terms = list(dict.fromkeys(t.lower() for t in query.split() if t))[
+        :SEARCH_MAX_TERMS
+    ]
+    limit = max(1, min(int(limit), 300))
+    if not terms:
+        return {"total": 0, "items": [], "matches": 0, "truncated": False}
+    with _lock:
+        log = _cached_log(path, agent)
+        items = [
+            (item["id"], item["kind"], item.get("ts") or "", item.get("text") or "")
+            for item in log.items
+            if item.get("kind") in {"user", "assistant"}
+        ]
+        finals = _final_answer_ids(log.items)
+        total = len(log.items)
+    found = []
+    for item_id, kind, ts, text in reversed(items):
+        if kind == "assistant" and item_id not in finals:
+            continue
+        lower = text.lower()
+        if all(term in lower for term in terms):
+            found.append((item_id, kind, ts, text))
+    results = []
+    for item_id, kind, ts, text in found[:limit]:
+        snippet, _ = _snippet(text, terms)
+        results.append({"id": item_id, "kind": kind, "ts": ts, "snippet": snippet})
+    return {
+        "total": total,
+        "items": results,
+        "matches": len(found),
+        "truncated": len(found) > limit,
+    }
+
+
 def read(path: Path, agent: str, start: int | None, limit: int) -> dict:
     """items[start:start+limit]. start 가 None 이면 마지막 limit 개."""
     limit = max(1, min(int(limit), 300))

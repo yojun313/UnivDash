@@ -677,8 +677,11 @@ class AIUsageService:
             or stale
         ):
             live = cls._fetch_claude_usage(root)
-            if live:
-                cached = {"utilization": live, "fetchedAtMs": time.time() * 1000}
+            if live and (
+                not isinstance(fetched_ms, (int, float))
+                or live["fetchedAtMs"] > fetched_ms
+            ):
+                cached = live
         if not isinstance(cached, dict):
             return None
         if not tier or tier == "default_claude_ai":
@@ -812,27 +815,122 @@ class AIUsageService:
         no_refresh = past and not oauth.get("refreshToken")
         return {"login_expired": rejected or no_refresh, "login_stale": past}
 
+    # 사용량 API 는 요청이 조금만 몰려도 429 를 준다 (실행 중인 Claude Code 창들도 같은 계정으로 부른다).
+    # → 마지막으로 받은 값을 계정별로 남겨 두고(파일에도), 실패하면 그 값을 "기준 N분 전" 으로 보여 준다.
+    #   429 · 네트워크 오류가 이어지면 다시 묻는 간격을 늘린다.
+    USAGE_FRESH = 60.0  # 이보다 새 값이 있으면 다시 묻지 않는다
+    USAGE_BACKOFF_MAX = 600.0
+    _claude_usage_good: ClassVar[dict[str, dict] | None] = (
+        None  # 계정 → {utilization, fetchedAtMs}
+    )
+    _claude_usage_wait: ClassVar[
+        dict[str, tuple[float, float]]
+    ] = {}  # 계정 → (다시 물을 시각, 간격)
+    _claude_usage_lock = threading.Lock()
+
+    @staticmethod
+    def _usage_cache_file() -> Path:
+        return data_dir() / "claude-usage-cache.json"
+
+    @classmethod
+    def _usage_good(cls) -> dict[str, dict]:
+        if cls._claude_usage_good is None:
+            try:
+                data = json.loads(cls._usage_cache_file().read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                data = {}
+            cls._claude_usage_good = {
+                key: value
+                for key, value in (data if isinstance(data, dict) else {}).items()
+                if isinstance(value, dict)
+                and isinstance(value.get("utilization"), dict)
+                and isinstance(value.get("fetchedAtMs"), (int, float))
+            }
+        return cls._claude_usage_good
+
+    @classmethod
+    def _store_usage_good(cls, key: str, entry: dict) -> None:
+        good = cls._usage_good()
+        good[key] = entry
+        if len(good) > 50:
+            for old in sorted(good, key=lambda k: good[k]["fetchedAtMs"])[:-50]:
+                good.pop(old, None)
+        path = cls._usage_cache_file()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fd, temp = tempfile.mkstemp(dir=path.parent, prefix=".claude-usage.")
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(good, handle)
+            os.chmod(temp, 0o600)
+            os.replace(temp, path)
+        except OSError:
+            pass
+
+    @classmethod
+    def claude_usage(cls, key: str, token: str) -> tuple[dict | None, int | None]:
+        """(계정 key 의 사용량 {utilization, fetchedAtMs}, 이번에 받은 HTTP 상태 — 묻지 않았거나 네트워크 오류면 None).
+
+        새로 못 받으면 마지막으로 받은 값을 준다 (없으면 None).
+        """
+        with cls._claude_usage_lock:
+            last = cls._usage_good().get(key)
+            now = time.time()
+            if last and now - last["fetchedAtMs"] / 1000 < cls.USAGE_FRESH:
+                return last, None
+            wait_until, delay = cls._claude_usage_wait.get(key, (0.0, 0.0))
+            if now < wait_until:
+                return last, None
+            status, result = cls._request_claude_usage(token)
+            if status == 200 and result:
+                entry = {"utilization": result, "fetchedAtMs": now * 1000}
+                cls._claude_usage_wait.pop(key, None)
+                cls._store_usage_good(key, entry)
+                return entry, status
+            delay = min(cls.USAGE_BACKOFF_MAX, max(30.0, delay * 2))
+            cls._claude_usage_wait[key] = (now + delay, delay)
+            return last, status
+
+    @classmethod
+    def _claude_usage_key(cls, root: Path, token: str) -> str:
+        """같은 계정이면 토큰이 갱신돼도 같은 값 (다른 계정의 사용량을 보여 주지 않게)."""
+        config_file = cls._claude_config_file(root)
+        try:
+            with config_file.open("r", encoding="utf-8") as handle:  # type: ignore[union-attr]
+                account = (json.load(handle) or {}).get("oauthAccount")
+        except (OSError, ValueError, AttributeError):
+            account = None
+        if isinstance(account, dict) and account.get("accountUuid"):
+            return (
+                f"acct:{account['accountUuid']}:{account.get('organizationUuid') or ''}"
+            )
+        return f"token:{hashlib.sha256(token.encode()).hexdigest()[:16]}"
+
     @classmethod
     def _fetch_claude_usage(cls, root: Path) -> dict | None:
-        """Claude Code 와 같은 방법으로 남은 한도를 가져온다 (GET /api/oauth/usage, 60초 캐시).
+        """Claude Code 와 같은 방법으로 남은 한도를 가져온다 (GET /api/oauth/usage). {utilization, fetchedAtMs}
 
-        토큰이 만료됐으면 갱신하지 않고 건너뛴다 — 갱신하면 토큰이 바뀌어 실행 중인 Claude 의 로그인이 꼬일 수 있다.
+        토큰이 만료됐으면 갱신하지 않고 마지막 값만 쓴다 — 갱신하면 토큰이 바뀌어 실행 중인 Claude 의 로그인이 꼬일 수 있다.
         """
         oauth = cls._claude_credentials(root) or {}
         token = oauth.get("accessToken")
         expires = oauth.get("expiresAt")
         if not isinstance(token, str) or not token:
             return None
+        key = cls._claude_usage_key(root, token)
         if isinstance(expires, (int, float)) and expires / 1000 < time.time() + 60:
-            return None
-        key = token[-12:]
-        cached = cls._claude_usage_cache
-        if cached and cached[1] == key and time.monotonic() - cached[0] < 60:
-            return cached[2]
-        status, result = cls._request_claude_usage(token)
-        if status is not None:
-            cls._claude_rejected_token = key if status == 401 else None
+            with cls._claude_usage_lock:
+                return cls._usage_good().get(key)
+        if (
+            cls._claude_usage_cache is None
+        ):  # 로그인 · 계정 전환 직후: 기다리지 않고 바로 묻는다
+            with cls._claude_usage_lock:
+                cls._claude_usage_wait.pop(key, None)
+        result, status = cls.claude_usage(key, token)
         cls._claude_usage_cache = (time.monotonic(), key, result)
+        if status == 401:
+            cls._claude_rejected_token = token[-12:]
+        elif status == 200:
+            cls._claude_rejected_token = None
         return result
 
     @staticmethod

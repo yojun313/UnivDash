@@ -101,6 +101,7 @@
                                 </div>
                                 <p id="termSubtitle" class="truncate text-[11px] text-white/40">—</p>
                             </div>
+                            <button id="chatSearchBtn" type="button" class="term-tool hidden" title="채팅 검색 (내 프롬프트 · 최종 답변)" aria-label="채팅 검색"><i class="fas fa-magnifying-glass text-xs"></i></button>
                             <button id="termViewBtn" type="button" class="term-tool" title="보기 설정" aria-label="보기 설정"><i class="fas fa-text-height text-xs"></i></button>
                             <button id="termMoreBtn" type="button" class="term-tool" title="창 메뉴" aria-label="창 메뉴"><i class="fas fa-ellipsis-vertical text-sm"></i></button>
                         </div>
@@ -126,6 +127,18 @@
                             <!-- 대기열 · 보내는 중 말풍선, 에이전트 상태(작업 중 / 응답 필요) -->
                             <div id="chatPending" class="chat-list chat-pending"></div>
                             <div id="chatStatus" class="chat-status hidden" aria-live="polite"></div>
+                        </div>
+                        <!-- 채팅 검색: 대화 전체(이전 기록 포함)에서 내 프롬프트 · 에이전트 최종 답변만 -->
+                        <div id="chatSearch" class="chat-search hidden" role="search">
+                            <div class="cs-bar">
+                                <i class="fas fa-magnifying-glass cs-icon"></i>
+                                <input id="chatSearchInput" type="search" maxlength="200" placeholder="내 프롬프트 · 최종 답변에서 찾기" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" aria-label="채팅 검색어">
+                                <span id="chatSearchCount" class="cs-count"></span>
+                                <button type="button" class="cs-btn" data-cs-step="-1" title="이전 결과 (더 최근)" aria-label="이전 결과"><i class="fas fa-chevron-up"></i></button>
+                                <button type="button" class="cs-btn" data-cs-step="1" title="다음 결과 (더 이전)" aria-label="다음 결과"><i class="fas fa-chevron-down"></i></button>
+                                <button type="button" class="cs-btn" data-cs-close title="닫기 (Esc)" aria-label="검색 닫기"><i class="fas fa-xmark"></i></button>
+                            </div>
+                            <div id="chatSearchResults" class="cs-results hidden" role="listbox" aria-label="검색 결과"></div>
                         </div>
                         <button id="jumpBottomBtn" type="button" class="jump-bottom hidden" aria-label="최신 출력으로 이동"><i class="fas fa-arrow-down text-xs"></i><span>최신</span></button>
                         <div id="termOffline" class="hidden absolute inset-x-0 top-0 m-2 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-center text-[11px] font-bold text-amber-300 backdrop-blur">연결이 끊어져 다시 연결하는 중입니다...</div>

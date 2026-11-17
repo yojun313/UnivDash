@@ -452,6 +452,37 @@ html[data-ui-theme-mode="light"] .mode-switch button.on { background: rgba(59,13
 
 /* ── 대화 기록 (터미널 영역 안이라 항상 어두운 배경) ─────────────── */
 .chat-list { padding: 12px 12px 20px; display: flex; flex-direction: column; gap: 10px; font-family: 'Inter', 'Pretendard', system-ui, sans-serif; color: #dbe1ea; }
+/* 채팅 검색 */
+.chat-search { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 20; display: flex; flex-direction: column; gap: 6px; max-width: 640px; margin-left: auto; font-family: 'Inter', 'Pretendard', system-ui, sans-serif; }
+.chat-search.hidden { display: none; }
+.cs-bar { display: flex; align-items: center; gap: 4px; padding: 4px 6px 4px 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.12); background: rgba(15,20,35,0.92); backdrop-filter: blur(12px); box-shadow: 0 10px 30px rgba(0,0,0,0.35); }
+.cs-icon { font-size: 11px; color: #64748b; }
+.cs-bar input { flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: #e2e8f0; font-size: 16px; padding: 6px 4px; }
+@media (min-width: 768px) { .cs-bar input { font-size: 13px; } }
+.cs-bar input::-webkit-search-cancel-button { display: none; }
+.cs-count { flex-shrink: 0; font-size: 11px; color: #94a3b8; font-variant-numeric: tabular-nums; }
+.cs-btn { flex-shrink: 0; width: 28px; height: 28px; border-radius: 8px; color: #94a3b8; font-size: 11px; display: flex; align-items: center; justify-content: center; }
+@media (hover: hover) { .cs-btn:hover { background: rgba(255,255,255,0.08); color: #fff; } }
+.cs-results { max-height: min(55vh, 420px); overflow-y: auto; overscroll-behavior: contain; border-radius: 12px; border: 1px solid rgba(255,255,255,0.12); background: rgba(15,20,35,0.96); backdrop-filter: blur(12px); box-shadow: 0 10px 30px rgba(0,0,0,0.35); padding: 4px; }
+.cs-results.hidden { display: none; }
+.cs-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 8px; width: 100%; text-align: left; padding: 8px; border-radius: 8px; font-size: 12px; line-height: 1.45; color: #cbd5e1; }
+.cs-item.on { background: rgba(59,130,246,0.18); }
+@media (hover: hover) { .cs-item:hover { background: rgba(255,255,255,0.06); } .cs-item.on:hover { background: rgba(59,130,246,0.22); } }
+.cs-who { flex-shrink: 0; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px; margin-top: 1px; }
+.cs-who.me { background: rgba(59,130,246,0.2); color: #93c5fd; }
+.cs-who.ai { background: rgba(16,185,129,0.18); color: #6ee7b7; }
+.cs-text { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; word-break: break-word; }
+.cs-time { font-size: 10px; color: #64748b; white-space: nowrap; margin-top: 2px; }
+.cs-empty { padding: 10px; text-align: center; font-size: 11px; color: #64748b; }
+.cs-item mark, mark.cs-mark { background: rgba(250,204,21,0.35); color: inherit; border-radius: 3px; padding: 0 1px; }
+.msg.msg-hit { outline: 2px solid rgba(250,204,21,0.6); outline-offset: 3px; border-radius: 14px; }
+html[data-ui-theme-mode="light"] .cs-bar, html[data-ui-theme-mode="light"] .cs-results { background: rgba(255,255,255,0.97); border-color: rgba(15,23,42,0.12); box-shadow: 0 10px 30px rgba(15,23,42,0.15); }
+html[data-ui-theme-mode="light"] .cs-bar input { color: #0f172a; }
+html[data-ui-theme-mode="light"] .cs-item { color: #334155; }
+html[data-ui-theme-mode="light"] .cs-item.on { background: rgba(59,130,246,0.12); }
+html[data-ui-theme-mode="light"] .cs-who.me { color: #1d4ed8; }
+html[data-ui-theme-mode="light"] .cs-who.ai { color: #047857; }
+html[data-ui-theme-mode="light"] .cs-item mark, html[data-ui-theme-mode="light"] mark.cs-mark { background: rgba(250,204,21,0.5); }
 .log-older { text-align: center; padding: 10px; font-size: 11px; color: #64748b; font-family: 'Inter', system-ui, sans-serif; }
 .log-older button { font-weight: 700; color: #93c5fd; }
 .log-empty { padding: 40px 16px; text-align: center; color: #64748b; font-size: 13px; line-height: 1.6; }
@@ -471,6 +502,11 @@ html[data-ui-theme-mode="light"] .mode-switch button.on { background: rgba(59,13
 .msg-ai .msg-body { padding: 2px 2px; }
 .msg-ai .copy-btn { margin-left: auto; padding: 2px 6px; border-radius: 6px; color: #64748b; font-size: 11px; }
 @media (hover: hover) { .msg-ai .copy-btn:hover { color: #cbd5e1; background: rgba(255,255,255,0.06); } }
+/* 복사 버튼은 내 프롬프트와 최종 답변에만 (중간 진행 안내에는 숨김) */
+.msg-ai:not(.final) > .msg-meta .copy-btn { display: none; }
+.msg-user .copy-btn { padding: 2px 6px; border-radius: 6px; color: #64748b; font-size: 11px; }
+@media (hover: hover) { .msg-user .copy-btn:hover { color: #cbd5e1; background: rgba(255,255,255,0.06); } }
+.msg-user.pending .copy-btn { display: none; }
 .msg-system { align-self: center; font-size: 11px; font-weight: 700; color: #94a3b8; padding: 3px 10px; border-radius: 999px; background: rgba(148,163,184,0.12); font-family: 'JetBrains Mono', monospace; }
 .md-code { margin: 6px 0; padding: 10px 12px; border-radius: 10px; background: rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.06); overflow-x: auto; white-space: pre; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.5; color: #cbd5e1; }
 .msg-body code { font-family: 'JetBrains Mono', monospace; font-size: 0.88em; padding: 1px 5px; border-radius: 5px; background: rgba(148,163,184,0.16); color: #fcd34d; }
@@ -1104,8 +1140,8 @@ html[data-ui-theme-mode="light"] .chat-list { color: #1e293b; }
 html[data-ui-theme-mode="light"] .msg-meta, html[data-ui-theme-mode="light"] .log-older, html[data-ui-theme-mode="light"] .log-empty { color: #64748b; }
 html[data-ui-theme-mode="light"] .log-older button { color: #2563eb; }
 html[data-ui-theme-mode="light"] .msg-user .msg-body { background: rgba(37,99,235,.1); border-color: rgba(37,99,235,.22); color: #0f172a; }
-html[data-ui-theme-mode="light"] .msg-ai .copy-btn { color: #94a3b8; }
-@media (hover: hover) { html[data-ui-theme-mode="light"] .msg-ai .copy-btn:hover { color: #0f172a; background: rgba(15,23,42,.06); } }
+html[data-ui-theme-mode="light"] .msg-ai .copy-btn, html[data-ui-theme-mode="light"] .msg-user .copy-btn { color: #94a3b8; }
+@media (hover: hover) { html[data-ui-theme-mode="light"] :is(.msg-ai, .msg-user) .copy-btn:hover { color: #0f172a; background: rgba(15,23,42,.06); } }
 html[data-ui-theme-mode="light"] .msg-system { color: #475569; background: rgba(100,116,139,.12); }
 html[data-ui-theme-mode="light"] .msg-body code { background: rgba(15,23,42,.06); color: #b45309; }
 html[data-ui-theme-mode="light"] .msg-tool .sub-live { background: rgba(15,23,42,.03); border-top-color: rgba(15,23,42,.08); }
@@ -1399,8 +1435,8 @@ html[data-ui-theme-mode="light"] :is(.win-item, .ex-row, .ex-root, .sheet-action
 
 /* 손가락용 누르는 영역: 보이는 크기는 그대로, 터치 영역만 사방 8px 넓힌다 (≈ 44pt) */
 @media (pointer: coarse) {
-    .wt-close, .tt-close, .exv-tab-close, .hist-btn, .side-bar-btn, .fp-btn, .ws-side-btn, .folder-more, .ex-copy, .ex-more, .msg-ai .copy-btn { position: relative; }
-    :is(.wt-close, .tt-close, .exv-tab-close, .hist-btn, .side-bar-btn, .fp-btn, .ws-side-btn, .folder-more, .ex-copy, .ex-more, .attach-remove, .msg-ai .copy-btn)::after {
+    .wt-close, .tt-close, .exv-tab-close, .hist-btn, .side-bar-btn, .fp-btn, .ws-side-btn, .folder-more, .ex-copy, .ex-more, .msg-ai .copy-btn, .msg-user .copy-btn { position: relative; }
+    :is(.wt-close, .tt-close, .exv-tab-close, .hist-btn, .side-bar-btn, .fp-btn, .ws-side-btn, .folder-more, .ex-copy, .ex-more, .attach-remove, .msg-ai .copy-btn, .msg-user .copy-btn)::after {
         content: ''; position: absolute; inset: -8px;
     }
 }

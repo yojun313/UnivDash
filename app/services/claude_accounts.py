@@ -303,8 +303,6 @@ def list_accounts() -> dict:
 
 TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
 CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"  # Claude Code
-SAVED_LIMITS_TTL = 60.0
-_saved_limits_cache: dict[str, tuple[float, str, dict | None]] = {}
 _saved_rejected: set[str] = set()  # 갱신을 거절당한 계정 (다시 로그인 필요)
 
 
@@ -422,33 +420,19 @@ def saved_limits(now) -> list[dict]:
         records.items(), key=lambda kv: (kv[1].get("email") or "").lower()
     ):
         token, expired = _saved_token(account_id, allow_refresh)
-        limits = None
+        # 지금 계정 카드와 같은 키: 바꿔도 마지막으로 받은 사용량이 이어진다 (429 면 그 값을 보여 준다)
+        key = f"acct:{record.get('account_uuid')}:{record.get('org_uuid') or ''}"
         if token:
-            cached = _saved_limits_cache.get(account_id)
-            if (
-                cached
-                and cached[1] == token[-12:]
-                and time.monotonic() - cached[0] < SAVED_LIMITS_TTL
-            ):
-                limits = cached[2]
-            else:
-                status, usage = AIUsageService._request_claude_usage(token)
-                if status == 401:
-                    expired = account_id in _saved_rejected
-                if usage:
-                    limits = AIUsageService._claude_limits_from(
-                        {"utilization": usage, "fetchedAtMs": time.time() * 1000},
-                        f"subscription_{record.get('plan')}"
-                        if record.get("plan")
-                        else None,
-                        now,
-                    )
-                if status is not None:
-                    _saved_limits_cache[account_id] = (
-                        time.monotonic(),
-                        token[-12:],
-                        limits,
-                    )
+            entry, _ = AIUsageService.claude_usage(key, token)
+        else:
+            with AIUsageService._claude_usage_lock:
+                entry = AIUsageService._usage_good().get(key)
+        tier = f"subscription_{record.get('plan')}" if record.get("plan") else None
+        limits = (
+            AIUsageService._claude_limits_from(entry, tier, now)
+            if entry and not expired
+            else None
+        )
         result.append(
             {
                 "id": account_id,

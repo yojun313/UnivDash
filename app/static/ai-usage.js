@@ -91,7 +91,7 @@
             </div>` : ''}
           ${windows.length ? `<div class="space-y-2.5">${windows.map(renderWindow).join('')}</div>` : provider.login_expired ? '' : `
             <div class="rounded-xl border border-dashed border-white/15 p-4 text-center text-xs text-white/40">
-              ${provider.saved ? '이 계정의 한도를 불러오지 못했어요. 잠시 뒤 새로 고쳐 보세요.' : provider.id === 'claude' && provider.login_stale && !provider.login_expired ? '한도를 읽지 못했어요. 로그인 기한이 지났어요. Claude Code 를 실행하면 대개 자동으로 이어지고, 안 되면 다시 로그인하세요.' : provider.id === 'claude' ? 'Claude Code 를 실행하면 ~/.claude.json 에 한도 정보가 기록됩니다.' : provider.account?.startsWith('계정 미확인') ? '이전 기록에는 계정 정보가 없어 한도를 연결할 수 없습니다.' : '이 계정의 한도 정보를 불러오지 못했습니다.'}
+              ${provider.saved ? '이 계정의 한도를 불러오지 못했어요. 잠시 뒤 새로 고쳐 보세요.' : provider.id === 'claude' && provider.login_stale && !provider.login_expired ? '한도를 읽지 못했어요. 로그인 기한이 지났어요. Claude Code 를 실행하면 대개 자동으로 이어지고, 안 되면 다시 로그인하세요.' : provider.id === 'claude' ? '사용량 서버가 잠시 조회를 막았어요 (요청이 몰리면 생겨요). 잠시 뒤 다시 불러와요.' : provider.account?.startsWith('계정 미확인') ? '이전 기록에는 계정 정보가 없어 한도를 연결할 수 없습니다.' : '이 계정의 한도 정보를 불러오지 못했습니다.'}
             </div>`}
           ${breakdown.length ? `
             <div class="mt-4 border-t border-white/10 pt-3">

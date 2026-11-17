@@ -58,6 +58,7 @@
     ['term.chat', 'workspace', '채팅으로 보기', ['c'], { click: '#termModes [data-mode="log"]' }],
     ['term.screen', 'workspace', '터미널 화면으로 보기', ['v'], { click: '#termModes [data-mode="screen"]' }],
     ['term.focusInput', 'workspace', '프롬프트 입력칸으로', ['i'], { focus: '#promptInput' }],
+    ['term.search', 'workspace', '채팅 검색 (내 프롬프트 · 최종 답변)', ['s'], { click: '#chatSearchBtn' }],
     ['term.jumpBottom', 'workspace', '최신 출력으로 이동', ['end'], { click: '#jumpBottomBtn' }],
     ['term.loadMore', 'workspace', '이전 기록 더 불러오기', ['home'], { click: '#loadMoreBtn' }],
     ['term.menu', 'workspace', '창 메뉴', ['m'], { click: '#termMoreBtn' }],

@@ -2839,6 +2839,8 @@
       scroll.classList.toggle('hidden', mode === 'log');
       logScroll.classList.toggle('hidden', mode !== 'log');
       $('#termViewBtn').classList.toggle('hidden', mode === 'log');
+      $('#chatSearchBtn').classList.toggle('hidden', mode !== 'log');
+      if (mode !== 'log') hideChatSearch();
       // 채팅 모드에서는 터미널 직접 입력(⌨) 버튼을 숨긴다
       if (mode === 'log') exitDirect();
       $('#directBtn').classList.toggle('hidden', mode === 'log');
@@ -3011,10 +3013,10 @@
         // 첨부한 그림 (서버가 대화 기록에서 꺼내 둔 캐시 · 이름은 내용 해시라 그대로 오래 캐시된다)
         const images = (item.images || []).filter((name) => /^[0-9a-f]{32}\.(png|jpg|gif|webp)$/.test(name))
           .map((name) => `<a class="msg-img" href="/api/transcript/image/${name}" target="_blank" rel="noopener" title="원본 크기로 보기"><img src="/api/transcript/image/${name}" alt="첨부한 그림" loading="lazy" decoding="async"></a>`).join('');
-        return `<div class="msg msg-user"><div class="msg-meta">나 · ${escapeHtml(logTime(item.ts))}</div>${images ? `<div class="msg-imgs">${images}</div>` : ''}${item.text ? `<div class="msg-body">${escapeHtml(item.text)}</div>` : ''}</div>`;
+        return `<div class="msg msg-user"><div class="msg-meta"><button type="button" class="copy-btn" data-copy="${item.id}" title="프롬프트 복사" aria-label="프롬프트 복사"><i class="far fa-copy"></i></button>나 · ${escapeHtml(logTime(item.ts))}</div>${images ? `<div class="msg-imgs">${images}</div>` : ''}${item.text ? `<div class="msg-body">${escapeHtml(item.text)}</div>` : ''}</div>`;
       }
       if (item.kind === 'assistant') {
-        return `<div class="msg msg-ai"><div class="msg-meta">${agentName} · ${escapeHtml(logTime(item.ts))}<button type="button" class="copy-btn" data-copy="${item.id}" aria-label="복사"><i class="far fa-copy"></i></button></div><div class="msg-body">${mdLite(item.text)}</div></div>`;
+        return `<div class="msg msg-ai"><div class="msg-meta">${agentName} · ${escapeHtml(logTime(item.ts))}<button type="button" class="copy-btn" data-copy="${item.id}" title="답변 복사" aria-label="답변 복사"><i class="far fa-copy"></i></button></div><div class="msg-body">${mdLite(item.text)}</div></div>`;
       }
       if (item.kind === 'system') return `<div class="msg-system">${escapeHtml(item.text)}</div>`;
       if (item.kind === 'subagent') {
@@ -3071,7 +3073,20 @@
       logOlder.classList.toggle('hidden', log.start <= 0);
       logOlder.innerHTML = log.loading ? '<i class="fas fa-circle-notch fa-spin"></i> 이전 대화를 불러오는 중' : `<button type="button">이전 대화 ${log.start}개 더 보기</button>`;
     }
-    function upsertLogItems(items, { prepend = false } = {}) {
+    // 최종 답변 = 내 프롬프트 사이마다 마지막 에이전트 답변 (복사 버튼은 프롬프트와 최종 답변에만 보인다)
+    function markFinalAnswers(list) {
+      let last = null;
+      for (const el of list.children) {
+        if (el.classList.contains('msg-user')) { last?.classList.add('final'); last = null; }
+        else if (el.classList.contains('msg-ai')) { el.classList.remove('final'); last = el; }
+      }
+      last?.classList.add('final');
+    }
+    function upsertLogItems(items, options) {
+      upsertLogItemsRaw(items, options);
+      markFinalAnswers(logList);
+    }
+    function upsertLogItemsRaw(items, { prepend = false } = {}) {
       const html = [];
       items.forEach((item) => {
         const key = JSON.stringify(item);
@@ -3180,9 +3195,15 @@
       renderLogOlder();
       logScroll.scrollTop = logScroll.scrollHeight;
     }
+    // 채팅 검색 상자 감추기 (창을 바꾸거나 터미널 보기로 갈 때 · 아래 검색 코드보다 먼저 불릴 수 있어 DOM 만 쓴다)
+    function hideChatSearch() {
+      document.getElementById('chatSearch')?.classList.add('hidden');
+      document.getElementById('chatSearchResults')?.classList.add('hidden');
+    }
     async function loadLatestLog() {
       const pane = state.paneId;
       if (!pane) return;
+      hideChatSearch();
       logList.dataset.pane = pane;
       log.pane = pane;
       lastStatusKey = '';
@@ -3232,6 +3253,192 @@
         renderLogOlder();
       }
     }
+    // ── 채팅 검색: 서버가 대화 전체(아직 불러오지 않은 이전 기록 포함)에서 내 프롬프트 · 에이전트 최종 답변만 찾는다 ──
+    const chatSearch = $('#chatSearch');
+    const chatSearchInput = $('#chatSearchInput');
+    const chatSearchResults = $('#chatSearchResults');
+    const chatSearchCount = $('#chatSearchCount');
+    const search = { pane: null, q: '', items: [], index: -1, timer: 0, seq: 0, terms: [], marked: null };
+    const searchTerms = (q) => [...new Set(q.toLowerCase().split(/\s+/).filter(Boolean))].slice(0, 8);
+    function markTerms(text, terms) {
+      // 원문에서 맞은 구간을 찾고, 조각마다 이스케이프해서 <mark> 로 감싼다
+      const lower = text.toLowerCase();
+      const ranges = [];
+      terms.forEach((term) => { let at = lower.indexOf(term); while (at >= 0) { ranges.push([at, at + term.length]); at = lower.indexOf(term, at + term.length); } });
+      ranges.sort((a, b) => a[0] - b[0]);
+      let out = '';
+      let pos = 0;
+      ranges.forEach(([from, to]) => { if (from < pos) { if (to > pos) { out += `<mark>${escapeHtml(text.slice(pos, to))}</mark>`; pos = to; } return; } out += escapeHtml(text.slice(pos, from)) + `<mark>${escapeHtml(text.slice(from, to))}</mark>`; pos = to; });
+      return out + escapeHtml(text.slice(pos));
+    }
+    function renderSearchCount(data) {
+      if (!search.q) { chatSearchCount.textContent = ''; return; }
+      if (!data) { chatSearchCount.textContent = '찾는 중…'; return; }
+      const n = search.items.length;
+      chatSearchCount.textContent = !n ? '없음' : search.index >= 0 ? `${search.index + 1}/${n}${data.truncated ? '+' : ''}` : `${n}${data.truncated ? '+' : ''}개`;
+    }
+    function renderSearchResults(data) {
+      const agentName = { claude: 'Claude', codex: 'Codex' }[log.agent] || '에이전트';
+      if (!search.q) { chatSearchResults.classList.add('hidden'); chatSearchResults.innerHTML = ''; return; }
+      chatSearchResults.classList.remove('hidden');
+      if (!data) { chatSearchResults.innerHTML = '<div class="cs-empty"><i class="fas fa-circle-notch fa-spin"></i> 찾는 중…</div>'; return; }
+      if (data.available === false) { chatSearchResults.innerHTML = '<div class="cs-empty">이 창의 대화 기록을 찾지 못했어요.</div>'; return; }
+      if (!search.items.length) { chatSearchResults.innerHTML = '<div class="cs-empty">맞는 프롬프트 · 답변이 없어요.</div>'; return; }
+      chatSearchResults.innerHTML = search.items.map((item, index) => `
+        <button type="button" class="cs-item ${index === search.index ? 'on' : ''}" data-cs-index="${index}" role="option" aria-selected="${index === search.index}">
+          <span class="cs-who ${item.kind === 'user' ? 'me' : 'ai'}">${item.kind === 'user' ? '나' : escapeHtml(agentName)}</span>
+          <span class="cs-text">${markTerms(item.snippet.replace(/\*\*|`/g, ''), search.terms)}</span>
+          <span class="cs-time">${escapeHtml(logTime(item.ts))}</span>
+        </button>`).join('') + (data.truncated ? `<div class="cs-empty">최근 ${search.items.length}개만 보여요 (전체 ${data.matches}개). 낱말을 더 넣어 좁혀 보세요.</div>` : '');
+    }
+    async function runChatSearch() {
+      const q = chatSearchInput.value.trim();
+      const pane = state.paneId;
+      search.q = q;
+      search.terms = searchTerms(q);
+      search.items = [];
+      search.index = -1;
+      const seq = ++search.seq;
+      if (!q || !pane) { renderSearchResults(null); renderSearchCount(null); return; }
+      renderSearchResults(null);
+      renderSearchCount(null);
+      try {
+        const data = await api('GET', `/api/transcript/search?${new URLSearchParams({ pane, q, limit: 100 })}`);
+        if (seq !== search.seq || pane !== state.paneId) return;
+        search.items = data.items || [];
+        search.data = data;
+        renderSearchResults(data);
+        renderSearchCount(data);
+      } catch (error) {
+        if (seq !== search.seq) return;
+        chatSearchResults.classList.remove('hidden');
+        chatSearchResults.innerHTML = `<div class="cs-empty">${escapeHtml(error.message)}</div>`;
+        chatSearchCount.textContent = '';
+      }
+    }
+    function unmarkLogItem() {
+      const el = search.marked;
+      search.marked = null;
+      if (!el) return;
+      el.classList.remove('msg-hit');
+      el.querySelectorAll('mark.cs-mark').forEach((mark) => mark.replaceWith(...mark.childNodes));
+      el.querySelectorAll('.msg-body').forEach((body) => body.normalize());
+    }
+    function markLogItem(el, terms) {
+      unmarkLogItem();
+      search.marked = el;
+      el.classList.add('msg-hit');
+      // 말풍선 안의 글자에서 검색어를 표시한다 (수식 · 코드 상자 안은 건드리지 않음)
+      const walker = document.createTreeWalker(el.querySelector('.msg-body') || el, NodeFilter.SHOW_TEXT, {
+        acceptNode: (node) => (node.parentElement.closest('.katex, pre, mark, button') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+      });
+      const nodes = [];
+      while (walker.nextNode()) nodes.push(walker.currentNode);
+      nodes.forEach((node) => {
+        const text = node.nodeValue;
+        const lower = text.toLowerCase();
+        if (!terms.some((term) => lower.includes(term))) return;
+        const span = document.createElement('span');
+        span.innerHTML = markTerms(text, terms).replace(/<mark>/g, '<mark class="cs-mark">');
+        node.replaceWith(...span.childNodes);
+      });
+    }
+    // 그 항목이 화면에 없으면(이전 기록) 거기까지 차례로 불러온 뒤 그 말풍선으로 이동한다
+    async function jumpToLogItem(id) {
+      const pane = state.paneId;
+      if (!pane || log.pane !== pane || !log.available) return;
+      if (log.loading) { toast('이전 대화를 불러오는 중이에요. 잠시 뒤 다시 눌러 주세요.', 'info'); return; }
+      const target = Math.max(0, id - 3);
+      if (log.start > target) {
+        log.loading = true;
+        renderLogOlder();
+        try {
+          while (log.start > target) {
+            const from = Math.max(target, log.start - 300);
+            const data = await fetchLog({ start: from, limit: log.start - from });
+            if (pane !== state.paneId || log.pane !== pane) return;
+            logList.querySelector('.log-empty')?.remove();
+            upsertLogItems(data.items, { prepend: true });
+            log.start = from;
+          }
+        } catch (error) {
+          toast(error.message, 'error');
+          return;
+        } finally {
+          log.loading = false;
+          renderLogOlder();
+        }
+      }
+      const el = log.rendered.get(id)?.el;
+      if (!el || !el.isConnected) { toast('그 메시지를 화면에서 찾지 못했어요.', 'error'); return; }
+      markLogItem(el, search.terms);
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+    function pickSearchResult(index) {
+      if (!search.items.length) return;
+      search.index = (index + search.items.length) % search.items.length;
+      renderSearchCount(search.data);
+      chatSearchResults.querySelectorAll('.cs-item').forEach((b, i) => { b.classList.toggle('on', i === search.index); b.setAttribute('aria-selected', String(i === search.index)); });
+      // 휴대폰처럼 좁은 화면에서는 목록을 접어 말풍선이 보이게 한다 (검색창을 누르면 다시 펼친다)
+      if (!mdQuery.matches) chatSearchResults.classList.add('hidden');
+      else chatSearchResults.querySelector('.cs-item.on')?.scrollIntoView({ block: 'nearest' });
+      jumpToLogItem(search.items[search.index].id);
+    }
+    function openChatSearch() {
+      if (modeFor(currentWindow()) !== 'log') return;
+      if (search.pane !== state.paneId) {
+        search.pane = state.paneId;
+        chatSearchInput.value = '';
+        search.q = '';
+        search.items = [];
+        renderSearchResults(null);
+        renderSearchCount(null);
+      }
+      chatSearch.classList.remove('hidden');
+      chatSearchInput.focus();
+      chatSearchInput.select();
+      if (search.q && search.items.length) chatSearchResults.classList.remove('hidden');
+    }
+    function closeChatSearch() {
+      if (chatSearch.classList.contains('hidden')) return;
+      chatSearch.classList.add('hidden');
+      chatSearchResults.classList.add('hidden');
+      clearTimeout(search.timer);
+      search.seq += 1;
+      unmarkLogItem();
+    }
+    $('#chatSearchBtn').addEventListener('click', () => (chatSearch.classList.contains('hidden') ? openChatSearch() : closeChatSearch()));
+    // 결과를 눌러 입력칸을 벗어난 뒤에도 Esc 로 닫는다 (다른 입력칸 · 열린 시트에서는 그쪽이 먼저)
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape' || chatSearch.classList.contains('hidden') || event.defaultPrevented) return;
+      const active = document.activeElement;
+      if (active && active !== chatSearchInput && active.matches('input, textarea, select, [contenteditable="true"]')) return;
+      if (!sheetOverlay.hidden) return;
+      event.preventDefault();
+      closeChatSearch();
+    });
+    // 채팅을 누르면 결과 목록만 접는다 (검색어 · 표시는 그대로)
+    logScroll.addEventListener('pointerdown', () => chatSearchResults.classList.add('hidden'), { passive: true });
+    chatSearchInput.addEventListener('input', () => { clearTimeout(search.timer); search.timer = setTimeout(runChatSearch, 250); });
+    chatSearchInput.addEventListener('focus', () => { if (search.q) chatSearchResults.classList.remove('hidden'); });
+    chatSearchInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeChatSearch(); return; }
+      if (event.key === 'Enter' && !event.isComposing) {
+        event.preventDefault();
+        if (chatSearchInput.value.trim() !== search.q) { clearTimeout(search.timer); runChatSearch(); return; }
+        pickSearchResult(search.index + (event.shiftKey ? -1 : 1));
+      } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        pickSearchResult(search.index + (event.key === 'ArrowDown' ? 1 : -1));
+      }
+    });
+    chatSearch.addEventListener('click', (event) => {
+      const item = event.target.closest('[data-cs-index]');
+      if (item) { pickSearchResult(Number(item.dataset.csIndex)); return; }
+      const step = event.target.closest('[data-cs-step]');
+      if (step) { pickSearchResult(search.index < 0 && Number(step.dataset.csStep) < 0 ? 0 : search.index + Number(step.dataset.csStep)); return; }
+      if (event.target.closest('[data-cs-close]')) closeChatSearch();
+    });
     async function pollLog() {
       if (log.pane !== state.paneId || !log.available || log.loading) return;
       const pane = state.paneId;
@@ -3611,6 +3818,7 @@
     // 분할 화면의 tmux 패널이 메인과 같은 모양으로 그리도록 공개
     const renderers = {
       logItem(item, agent) { const saved = log.agent; log.agent = agent; const html = logItemHtml(item); log.agent = saved; return html; },
+      markFinalAnswers,
       chatStatus: (screen, w) => chatStatusFrom(screen, w),
       prettyModel, usageMarkup, sendSlash, optionKeys, waitingCardHtml, statusMessage, watchModelChange, restartAgent,
       chatLiveOpen, toggleChatLive,
@@ -4964,6 +5172,7 @@
         listEl.dataset.pane = pane || '';
         listEl.innerHTML = (items.length || pending) ? items.map((item) => R.logItem(item, chat.agent)).join('') + pending : '<div class="log-empty">아직 대화가 없습니다.</div>';
         opened.forEach((id) => { const el = listEl.querySelector(`:scope > details[data-item="${CSS.escape(id)}"]`); if (el) el.open = true; });
+        R.markFinalAnswers(listEl);
         if (logStick) logEl.scrollTop = logEl.scrollHeight;
       }
       window.addEventListener('univdash:agent-switched', (event) => {

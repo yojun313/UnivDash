@@ -284,6 +284,28 @@ async def api_transcript(pane: str, start: int | None = None, limit: int = 80):
     return {"available": True, "agent": agent, **data}
 
 
+@router.get("/api/transcript/search", dependencies=api_auth)
+async def api_transcript_search(
+    pane: str, q: str = Query(min_length=1, max_length=200), limit: int = 100
+):
+    """채팅 검색: 대화 전체(아직 불러오지 않은 이전 기록 포함)에서 내 프롬프트 · 에이전트 최종 답변만."""
+    try:
+        pane = await asyncio.to_thread(tmux_service.require_pane, pane)
+        path, agent = await _resolve_log(pane)
+    except (TmuxError, KeyError) as error:
+        _raise_for(error)
+    if path is None:
+        return {
+            "available": False,
+            "total": 0,
+            "items": [],
+            "matches": 0,
+            "truncated": False,
+        }
+    data = await asyncio.to_thread(transcript_service.search, path, agent, q, limit)
+    return {"available": True, "agent": agent, **data}
+
+
 @router.get("/api/transcript/image/{name}", dependencies=api_auth)
 async def api_transcript_image(name: str):
     """채팅에 사용자가 첨부한 그림 (대화 기록에서 꺼내 둔 캐시 · 이름은 내용 해시)."""
