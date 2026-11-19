@@ -2483,6 +2483,24 @@
     });
     $('#composerForm').addEventListener('submit', (event) => { event.preventDefault(); sendPrompt(); });
 
+    // 응답을 못 받아 실패로 보인 프롬프트는 서버에 이미 들어갔을 수 있다 → 같은 글을 다시 보내면 같은 cid 를 붙여
+    // 서버가 한 번만 넣게 한다 (tmux_routes._send_prompt_once)
+    const newCid = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, '0')).join('');
+    let unsurePrompt = null;   // { pane, text, cid, at }
+    function promptCid(pane, text) {
+      const u = unsurePrompt;
+      return u && u.pane === pane && u.text === text && Date.now() - u.at < 10 * 60 * 1000 ? u.cid : newCid();
+    }
+    async function sendPromptOnce(pane, text, extra = {}) {
+      const cid = promptCid(pane, text);
+      try {
+        await socket.send({ t: 'prompt', pane, text, submit: true, ...extra, cid }, { ack: true });
+      } catch (error) {
+        unsurePrompt = { pane, text, cid, at: Date.now() };
+        throw error;
+      }
+      if (unsurePrompt?.cid === cid) unsurePrompt = null;
+    }
     async function sendPrompt() {
       if (!state.paneId) return;
       const pane = state.paneId;
@@ -2510,7 +2528,7 @@
           store.set('drafts', drafts);
           const sent = addSent(text);
           try {
-            await socket.send({ t: 'prompt', pane, text, submit, attachments: ready.map((item) => item.id) }, { ack: true });
+            await sendPromptOnce(pane, text, { submit, attachments: ready.map((item) => item.id) });
           } catch (error) {
             if (sent) removeSent(sent);
             if (text && !input.value) { input.value = text; autosize(); saveDraft(); }
@@ -2916,6 +2934,9 @@
         if (/^[a-z][a-z0-9+.-]*:/i.test(target) && !/^file:/i.test(target)) return whole;  // mailto: 등 다른 주소는 그대로
         const { path, suffix } = splitTarget(target);
         if (!path || /^#/.test(path)) return whole;
+        // 수식의 [x!y!](1/4) 처럼 경로가 아닌 괄호는 링크로 바꾸지 않는다
+        const bare = unescapeHtml(path);
+        if (!looksLikePath(bare) && !/^[^/\s]+\.[A-Za-z0-9]{1,8}$/.test(bare)) return whole;
         return pathAnchor(path, suffix, label);
       });
     }
@@ -3727,7 +3748,7 @@
           closeSheet();
           if (!state.paneId) return;
           const entry = addSent(text);
-          try { await socket.send({ t: 'prompt', pane: state.paneId, text, submit: true }, { ack: true }); remember(text); toast('보냈습니다.', 'ok', null, 1500); } catch (error) { if (entry) removeSent(entry); toast(error.message, 'error'); }
+          try { await sendPromptOnce(state.paneId, text); remember(text); toast('보냈습니다.', 'ok', null, 1500); } catch (error) { if (entry) removeSent(entry); toast(error.message, 'error'); }
         });
         body.querySelectorAll('[data-del]').forEach((button) => button.addEventListener('click', () => {
           snippets.splice(Number(button.dataset.del), 1);

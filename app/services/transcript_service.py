@@ -66,6 +66,8 @@ _CODEX_INTERNAL = re.compile(
 COMPACTED = "대화가 길어 압축(compact)됐어요"
 # 대시보드의 '대화 넘기기'로 새 에이전트에 보낸 첫 지시 (agent_restart._handoff_prompt)
 _HANDOFF_PREFIX = "이 작업은 다른 에이전트("
+# Claude Code 가 붙여넣은 글을 <pasted_content id="N"> … </pasted_content id="N"> 로 감싼다 (내용만 남긴다)
+_PASTED_TAG = re.compile(r"[ \t]*</?pasted_content\b[^>\n]*>[ \t]*\n?")
 _COMMAND_NAME = re.compile(r"<command-name>(.*?)</command-name>", re.DOTALL)
 _COMMAND_ARGS = re.compile(r"<command-args>(.*?)</command-args>", re.DOTALL)
 
@@ -455,7 +457,7 @@ def _tool_summary(name: str, data: Any) -> str:
 
 def _user_text(text: str) -> tuple[str, str] | None:
     """(kind, text) — 끼워 넣은 문맥이면 None. 슬래시 명령은 system 으로."""
-    stripped = _CODEX_INTERNAL.sub("", text).strip()
+    stripped = _PASTED_TAG.sub("", _CODEX_INTERNAL.sub("", text)).strip()
     if not stripped:
         return None
     command = _COMMAND_NAME.search(stripped)
@@ -534,7 +536,7 @@ class _Log:
         self.items.append(item)
         return item
 
-    def _user(self, content: Any, ts: str) -> str | None:
+    def _user(self, content: Any, ts: str, **flags) -> str | None:
         """사용자 메시지 (첨부한 그림이 있으면 images 로)."""
         text = _blocks_text(content)
         images = _blocks_images(content)
@@ -548,7 +550,7 @@ class _Log:
         if not parsed:
             return None
         extra = {"images": images} if images and parsed[0] == "user" else {}
-        self._add(parsed[0], parsed[1], ts, **extra)
+        self._add(parsed[0], parsed[1], ts, **flags, **extra)
         return parsed[0]
 
     def _tool(self, call_id: str, name: str, data: Any, ts: str) -> None:
@@ -668,19 +670,19 @@ class _Log:
         side = d.get("isSidechain") and not self.sidechain
         if kind == "attachment" and not side:
             att = d.get("attachment") or {}
+            prompt = att.get("prompt") if isinstance(att, dict) else None
+            # prompt 는 글(str)이거나, 그림을 붙였으면 블록 목록([{text}, {image}])이다
             if (
                 isinstance(att, dict)
                 and att.get("type") == "queued_command"
-                and isinstance(att.get("prompt"), str)
+                and isinstance(prompt, (str, list))
             ):
-                if att["prompt"].lstrip().startswith(_NOTIFY):
-                    self._notification(att["prompt"], d.get("timestamp") or "")
+                ts = d.get("timestamp") or ""
+                text = prompt if isinstance(prompt, str) else _blocks_text(prompt)
+                if text.lstrip().startswith(_NOTIFY):
+                    self._notification(text, ts)
                     return
-                parsed = _user_text(att["prompt"])
-                if parsed:
-                    self._add(
-                        parsed[0], parsed[1], d.get("timestamp") or "", queued=True
-                    )
+                self._user(prompt, ts, queued=True)
             return
         if kind not in {"user", "assistant"} or d.get("isMeta") or side:
             return
@@ -1053,11 +1055,13 @@ def read(path: Path, agent: str, start: int | None, limit: int) -> dict:
         "title": title,
         "file": path.name,
         "queued": [
-            _clip(text, MAX_TEXT)
+            _clip(_PASTED_TAG.sub("", text).strip(), MAX_TEXT)
             for text in queue
             if not text.lstrip().startswith(_NOTIFY)
         ],
-        "submitted": [_clip(submitted, MAX_TEXT)] if submitted else [],
+        "submitted": [_clip(_PASTED_TAG.sub("", submitted).strip(), MAX_TEXT)]
+        if submitted
+        else [],
         # 작업 중에는 입력 기록 파일이 바뀌면 다시 읽어야 한다 (터미널에서 더 보낸 메시지 · 늦게 적힌 프롬프트)
         "awaiting": agent == "codex" and (turn_open or awaiting is not None),
     }

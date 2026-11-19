@@ -2,6 +2,9 @@ import asyncio
 import json
 import logging
 import os
+import re
+import time
+from collections import OrderedDict
 from typing import Literal
 
 from fastapi import (
@@ -617,6 +620,45 @@ async def _pump(channel: _Channel) -> None:
             windows_task.cancel()
 
 
+# 같은 프롬프트를 두 번 넣지 않는다: 응답(ack)을 못 받은 클라이언트가 다시 보내도 같은 cid 면 한 번만 넣는다
+PROMPT_CID_TTL = 900.0
+PROMPT_CID_MAX = 1000
+_PROMPT_CID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+_prompt_sent: "OrderedDict[str, tuple[float, asyncio.Future]]" = OrderedDict()
+
+
+async def _send_prompt_once(key: str | None, send) -> bool:
+    """send() 를 cid 마다 한 번만 한다. 이미 넣었으면(또는 넣는 중이면 끝날 때까지 기다려) False."""
+    if key is None:
+        await send()
+        return True
+    now = time.monotonic()
+    while _prompt_sent and (
+        len(_prompt_sent) > PROMPT_CID_MAX
+        or now - next(iter(_prompt_sent.values()))[0] > PROMPT_CID_TTL
+    ):
+        _prompt_sent.popitem(last=False)
+    entry = _prompt_sent.get(key)
+    if entry is not None:
+        await asyncio.shield(entry[1])
+        return False
+    done: asyncio.Future = asyncio.get_running_loop().create_future()
+    _prompt_sent[key] = (now, done)
+    try:
+        await send()
+    except asyncio.CancelledError:
+        # 연결이 끊겨 취소돼도 tmux 입력은 이미 진행됐을 수 있다 → 넣은 것으로 보고 다시 넣지 않는다
+        done.set_result(None)
+        raise
+    except Exception as exc:
+        _prompt_sent.pop(key, None)  # 넣지 못했다 → 다시 보내면 넣는다
+        done.set_exception(exc)
+        done.exception()  # 기다리는 쪽이 없어도 경고가 나지 않게
+        raise
+    done.set_result(None)
+    return True
+
+
 async def _handle(channel: _Channel, message: dict) -> None:
     kind = message.get("t")
     if kind == "seen":
@@ -679,12 +721,19 @@ async def _handle(channel: _Channel, message: dict) -> None:
             str(await asyncio.to_thread(upload_service.resolve, item))
             for item in attachments
         ]
-        await asyncio.to_thread(
-            tmux_service.send_prompt,
-            pane,
-            text,
-            bool(message.get("submit", True)),
-            paths,
+        cid = message.get("cid")
+        key = (
+            f"{pane}:{cid}" if isinstance(cid, str) and _PROMPT_CID.match(cid) else None
+        )
+        await _send_prompt_once(
+            key,
+            lambda: asyncio.to_thread(
+                tmux_service.send_prompt,
+                pane,
+                text,
+                bool(message.get("submit", True)),
+                paths,
+            ),
         )
     elif kind == "text":
         text = message.get("text", "")
