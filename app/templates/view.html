@@ -7,6 +7,8 @@
 <meta name="referrer" content="no-referrer">
 <title>화면 보기</title>
 <link rel="stylesheet" href="{{ asset('view.css') }}">
+<script src="{{ asset('vendor/marked.min.js') }}" defer></script>
+<script src="{{ asset('vendor/purify.min.js') }}" defer></script>
 <script src="{{ asset('view.js') }}" defer></script>
 </head>
 <body>
@@ -15,6 +17,10 @@
   <h1 id="vwTitle">화면 보기</h1>
   <span class="vw-badge" title="이 화면은 보기만 할 수 있어요. 입력은 보낼 수 없어요.">읽기 전용</span>
   <span class="vw-meta" id="vwMeta"></span>
+  <span class="vw-tabs hidden" id="vwTabs" role="tablist">
+    <button type="button" id="vwTabChat" role="tab" aria-selected="true">채팅</button>
+    <button type="button" id="vwTabTerm" role="tab" aria-selected="false">터미널</button>
+  </span>
   <span class="vw-tools">
     <button type="button" id="vwFit" aria-pressed="true" title="화면 너비에 맞추기">맞춤</button>
     <button type="button" id="vwPause" aria-pressed="false" title="잠시 멈추기">멈춤</button>
@@ -29,6 +35,10 @@
     <button type="submit" id="vwCodeBtn">보기</button>
     <p class="vw-code-err" id="vwCodeErr" role="alert"></p>
   </form>
+  <div class="vw-chat hidden" id="vwChat">
+    <button type="button" class="vw-older hidden" id="vwOlder">이전 대화 더 보기</button>
+    <div class="vw-list" id="vwList"></div>
+  </div>
   <pre class="vw-term" id="vwTerm" aria-live="off"></pre>
   <div class="vw-note" id="vwNote">불러오는 중…</div>
 </main>

@@ -57,13 +57,19 @@ class ViewShareRequest(BaseModel):
     )
     history: int = Field(default=0, ge=0, le=2000)
     title: str = Field(default="", max_length=200)
+    chat: bool = True  # 에이전트 창이면 대화 기록(채팅)도 보여 준다
 
 
 @router.post("/api/view-shares", dependencies=api_auth)
 async def create_view_share(body: ViewShareRequest):
     try:
         token, code, share = await asyncio.to_thread(
-            view_share_service.create, body.pane, body.minutes, body.history, body.title
+            view_share_service.create,
+            body.pane,
+            body.minutes,
+            body.history,
+            body.title,
+            body.chat,
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail="창을 찾을 수 없어요.") from error
@@ -205,11 +211,38 @@ async def view_info(request: Request):
             "state": "ok",
             "title": share["title"],
             "expires": share["expires"],
+            "chat": await asyncio.to_thread(view_share_service.chat_available, share),
             "until": datetime.fromtimestamp(share["expires"])
             .strftime("%m월 %d일 %H:%M")
             .lstrip("0"),
         },
     )
+
+
+@router.get("/api/view/chat")
+async def view_chat(request: Request, start: int | None = None, limit: int = 100):
+    """공유한 창의 에이전트 대화 기록 (읽기만). start 가 없으면 마지막 limit 개."""
+    who = client_key(request)
+    if not _allow(who):
+        return _json(429, {"state": "busy"}, **{"Retry-After": "2"})
+    share, error = await asyncio.to_thread(_lookup, request, _token(request))
+    if error:
+        return error
+    if denied := await _code_error(request, share):
+        return denied
+    view_share_service.note_viewer(share["id"], who)
+    if start is not None and not 0 <= start <= 10_000_000:
+        start = None
+    try:
+        data = await asyncio.to_thread(view_share_service.chat, share, start, limit)
+    except Exception:
+        logger.exception("화면 공유 채팅 읽기 실패 · %s", share["id"])
+        return _json(200, {"state": "ok", "available": False})
+    if data is None:
+        return _json(410, {"state": "closed"})
+    if data.get("hash") and request.query_params.get("h") == data["hash"]:
+        return Response(status_code=204, headers=PUBLIC_HEADERS)
+    return _json(200, {"state": "ok", "expires": share["expires"], **data})
 
 
 @router.get("/api/view/screen")

@@ -145,6 +145,7 @@ def public(share: dict, now: float | None = None) -> dict:
         "pane": share["pane"],
         "title": share["title"],
         "history": share["history"],
+        "chat": bool(share.get("chat")),
         "created": share["created"],
         "expires": share["expires"],
         "opens": share.get("opens", 0),
@@ -153,11 +154,12 @@ def public(share: dict, now: float | None = None) -> dict:
 
 
 def create(
-    pane_id: str, minutes: int, history: int, title: str
+    pane_id: str, minutes: int, history: int, title: str, chat: bool = True
 ) -> tuple[str, str, dict]:
     """공유를 만든다. (링크 토큰, 접근 코드, 공개 정보) — 토큰 · 코드는 이때만 알 수 있다.
 
     화면 공유는 항상 접근 코드가 있어야 볼 수 있다 (링크만으로는 열리지 않음).
+    chat 이면 그 창의 에이전트(Claude · Codex) 대화 기록 전체도 채팅으로 보여 준다.
     """
     if history not in HISTORY_CHOICES:
         raise ValueError("스크롤백 범위가 올바르지 않아요.")
@@ -172,6 +174,7 @@ def create(
         "server": server,
         "title": clean_title(title),
         "history": history,
+        "chat": bool(chat),
         "created": now,
         "expires": now + minutes * 60,
         "opens": 0,
@@ -308,6 +311,122 @@ def screen(share: dict) -> dict | None:
             _captures.pop(key)
         _captures[share["id"]] = (now, result)
         return result
+
+
+# ── 채팅: 공유한 pane 에서 돌고 있는 에이전트의 대화 기록 (읽기만) ──
+CHAT_PAGE = 100
+CHAT_PAGE_MAX = 200
+_ITEM_TEXT = ("kind", "text", "ts", "name", "summary", "status")
+_HOME = str(Path.home())
+
+
+def _safe_text(value) -> str:
+    """보는 쪽에 보낼 글: 비밀 값은 가리고, 홈 폴더 경로(계정 이름)는 ~ 로 줄인다."""
+    text = redact(str(value))
+    return text.replace(_HOME + "/", "~/").replace(_HOME, "~")
+
+
+def _safe_item(item: dict) -> dict:
+    """대화 항목에서 보여 줄 값만 골라 담는다 (내부 식별자 · 서브에이전트 로그 경로 · 그림 파일은 뺀다)."""
+    out: dict = {"id": int(item.get("id", 0))}
+    for key in _ITEM_TEXT:
+        if isinstance(item.get(key), str):
+            out[key] = _safe_text(item[key])
+    if item.get("kind") == "tool":
+        output = item.get("output")
+        out["output"] = None if output is None else _safe_text(output)
+        out["error"] = bool(item.get("error"))
+        out["running"] = bool(item.get("running"))
+        diffs = []
+        for diff in item.get("diffs") or []:
+            if not isinstance(diff, dict):
+                continue
+            diffs.append(
+                {
+                    "file": _safe_text(diff.get("file", "")),
+                    "op": str(diff.get("op", "update"))[:10],
+                    "add": int(diff.get("add") or 0),
+                    "del": int(diff.get("del") or 0),
+                    "cut": bool(diff.get("cut")),
+                    "hunks": [
+                        {
+                            "o": h.get("o") if isinstance(h.get("o"), int) else None,
+                            "n": h.get("n") if isinstance(h.get("n"), int) else None,
+                            "lines": [_safe_text(line) for line in h.get("lines", [])],
+                        }
+                        for h in diff.get("hunks", [])
+                        if isinstance(h, dict)
+                    ],
+                }
+            )
+        if diffs:
+            out["diffs"] = diffs
+    images = item.get("images")
+    if isinstance(images, list) and images:
+        out["images"] = len(images)  # 그림 자체는 보내지 않는다
+    return out
+
+
+def _agent_log(pane_id: str) -> tuple[Path | None, str | None]:
+    """pane 에서 돌고 있는 에이전트의 세션 로그와 에이전트 종류."""
+    from app.services import transcript_service
+
+    for max_age in (30, 1.5):
+        windows = tmux_service.cached_windows(max_age)
+        target = next(
+            ((w, p) for w in windows for p in w.panes if p.id == pane_id), None
+        )
+        if target is not None:
+            break
+    else:
+        return None, None
+    window, pane = target
+    agent = pane.command if pane.command in tmux_service.AGENTS else window.agent
+    if agent not in tmux_service.AGENTS:
+        return None, None
+    path = transcript_service.find_log(pane.pid, agent, os.path.expanduser(pane.path))
+    return path, agent
+
+
+def chat_available(share: dict) -> bool:
+    if not share.get("chat"):
+        return False
+    try:
+        if _pane_server(share["pane"]) != share["server"]:
+            return False
+        return _agent_log(share["pane"])[0] is not None
+    except (KeyError, TmuxError, OSError):
+        return False
+
+
+def chat(share: dict, start: int | None, limit: int) -> dict | None:
+    """대화 기록 한 쪽 (가린 뒤). 채팅을 공유하지 않았거나 기록이 없으면 available=False, pane 이 사라졌으면 None."""
+    from app.services import transcript_service
+
+    if not share.get("chat"):
+        return {"available": False}
+    try:
+        if _pane_server(share["pane"]) != share["server"]:
+            return None
+        path, agent = _agent_log(share["pane"])
+    except (KeyError, TmuxError):
+        return None
+    if path is None:
+        return {"available": False}
+    limit = max(1, min(int(limit), CHAT_PAGE_MAX))
+    data = transcript_service.read(path, agent, start, limit)
+    result = {
+        "available": True,
+        "agent": agent,
+        "total": data["total"],
+        "start": data["start"],
+        "items": [_safe_item(item) for item in data["items"]],
+        "related": [_safe_item(item) for item in data.get("related", [])],
+    }
+    result["hash"] = hashlib.sha256(
+        json.dumps(result, ensure_ascii=False, sort_keys=True).encode()
+    ).hexdigest()[:24]
+    return result
 
 
 def cleanup() -> None:

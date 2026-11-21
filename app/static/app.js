@@ -807,12 +807,15 @@
       title: '읽기 전용으로 화면 공유', subtitle: `${displayName(w)} · ${w.session}:${w.index}`, submitLabel: '링크 만들기',
       fields: [{ name: 'title', label: '보는 사람에게 보일 이름', value: displayName(w), maxlength: 60 }],
       extraHtml: `<label>볼 수 있는 시간<select name="minutes">${opts(VIEW_TIMES, 60)}</select></label>
-        <label>보여 줄 범위<select name="history">${opts(VIEW_HISTORY, 0)}</select></label>
+        ${w.agent ? `<label>보여 줄 것<select name="chat"><option value="1" selected>채팅 + 터미널 (대화 기록 전체)</option><option value="0">터미널만</option></select></label>` : ''}
+        <label>터미널에 보여 줄 범위<select name="history">${opts(VIEW_HISTORY, 0)}</select></label>
+        ${w.agent ? `<p class="text-[11px] opacity-60 leading-5"><i class="fas fa-comments mr-1"></i>채팅을 함께 공유하면 이 창의 ${w.agent === 'codex' ? 'Codex' : 'Claude'} 대화 기록을 <b>처음부터 전부</b> 볼 수 있어요 (프롬프트 · 답변 · 실행한 명령과 결과 · 코드 수정 내용 포함). 첨부한 그림은 보내지 않아요.</p>` : ''}
         <p class="text-[11px] opacity-60 leading-5"><i class="fas fa-key mr-1"></i>링크와 함께 <b>접근 코드</b>가 만들어져요. 코드를 받은 사람만 볼 수 있어요 (화면 공유는 코드가 항상 필요해요).</p>
         <p class="text-[11px] opacity-60 leading-5"><i class="fas fa-shield-halved mr-1"></i>링크와 코드를 받은 사람은 로그인 없이 이 창의 화면을 <b>보기만</b> 할 수 있어요. 입력 · 키 · 창 크기 바꾸기는 아예 할 수 없고, 다른 창이나 파일도 볼 수 없어요. 화면에 찍힌 API 키 · 토큰 같은 값은 가려서 보내지만 모든 비밀을 알아보지는 못하니, 비밀이 화면에 나오지 않게 조심하세요. 창을 닫거나 시간이 지나면 링크가 끊겨요.</p>`,
       async onSubmit(values) {
         const result = await api('POST', '/api/view-shares', {
           pane, title: String(values.title || '').trim(), minutes: Number(values.minutes) || 60, history: Number(values.history) || 0,
+          chat: !!w.agent && values.chat !== '0',
         });
         setTimeout(() => viewShareResult(result), 0);
         return false;
@@ -861,7 +864,7 @@
       const status = !s.pane_alive ? '창이 닫혀 볼 수 없음' : s.watching ? `지금 ${s.watching}곳에서 보는 중` : '보는 사람 없음';
       return `<li class="share-row" data-view-share="${escapeHtml(s.id)}">
           <i class="fas ${s.pane_alive ? 'fa-eye' : 'fa-eye-slash'} opacity-70"></i>
-          <div class="min-w-0 flex-1"><div class="truncate font-semibold">${escapeHtml(s.title)}</div>
+          <div class="min-w-0 flex-1"><div class="truncate font-semibold">${escapeHtml(s.title)}${s.chat ? '<span class="share-tag"><i class="fas fa-comments"></i> 채팅 포함</span>' : ''}</div>
             <div class="truncate text-[11px] opacity-60">${escapeHtml(where)} · ${escapeHtml(VIEW_HISTORY.find(([v]) => v === s.history)?.[1] || '')}</div>
             <div class="text-[11px] opacity-75">${escapeHtml(viewLeft(s))} · ${escapeHtml(status)} · ${Number(s.opens) || 0}번 열림</div></div>
           <button type="button" class="sheet-danger" data-revoke>끊기</button></li>`;
