@@ -986,7 +986,7 @@
     let modelTimer = null;
     UI().formSheet({
       title: 'AI 커밋 메시지 설정',
-      subtitle: 'OpenAI 호환 API 주소를 입력하면 /models 를 조회해 모델을 자동으로 선택해요. 토큰은 서버에만 저장돼요.',
+      subtitle: '기본 API: OpenAI 호환 주소를 입력하면 /models 를 조회해 모델을 자동으로 선택해요. 실패하면 아래 예비 API(OpenAI)로 다시 써요. 토큰은 서버에만 저장돼요.',
       fields: [
         { name: 'base_url', label: 'API 주소 (Base URL)', value: current.base_url, placeholder: 'https://api.openai.com/v1', maxlength: 500 },
         { name: 'token', label: `Bearer 토큰${current.token_set ? ' (저장됨 · 바꿀 때만 입력)' : ''}`, value: '', placeholder: current.token_set ? '••••••••  (비워 두면 그대로)' : 'sk-...', maxlength: 1000 },
@@ -996,7 +996,18 @@
           <option value="auto" ${current.language === 'auto' ? 'selected' : ''}>자동 (최근 커밋과 같은 언어)</option>
           <option value="ko" ${current.language === 'ko' ? 'selected' : ''}>한국어</option>
           <option value="en" ${current.language === 'en' ? 'selected' : ''}>English</option></select></label>
-        ${current.token_set ? '<label class="check-row"><input type="checkbox" name="clear_token"> 저장된 토큰 지우기</label>' : ''}`,
+        ${current.token_set ? '<label class="check-row"><input type="checkbox" name="clear_token"> 저장된 토큰 지우기</label>' : ''}
+        <div class="git-ai-fallback">
+          <div class="git-ai-fallback-head"><b>예비 API · OpenAI</b><span>기본 API 가 실패하거나 비어 있으면 이걸로 다시 써요.</span></div>
+          <label>OpenAI API 키${current.fallback_token_set ? ' (저장됨 · 바꿀 때만 입력)' : ''}
+            <input name="fallback_token" type="password" autocomplete="new-password" maxlength="1000" spellcheck="false" autocapitalize="off"
+              placeholder="${current.fallback_token_set ? '••••••••  (비워 두면 그대로)' : 'sk-...'}"></label>
+          <label>모델<span class="git-ai-model-row"><select name="fallback_model" data-fallback-model>
+              ${current.fallback_model ? `<option value="${escapeHtml(current.fallback_model)}" selected>${escapeHtml(current.fallback_model)}</option>` : '<option value="">(사용 안 함)</option>'}
+            </select><button type="button" class="sheet-cancel" data-fallback-load>목록 불러오기</button></span></label>
+          <div class="text-xs text-white/60" data-fallback-status>${current.fallback_configured ? `사용 중: ${escapeHtml(current.fallback_model)}` : '키를 넣고 목록을 불러와 모델을 고르세요.'}</div>
+          ${current.fallback_token_set ? '<label class="check-row"><input type="checkbox" name="clear_fallback"> 예비 API 끄기 (저장된 키 지우기)</label>' : ''}
+        </div>`,
       submitLabel: '저장',
       onMount: (body) => {
         const token = body.querySelector('input[name="token"]');
@@ -1033,16 +1044,46 @@
         });
         if (baseUrl.value.trim()) discover().catch(() => {});
         body._discoverModel = discover;
+        // 예비 API (OpenAI): 키로 /models 를 불러와 대화용 모델 중에서 고른다
+        const fbToken = body.querySelector('input[name="fallback_token"]');
+        const fbSelect = body.querySelector('[data-fallback-model]');
+        const fbStatus = body.querySelector('[data-fallback-status]');
+        const loadFallback = async () => {
+          if (!fbToken.value.trim() && !current.fallback_token_set) { fbStatus.textContent = 'OpenAI API 키를 먼저 입력하세요.'; return; }
+          fbStatus.textContent = '모델 목록 불러오는 중…';
+          try {
+            const data = await api('/api/git/ai/models', { method: 'POST', body: { target: 'fallback', token: fbToken.value.trim() || null } });
+            const keep = fbSelect.value || data.model;
+            fbSelect.innerHTML = '<option value="">(사용 안 함)</option>' + data.models.map((m) => `<option value="${escapeHtml(m)}"${m === keep ? ' selected' : ''}>${escapeHtml(m)}</option>`).join('');
+            if (!data.models.includes(keep)) fbSelect.value = data.model;
+            fbStatus.textContent = `쓸 수 있는 모델 ${data.models.length}개`;
+          } catch (error) { fbStatus.textContent = error.message; }
+        };
+        body.querySelector('[data-fallback-load]').addEventListener('click', loadFallback);
+        let fbTimer = null;
+        fbToken.addEventListener('input', () => { clearTimeout(fbTimer); if (fbToken.value.trim().length > 20) fbTimer = setTimeout(loadFallback, 600); });
+        if (current.fallback_token_set) loadFallback();
       },
       onSubmit: async (values, body) => {
         const url = (values.base_url || '').trim().replace(/\/+$/, '');
-        if (modelForUrl !== url || !selectedModel) {
-          const discovered = await body._discoverModel();
-          if (!discovered || modelForUrl !== url) throw new Error('API 주소에서 모델을 확인한 뒤 저장해 주세요.');
+        // 기본 API 는 비워 둘 수 있다 (예비 API 만 쓰기).
+        // 기본 API 가 지금 꺼져 있어도(로컬 모델 등) 저장은 막지 않는다: 모델은 쓸 때 다시 확인한다.
+        let primaryModel = '';
+        if (url) {
+          if (modelForUrl !== url || !selectedModel) await body._discoverModel().catch(() => false);
+          if (modelForUrl === url && selectedModel) primaryModel = selectedModel;
+          else if (url === (current.base_url || '').replace(/\/+$/, '')) primaryModel = current.model || '';
         }
         const token = values.clear_token ? '' : (values.token ? values.token : null);
-        await api('/api/git/ai/settings', { method: 'PUT', body: { base_url: values.base_url || '', model: selectedModel, token, language: values.language || 'auto' } });
-        toast('AI 설정을 저장했어요.', 'success');
+        const clearFallback = Boolean(values.clear_fallback);
+        const fallbackToken = clearFallback ? '' : ((values.fallback_token || '').trim() || null);
+        const fallbackModel = clearFallback ? '' : (values.fallback_model || '');
+        if (fallbackModel && !fallbackToken && !current.fallback_token_set) throw new Error('예비 API 를 쓰려면 OpenAI API 키를 입력하세요.');
+        await api('/api/git/ai/settings', { method: 'PUT', body: {
+          base_url: url, model: primaryModel, token, language: values.language || 'auto',
+          fallback_model: fallbackModel, fallback_token: fallbackToken,
+        } });
+        toast(url && !primaryModel ? 'AI 설정을 저장했어요. 기본 API 모델은 쓸 때 다시 확인하고, 안 되면 예비 API 로 써요.' : 'AI 설정을 저장했어요.', 'success');
         if (thenGenerate) setTimeout(generateCommitMessage, 50);
       },
     });
@@ -1066,6 +1107,7 @@
       updateSummaryLength();
       saveDraft();
       input.focus();
+      if (result.provider === 'fallback' && result.primary_error) toast(`기본 API 가 실패해서 예비 API(${result.model})로 썼어요 · ${result.primary_error}`, 'info');
       if (result.truncated) toast('변경이 많아 앞부분만 보고 썼어요. 한 번 확인해 주세요.', 'info');
     } catch (error) {
       toast(error.message, 'error');

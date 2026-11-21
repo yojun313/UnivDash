@@ -230,7 +230,7 @@
   const EXPORT_KEYS = () => [
     ...Object.keys(U().settings.defaults).map((key) => `univdash-set-${key}`),
     ...SWITCHES.editor.map(([key]) => `univdash-ex-${key}`),
-    'univdash-theme', 'univdash-theme-style', 'univdash-ws-swapped',
+    'univdash-theme', 'univdash-theme-style', 'univdash-ws-swapped', 'univdash-lite',
   ];
   const kbd = (binding) => K().label(binding).map((stroke) => `<kbd>${esc(stroke)}</kbd>`).join('<i class="ud-kb-then">,</i>');
   const searchText = (action) => [action.label, action.id, K().SCOPES[action.scope], ...K().keysOf(action.id).flatMap((b) => [b, K().label(b).join(' ')])].join(' ').toLowerCase();
@@ -346,6 +346,7 @@
     if (key === 'univdash-theme') return window.UnivDashTheme?.current() || null;
     if (key === 'univdash-theme-style') return document.documentElement.getAttribute('data-ui-theme') || 'default';
     if (key === 'univdash-ws-swapped') return JSON.stringify(document.documentElement.classList.contains('ws-swapped'));
+    if (key === 'univdash-lite') return document.documentElement.hasAttribute('data-ui-lite') ? '1' : '0';
     return null;
   }
   function exportSettings() {

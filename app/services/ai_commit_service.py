@@ -21,6 +21,14 @@ MAX_UNTRACKED_FILES = 20
 MAX_UNTRACKED_LINES = 40
 REQUEST_TIMEOUT = 60.0
 LANGUAGES = {"auto", "ko", "en"}
+# 예비 API: 기본 API 가 실패하면 OpenAI API 로 다시 시도한다
+OPENAI_BASE_URL = "https://api.openai.com/v1"
+# OpenAI /models 에는 임베딩 · 음성 · 그림 모델도 섞여 있다 → 대화(chat)용만 고른다
+_OPENAI_CHAT = re.compile(r"^(gpt-|o\d|chatgpt-)", re.IGNORECASE)
+_OPENAI_NOT_CHAT = re.compile(
+    r"(audio|realtime|transcribe|tts|image|embedding|moderation|search|instruct|codex|computer-use|deep-research)",
+    re.IGNORECASE,
+)
 _MODEL = re.compile(r"^[\w.:/\-\[\]@+]{1,120}$")
 
 
@@ -50,14 +58,45 @@ def public_settings() -> dict:
         "model": data.get("model") or "",
         "language": data.get("language") or "auto",
         "token_set": bool(data.get("token")),
-        "configured": bool(data.get("base_url") and data.get("model")),
+        "primary_configured": _primary_ready(data),
+        "fallback_model": data.get("fallback_model") or "",
+        "fallback_token_set": bool(data.get("fallback_token")),
+        "fallback_configured": _fallback_ready(data),
+        "configured": _primary_ready(data) or _fallback_ready(data),
     }
 
 
-def save_settings(base_url: str, model: str, token: str | None, language: str) -> dict:
-    """token 이 None 이면 기존 토큰 유지, "" 이면 지운다."""
+def _primary_ready(data: dict) -> bool:
+    # 모델이 비어 있어도 주소만 있으면 쓸 때 /models 로 다시 확인한다 (로컬 서버가 꺼져 있을 때 저장한 경우)
+    return bool(data.get("base_url"))
+
+
+def _fallback_ready(data: dict) -> bool:
+    return bool(data.get("fallback_model") and data.get("fallback_token"))
+
+
+def _clean_token(token: str) -> str:
+    token = token.strip()
+    if len(token) > 1000 or any(c in token for c in "\r\n"):
+        raise ValueError("토큰 형식이 올바르지 않아요.")
+    return token
+
+
+def save_settings(
+    base_url: str,
+    model: str,
+    token: str | None,
+    language: str,
+    fallback_model: str | None = None,
+    fallback_token: str | None = None,
+) -> dict:
+    """token · fallback_token 이 None 이면 기존 값 유지, "" 이면 지운다. fallback_model 이 None 이면 그대로."""
     base_url = (base_url or "").strip().rstrip("/")
     model = (model or "").strip()
+    if fallback_model is not None:
+        fallback_model = fallback_model.strip()
+        if fallback_model and not _MODEL.match(fallback_model):
+            raise ValueError("예비 모델 이름이 올바르지 않아요.")
     if base_url and not re.match(r"^https?://[^\s/?#]+(?:/[^\s?#]*)?$", base_url):
         raise ValueError(
             "API 주소는 http:// 또는 https:// 로 시작해야 해요 (예: https://api.openai.com/v1)."
@@ -71,10 +110,11 @@ def save_settings(base_url: str, model: str, token: str | None, language: str) -
     data = _read()
     data.update({"base_url": base_url, "model": model, "language": language})
     if token is not None:
-        token = token.strip()
-        if len(token) > 1000 or any(c in token for c in "\r\n"):
-            raise ValueError("토큰 형식이 올바르지 않아요.")
-        data["token"] = token
+        data["token"] = _clean_token(token)
+    if fallback_model is not None:
+        data["fallback_model"] = fallback_model
+    if fallback_token is not None:
+        data["fallback_token"] = _clean_token(fallback_token)
     path = _settings_file()
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
@@ -94,8 +134,32 @@ def _validated_base_url(base_url: str) -> str:
     return base_url
 
 
-def discover_model(base_url: str, token: str | None = None) -> dict:
-    """OpenAI 호환 /models 에서 현재 사용 가능한 모델을 읽고 자동 선택한다."""
+def discover_model(
+    base_url: str, token: str | None = None, target: str = "primary"
+) -> dict:
+    """OpenAI 호환 /models 에서 현재 사용 가능한 모델을 읽고 자동 선택한다.
+
+    target="fallback": 예비 API (OpenAI 고정 주소 · 저장된 예비 토큰), 대화용 모델만 돌려준다."""
+    if target == "fallback":
+        saved = _read()
+        token = _clean_token(
+            token if token is not None else saved.get("fallback_token") or ""
+        )
+        if not token:
+            raise AICommitError("OpenAI API 키를 입력해 주세요.")
+        listed = _list_models(f"{OPENAI_BASE_URL}/models", token)
+        models = sorted(
+            (
+                m
+                for m in listed["models"]
+                if _OPENAI_CHAT.match(m) and not _OPENAI_NOT_CHAT.search(m)
+            ),
+            reverse=True,
+        )
+        if not models:
+            raise AICommitError("이 키로 쓸 수 있는 대화용 모델이 없어요.")
+        current = saved.get("fallback_model") or ""
+        return {"model": current if current in models else models[0], "models": models}
     base_url = _validated_base_url(base_url)
     if base_url.endswith("/chat/completions"):
         models_url = base_url[: -len("/chat/completions")] + "/models"
@@ -107,9 +171,23 @@ def discover_model(base_url: str, token: str | None = None) -> dict:
     saved = _read()
     if token is None and saved.get("base_url", "").rstrip("/") == base_url:
         token = saved.get("token") or ""
-    token = (token or "").strip()
-    if len(token) > 1000 or any(char in token for char in "\r\n"):
-        raise ValueError("토큰 형식이 올바르지 않아요.")
+    listed = _list_models(models_url, _clean_token(token or ""))
+    models, rows = listed["models"], listed["rows"]
+    # 서버가 활성 모델을 표시하면 그것을 우선하고, 아니면 /models 첫 항목을 기본으로 쓴다.
+    active = next(
+        (
+            row.get("id") or row.get("name")
+            for row in rows
+            if isinstance(row, dict)
+            and (row.get("loaded") or row.get("active") or row.get("currently_loaded"))
+            and isinstance(row.get("id") or row.get("name"), str)
+        ),
+        models[0],
+    )
+    return {"model": active, "models": models}
+
+
+def _list_models(models_url: str, token: str) -> dict:
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     try:
         with httpx.Client(timeout=15.0, follow_redirects=False) as client:
@@ -142,18 +220,7 @@ def discover_model(base_url: str, token: str | None = None) -> dict:
     models = list(dict.fromkeys(model.strip() for model in models if model.strip()))
     if not models:
         raise AICommitError("API 주소에서 사용 가능한 모델을 찾지 못했어요.")
-    # 서버가 활성 모델을 표시하면 그것을 우선하고, 아니면 /models 첫 항목을 기본으로 쓴다.
-    active = next(
-        (
-            row.get("id") or row.get("name")
-            for row in rows
-            if isinstance(row, dict)
-            and (row.get("loaded") or row.get("active") or row.get("currently_loaded"))
-            and isinstance(row.get("id") or row.get("name"), str)
-        ),
-        models[0],
-    )
-    return {"model": active, "models": models}
+    return {"models": models, "rows": rows}
 
 
 # ── 변경 모으기 (읽기만) ─────────────────────────────────────────────────────────
@@ -257,15 +324,11 @@ def _clean(text: str) -> str:
     return text.strip('"').strip()
 
 
-def generate(repository_id: str, include_all: bool) -> dict:
-    settings = _read()
-    if not settings.get("base_url") or not settings.get("model"):
-        raise AICommitError("AI 설정(API 주소 · 모델)을 먼저 해 주세요.")
-    changes = collect_changes(repository_id, include_all)
-    prompt = "\n\n".join(
+def _build_prompt(changes: dict, language: str) -> str:
+    return "\n\n".join(
         part
         for part in [
-            _LANGUAGE_HINT[settings.get("language") or "auto"],
+            _LANGUAGE_HINT[language if language in LANGUAGES else "auto"],
             f"Branch: {changes['branch']}" if changes["branch"] else "",
             f"Recent commit subjects (style reference):\n{changes['recent']}"
             if changes["recent"]
@@ -275,22 +338,26 @@ def generate(repository_id: str, include_all: bool) -> dict:
         ]
         if part
     )
+
+
+def _ask(base_url: str, model: str, token: str, prompt: str) -> str:
+    """한 API 에 물어 커밋 메시지를 받는다. 실패하면 AICommitError."""
     headers = {"Content-Type": "application/json"}
-    if settings.get("token"):
-        headers["Authorization"] = f"Bearer {settings['token']}"
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     body = {
-        "model": settings["model"],
+        "model": model,
         "messages": [
             {"role": "system", "content": _SYSTEM},
             {"role": "user", "content": prompt},
         ],
-        "temperature": 0.2,
     }
+    # OpenAI 의 추론 모델(o 계열 · gpt-5 이상)은 temperature 를 바꾸지 못한다
+    if not re.match(r"^(o\d|gpt-[5-9])", model, re.IGNORECASE):
+        body["temperature"] = 0.2
     try:
         with httpx.Client(timeout=REQUEST_TIMEOUT, follow_redirects=False) as client:
-            response = client.post(
-                _endpoint(settings["base_url"]), headers=headers, json=body
-            )
+            response = client.post(_endpoint(base_url), headers=headers, json=body)
     except httpx.TimeoutException as error:
         raise AICommitError("AI 응답이 너무 늦어요 (60초 초과).") from error
     except httpx.HTTPError as error:
@@ -306,7 +373,7 @@ def generate(repository_id: str, include_all: bool) -> dict:
                 if isinstance(payload.get("error"), dict)
                 else payload.get("error") or payload.get("detail") or ""
             )
-        except ValueError:
+        except (ValueError, AttributeError):
             detail = response.text[:200]
         raise AICommitError(
             f"AI 요청 실패 ({response.status_code}){': ' + str(detail)[:300] if detail else ''}"
@@ -320,4 +387,51 @@ def generate(repository_id: str, include_all: bool) -> dict:
     message = _clean(content if isinstance(content, str) else "")
     if not message:
         raise AICommitError("AI 가 빈 메시지를 돌려줬어요.")
-    return {"message": message[:5000], "truncated": "생략" in changes["diff"][-40:]}
+    return message[:5000]
+
+
+def generate(repository_id: str, include_all: bool) -> dict:
+    """기본 API 로 쓰고, 실패하면(또는 기본이 없으면) 예비 API(OpenAI)로 다시 쓴다."""
+    settings = _read()
+    attempts = []
+    if _primary_ready(settings):
+        attempts.append(
+            (
+                "primary",
+                settings["base_url"],
+                settings.get("model") or "",
+                settings.get("token") or "",
+            )
+        )
+    if _fallback_ready(settings):
+        attempts.append(
+            (
+                "fallback",
+                OPENAI_BASE_URL,
+                settings["fallback_model"],
+                settings["fallback_token"],
+            )
+        )
+    if not attempts:
+        raise AICommitError("AI 설정(API 주소 · 모델)을 먼저 해 주세요.")
+    changes = collect_changes(repository_id, include_all)
+    prompt = _build_prompt(changes, settings.get("language") or "auto")
+    errors = []
+    for provider, base_url, model, token in attempts:
+        try:
+            if not model:
+                model = discover_model(base_url, token)["model"]
+            message = _ask(base_url, model, token, prompt)
+        except AICommitError as error:
+            errors.append((provider, str(error)))
+            continue
+        return {
+            "message": message,
+            "truncated": "생략" in changes["diff"][-40:],
+            "provider": provider,
+            "model": model,
+            "primary_error": errors[0][1] if errors else "",
+        }
+    if len(errors) == 1:
+        raise AICommitError(errors[0][1])
+    raise AICommitError(f"기본 API: {errors[0][1]} / 예비 API(OpenAI): {errors[1][1]}")

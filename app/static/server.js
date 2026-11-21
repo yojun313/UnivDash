@@ -457,10 +457,18 @@ function closeLogModal() {
     modal.classList.add('hidden');
 }
 
+// 가벼운 모드: 1초 갱신을 2초로, 탭이 안 보이면 건너뛴다
+let liteTicks = 0;
+function liteSkip() {
+    if (!document.documentElement.hasAttribute('data-ui-lite')) return false;
+    liteTicks += 1;
+    return document.hidden || liteTicks % 2 === 1;
+}
+
 if (document.getElementById('pm2-list-body')) {
     updateStats();
     checkStartupStatus();
-    setInterval(updateStats, 1000);
+    setInterval(() => { if (!liteSkip()) updateStats(); }, 1000);
 
     // 프로세스 이름을 인라인 onclick 문자열에 넣지 않고 data 속성 + 이벤트 위임으로 처리한다
     document.getElementById('pm2-list-body').addEventListener('click', (event) => {
@@ -486,7 +494,13 @@ if (document.getElementById('pm2-list-body')) {
 }
 if (document.getElementById('srvCpuText')) {
     updateServerStats();
-    setInterval(updateServerStats, 1000);
+    let serverTicks = 0;
+    setInterval(() => {
+        const lite = document.documentElement.hasAttribute('data-ui-lite');
+        serverTicks += 1;
+        if (lite && (document.hidden || serverTicks % 2 === 1)) return;
+        updateServerStats();
+    }, 1000);
 }
 window.addEventListener('univdash:themechange', () => {
     const themeColors = getChartThemeColors();

@@ -190,6 +190,40 @@ html[data-ui-theme-mode="light"] .pmd-theme-option {
 }
 .pmd-mode-switch.on { background: #3b82f6; }
 .pmd-mode-switch.on::before { transform: translateX(18px); }
+.pmd-lite-row { padding-top: 0; gap: 12px; }
+.pmd-lite-row small { display: block; margin-top: 2px; font-size: 10.5px; font-weight: 500; opacity: 0.6; }
+.pmd-lite-row .pmd-mode-switch { flex-shrink: 0; }
+
+/* ============================================================================
+   가벼운 모드 (html[data-ui-lite]) — 기본은 꺼짐. 모양은 거의 그대로 두고 비용 큰 효과만 뺀다.
+   1) backdrop-filter 블러: 뒤 화면이 바뀔 때마다 GPU 가 블러를 다시 계산 → 끈다 (배경 반투명 색은 그대로)
+   2) 계속 도는 빛 번짐(box-shadow) · 메시 색 회전(filter) 애니메이션 → 멈춘다 (색으로 상태는 그대로 보인다)
+   3) 화면 밖 채팅 항목은 그리지 않는다 (content-visibility) → 긴 대화에서 CPU · 메모리 절약
+   진행 중 표시(돌아가는 아이콘)와 터미널 커서는 그대로 둔다.
+   ============================================================================ */
+html[data-ui-lite] *, html[data-ui-lite] *::before, html[data-ui-lite] *::after {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+html[data-ui-lite] body::before { animation: none !important; }
+/* 블러가 없으면 뒤가 비쳐 글자가 덜 또렷해지는 떠 있는 창(모달 · 시트 · 메뉴)만 조금 더 불투명하게 */
+html[data-ui-lite] .glass-strong.shadow-2xl { background: rgba(22, 27, 40, 0.96); }
+html[data-ui-lite][data-ui-theme-mode="light"] .glass-strong.shadow-2xl { background: rgba(255, 255, 255, 0.97); }
+html[data-ui-lite] .pmd-theme-modal { background: rgb(20, 25, 40); }
+html[data-ui-lite][data-ui-theme-mode="light"] .pmd-theme-modal { background: #fff; }
+/* 상태 점: 빛 번짐 없이 색만. 작업 중은 정지, 응답 필요(주의)는 느린 깜빡임만 남긴다 */
+html[data-ui-lite] .status-dot.busy, html[data-ui-lite] .status-dot.waiting { box-shadow: none; }
+html[data-ui-lite] .status-dot.busy { animation: none !important; }
+html[data-ui-lite] .status-dot.waiting { animation: tdxBlink 2s steps(2, jump-none) infinite !important; }
+html[data-ui-lite] .st-waiting { animation: none !important; box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.3); }
+html[data-ui-lite] .sysmon .sm-dot { animation: none !important; box-shadow: none; }
+html[data-ui-lite] .cu-dot.run { animation: none !important; }
+/* 화면 밖 채팅 항목 · 긴 목록은 보일 때만 그린다 (크기는 한 번 그린 값을 기억) */
+html[data-ui-lite] .chat-list > *, html[data-ui-lite] .tp-log .chat-list > * {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 64px;
+}
+html[data-ui-lite] .win-item { content-visibility: auto; contain-intrinsic-size: auto 52px; }
 
 /* ============================================================================
    라이트 모드 — 다크 전제 유틸리티 일괄 반전

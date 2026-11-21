@@ -64,11 +64,15 @@ class AISettingsRequest(BaseModel):
         default=None, max_length=1000
     )  # None: 그대로 두기, "": 지우기
     language: str = Field(default="auto", pattern=r"^(auto|ko|en)$")
+    # 예비 API (OpenAI): None 이면 그대로 두기, "" 이면 지우기
+    fallback_model: str | None = Field(default=None, max_length=120)
+    fallback_token: str | None = Field(default=None, max_length=1000)
 
 
 class AIModelsRequest(BaseModel):
     base_url: str = Field(default="", max_length=500)
     token: str | None = Field(default=None, max_length=1000)
+    target: str = Field(default="primary", pattern=r"^(primary|fallback)$")
 
 
 class AICommitRequest(BaseModel):
@@ -94,6 +98,8 @@ async def save_ai_settings(body: AISettingsRequest):
             body.model,
             body.token,
             body.language,
+            body.fallback_model,
+            body.fallback_token,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -106,7 +112,7 @@ async def get_ai_models(body: AIModelsRequest):
 
     try:
         return await asyncio.to_thread(
-            ai_commit_service.discover_model, body.base_url, body.token
+            ai_commit_service.discover_model, body.base_url, body.token, body.target
         )
     except ai_commit_service.AICommitError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error

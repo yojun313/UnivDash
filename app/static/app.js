@@ -1215,7 +1215,7 @@
         const open = page === 'workspace' ? { label: '열기', onClick: () => workspace.select(w.key) } : null;
         if (w.status === 'waiting') { toast(`${displayName(w)} · 응답이 필요합니다`, 'warn', open, 6000); vibrate([20, 60, 20]); }
         else if (before === 'busy' && w.status === 'idle' && !w.compacted) {
-          // 로그가 몇 초 늦게 기록된다: 잠시 뒤에도 쉬는 중이고 압축만 끝난 게 아니면 알린다
+          // 로그가 몇 초 늦게 기록된다: 잠시 뒤에도 대기 중이고 압축만 끝난 게 아니면 알린다
           clearTimeout(doneTimers.get(w.key));
           doneTimers.set(w.key, setTimeout(() => {
             doneTimers.delete(w.key);
@@ -1578,6 +1578,10 @@
     const view = Object.assign({ mode: desktopQuery.matches ? 'fit' : 'wrap', font: coarsePointer ? 11.5 : 12.5 }, store.get('view', {}));
     let scrollback = 400;
     let lastScreen = null;
+    let screenDeferred = false;      // 가벼운 모드: 숨은 터미널 화면을 아직 안 그림
+    window.addEventListener('univdash:litechange', () => {
+      if (screenDeferred && lastScreen && !document.documentElement.hasAttribute('data-ui-lite')) { screenDeferred = false; renderScreen(lastScreen); }
+    });
     const screenCache = new Map();   // pane → 마지막 화면 (최근 12개)
     let stickBottom = true;
     let charRatio = 0.6;
@@ -2271,6 +2275,9 @@
       const firstForPane = !lastScreen || lastScreen.pane !== screen.pane;
       lastScreen = screen;
       if (firstForPane) fitTmux(true);
+      // 가벼운 모드: 채팅 보기라 터미널이 숨어 있으면 그리지 않고 미뤄 둔다 (터미널로 바꿀 때 마지막 화면을 그린다)
+      if (document.documentElement.hasAttribute('data-ui-lite') && scroll.classList.contains('hidden')) { screenDeferred = true; return; }
+      screenDeferred = false;
       const stick = firstForPane || stickBottom || atBottom();
       const lines = screen.content.split('\n');
       const visibleStart = Math.max(0, lines.length - screen.height);
@@ -2327,7 +2334,13 @@
       if (stickBottom) jumpBtn.classList.add('hidden');
     }, { passive: true });
     inner.addEventListener('click', (event) => { if (event.target.closest('[data-open-log]')) setMode('log'); });
-    jumpBtn.addEventListener('click', () => { const target = activeScroll(); target.scrollTop = target.scrollHeight; stickBottom = true; jumpBtn.classList.add('hidden'); });
+    jumpBtn.addEventListener('click', () => {
+      const target = activeScroll();
+      target.scrollTop = target.scrollHeight;
+      stickBottom = true;
+      if (target === logScroll) log.follow = true;   // '최신' 누르면 다시 따라간다
+      jumpBtn.classList.add('hidden');
+    });
     loadMoreBtn.addEventListener('click', () => {
       scrollback = Math.min(5000, scrollback + 1000);
       stickBottom = false;
@@ -2841,7 +2854,8 @@
     const logList = $('#logList');
     const logOlder = $('#logOlder');
     const LOG_PAGE = 80;
-    const log = { pane: null, start: 0, total: 0, rendered: new Map(), timer: null, loading: false, available: true };
+    // follow: 최신 내용을 따라 맨 아래에 붙어 있는가. 사용자가 일부러 위로 올릴 때만 끄고, 맨 아래로 돌아오면 다시 켠다.
+    const log = { pane: null, start: 0, total: 0, rendered: new Map(), timer: null, loading: false, available: true, follow: true };
     // 에이전트 창은 채팅이 기본 (예전 저장값 term-mode 는 무시하고 새 키 사용)
     let termMode = store.get('term-mode-v2', 'log');
 
@@ -2858,7 +2872,9 @@
       logScroll.classList.toggle('hidden', mode !== 'log');
       $('#termViewBtn').classList.toggle('hidden', mode === 'log');
       $('#chatSearchBtn').classList.toggle('hidden', mode !== 'log');
-      if (mode !== 'log') hideChatSearch();
+      $('#chatUsageBtn').classList.toggle('hidden', mode !== 'log');
+      if (mode !== 'log') { hideChatSearch(); window.UnivDashChatUsage?.close(); }
+      window.UnivDashChatUsage?.modeChanged();
       // 채팅 모드에서는 터미널 직접 입력(⌨) 버튼을 숨긴다
       if (mode === 'log') exitDirect();
       $('#directBtn').classList.toggle('hidden', mode === 'log');
@@ -2873,6 +2889,8 @@
       } else {
         socket.send({ t: 'logunsub' });
         fitTmux(true);
+        // 가벼운 모드에서 채팅을 보는 동안 미뤄 둔 터미널 화면을 지금 그린다
+        if (screenDeferred && lastScreen && lastScreen.pane === state.paneId) { screenDeferred = false; renderScreen(lastScreen); }
       }
     }
     // 서버가 세션 로그 파일이 바뀌는 즉시(0.4초 주기) 새 항목을 보내 준다
@@ -3049,12 +3067,170 @@
           <span class="tool-name">${escapeHtml(item.name || '서브에이전트')}</span><span class="sub-badge">${state}</span><span class="tool-sum">${escapeHtml(preview)}</span><span class="sub-time">${escapeHtml(logTime(item.ts))}</span></summary>
           <div class="msg-body sub-body">${item.text ? mdLite(item.text) : '(내용 없음)'}<button type="button" class="copy-btn" data-copy="${item.id}" aria-label="복사"><i class="far fa-copy"></i> 복사</button></div></details>`;
       }
+      if (Array.isArray(item.diffs) && item.diffs.length) return toolDiffHtml(item);
       const pending = item.output === null || item.output === undefined;
       const stateIcon = pending ? '<i class="fas fa-circle-notch fa-spin text-slate-400"></i>' : item.error ? '<i class="fas fa-xmark"></i>' : '<i class="fas fa-check"></i>';
       const sub = item.agent ? ` data-sub-agent="${escapeHtml(item.agent)}"` : '';
-      return `<details class="msg-tool ${item.error ? 'error' : ''}" data-item="${item.id}"${sub}><summary><i class="fas ${TOOL_ICONS[item.name] || 'fa-wrench'} text-slate-500 text-[11px]"></i>
+      const auto = item.agent ? '' : ' auto-open';
+      return `<details class="msg-tool${auto} ${item.error ? 'error' : ''}" data-item="${item.id}"${sub}${item.agent ? '' : ' open'}><summary><i class="fas ${TOOL_ICONS[item.name] || 'fa-wrench'} text-slate-500 text-[11px]"></i>
           <span class="tool-name" title="${escapeHtml(item.name)}">${escapeHtml(TOOL_LABELS[item.name] || item.name)}</span>${item.running ? '<span class="sub-badge run">작업 중</span>' : ''}<span class="tool-sum">${escapeHtml(item.summary || '')}</span><span class="tool-state">${stateIcon}</span></summary>
-          ${item.agent ? '<div class="sub-live"></div>' : ''}${pending ? '' : `<pre>${escapeHtml(item.output || '(출력 없음)')}</pre>`}</details>`;
+          ${item.agent ? '<div class="sub-live"></div>' : ''}${pending ? '' : foldedHtml(toolOutputLines(item.output), OUTPUT_FOLD, (shown, rest) => `<pre>${shown.join('\n')}${rest.length ? `<template data-fold>\n${rest.join('\n')}</template>` : ''}</pre>`)}</details>`;
+    }
+    // 긴 출력 · diff 는 앞부분만 그리고, 나머지는 <template>(그리지도 배치하지도 않음)에 두었다가 '더 보기'를 누르면 붙인다.
+    // 내용은 하나도 버리지 않는다. 안쪽 세로 스크롤을 없애 휠이 채팅 스크롤을 빼앗지 않게 한다.
+    const OUTPUT_FOLD = 24;
+    const DIFF_FOLD = 60;
+    function foldedHtml(lines, limit, wrap) {
+      // 조금만 넘치면(접어도 몇 줄 안 줄면) 그냥 다 보인다
+      const cut = lines.length > limit + 8 ? limit : lines.length;
+      const shown = lines.slice(0, cut);
+      const rest = lines.slice(cut);
+      return wrap(shown, rest) + (rest.length ? `<button type="button" class="fold-more" data-fold-more><i class="fas fa-angles-down"></i> 나머지 ${rest.length}줄 더 보기</button>` : '');
+    }
+    function unfold(button) {
+      const box = button.previousElementSibling;
+      const template = box?.querySelector(':scope > template[data-fold]');
+      if (template) template.replaceWith(template.content);
+      button.closest('.msg-tool')?.setAttribute('data-unfolded', '');
+      button.remove();
+    }
+    document.addEventListener('click', (event) => {
+      const button = event.target.closest?.('[data-fold-more]');
+      if (button) { event.preventDefault(); unfold(button); }
+    });
+    // 채팅 휠 나누기: 카드(코드 · diff · 표)는 가로로 스크롤되지만, 세로 위주의 휠 · 트랙패드 제스처는 카드가 아니라
+    // 채팅 전체를 스크롤한다. 가로 위주(옆으로 밀기 · Shift+휠)일 때만 카드가 움직인다.
+    // 카드 위에서 온 휠만 막고(preventDefault) 나머지는 브라우저 기본 스크롤 그대로 → 평소 스크롤은 부드러운 그대로.
+    const SCROLLS = /(auto|scroll)/;
+    function innerScroller(target, chat) {
+      for (let el = target instanceof Element ? target : target?.parentElement; el && el !== chat; el = el.parentElement) {
+        if (el.scrollWidth <= el.clientWidth + 1 && el.scrollHeight <= el.clientHeight + 1) continue;
+        const style = getComputedStyle(el);
+        if (SCROLLS.test(style.overflowX) || SCROLLS.test(style.overflowY)) return { el, style };
+      }
+      return null;
+    }
+    function routeChatWheel(chat) {
+      chat.addEventListener('wheel', (event) => {
+        if (event.ctrlKey || event.defaultPrevented) return;   // 핀치 확대
+        const inner = innerScroller(event.target, chat);
+        if (!inner) return;
+        const dx = event.deltaX;
+        const dy = event.shiftKey && !dx ? 0 : event.deltaY;
+        if (Math.abs(dx) > Math.abs(dy) || (event.shiftKey && !event.deltaX)) return;   // 가로 위주 → 카드
+        // 세로로 스크롤되는 칸(서브에이전트 실시간 기록)은 끝에 닿기 전까지 그 칸이 스크롤
+        const { el, style } = inner;
+        if (SCROLLS.test(style.overflowY) && el.scrollHeight > el.clientHeight + 1) {
+          if ((dy > 0 && el.scrollTop + el.clientHeight < el.scrollHeight - 1) || (dy < 0 && el.scrollTop > 0)) return;
+        }
+        event.preventDefault();
+        const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? chat.clientHeight : 1;
+        chat.scrollTop += dy * unit;
+      }, { passive: false });
+    }
+    window.UnivDashRouteChatWheel = routeChatWheel;
+    routeChatWheel(logScroll);
+    // 도구 출력: git diff 처럼 diff 모양이면 터미널처럼 줄마다 색 (그 밖에는 그대로). 줄 단위 HTML 목록.
+    const DIFF_OUTPUT = /^(?:diff --git |@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@|--- (?:a\/|\/dev\/null))/m;
+    function toolOutputLines(output) {
+      const text = output || '(출력 없음)';
+      if (!DIFF_OUTPUT.test(text)) return text.split('\n').map((line) => escapeHtml(line));
+      let lang = '';
+      return text.split('\n').map((line) => {
+        const file = line.match(/^\+\+\+ (?:b\/)?(.+)$/) || line.match(/^diff --git a\/\S+ b\/(.+)$/);
+        if (file) lang = diffLang(file[1]);
+        if (/^(?:diff --git |index |--- |\+\+\+ )/.test(line)) return `<span class="do-meta">${escapeHtml(line)}</span>`;
+        if (line.startsWith('@@')) return `<span class="do-hunk">${escapeHtml(line)}</span>`;
+        if (line.startsWith('+')) return `<span class="do-line df-add"><b>+</b>${diffHighlight(line.slice(1), lang)}</span>`;
+        if (line.startsWith('-')) return `<span class="do-line df-del"><b>-</b>${diffHighlight(line.slice(1), lang)}</span>`;
+        return escapeHtml(line);
+      });
+    }
+    // diff 줄 강조: 파일 확장자로 언어를 골라 highlight.js 로 색칠 (터미널의 Claude Code 처럼)
+    const DIFF_LANG_ALIAS = { mjs: 'javascript', cjs: 'javascript', jsx: 'javascript', tsx: 'typescript', vue: 'xml', svelte: 'xml', jinja: 'xml', j2: 'xml', htm: 'xml', zsh: 'bash', env: 'bash', toml: 'ini', cfg: 'ini', conf: 'nginx', jsonl: 'json' };
+    function diffLang(file) {
+      const name = String(file || '').split(/[\\/]/).pop().toLowerCase();
+      if (name === 'dockerfile') return 'dockerfile';
+      if (name === 'makefile') return 'makefile';
+      const ext = name.includes('.') ? name.split('.').pop() : '';
+      const lang = DIFF_LANG_ALIAS[ext] || ext;
+      return lang && window.hljs?.getLanguage(lang) ? lang : '';
+    }
+    function diffHighlight(text, lang) {
+      if (!text) return '';
+      if (lang && window.hljs) {
+        try { return window.hljs.highlight(text, { language: lang, ignoreIllegals: true }).value; } catch (e) { /* noop */ }
+      }
+      return escapeHtml(text);
+    }
+    // 바뀐 부분(단어) 강조: 붙어 있는 삭제 줄 묶음과 추가 줄 묶음을 차례로 짝지어 앞뒤 공통 부분을 뺀 가운데를 표시
+    function diffWordRanges(lines) {
+      const ranges = new Map();
+      for (let i = 0; i < lines.length;) {
+        if (lines[i][0] !== '-') { i += 1; continue; }
+        let j = i;
+        while (j < lines.length && lines[j][0] === '-') j += 1;
+        let k = j;
+        while (k < lines.length && lines[k][0] === '+') k += 1;
+        const pairs = Math.min(j - i, k - j);
+        for (let p = 0; p < pairs; p++) {
+          const a = lines[i + p].slice(1);
+          const b = lines[j + p].slice(1);
+          let pre = 0;
+          while (pre < a.length && pre < b.length && a[pre] === b[pre]) pre += 1;
+          let suf = 0;
+          while (suf < a.length - pre && suf < b.length - pre && a[a.length - 1 - suf] === b[b.length - 1 - suf]) suf += 1;
+          const changed = Math.max(a.length - pre - suf, b.length - pre - suf);
+          // 거의 다 바뀐 줄은 줄 전체 색만 (단어 강조가 오히려 어지럽다)
+          if (!pre && !suf) continue;
+          if (changed > Math.max(a.length, b.length) * 0.7) continue;
+          ranges.set(i + p, [pre, a.length - suf]);
+          ranges.set(j + p, [pre, b.length - suf]);
+        }
+        i = k > j ? k : j;
+      }
+      return ranges;
+    }
+    function diffCodeHtml(text, lang, range) {
+      if (!range || range[0] >= range[1]) return diffHighlight(text, lang);
+      const [from, to] = range;
+      return diffHighlight(text.slice(0, from), lang) + `<span class="df-word">${diffHighlight(text.slice(from, to), lang)}</span>` + diffHighlight(text.slice(to), lang);
+    }
+    // 코드 변경 (Edit · Write · apply_patch): 터미널처럼 바뀐 줄을 펼쳐서 (줄 번호 · 빨강 삭제 · 초록 추가)
+    function toolDiffHtml(item) {
+      const pending = item.output === null || item.output === undefined;
+      const stateIcon = pending ? '<i class="fas fa-circle-notch fa-spin text-slate-400"></i>' : item.error ? '<i class="fas fa-xmark"></i>' : '<i class="fas fa-check"></i>';
+      const add = item.diffs.reduce((n, d) => n + (d.add || 0), 0);
+      const del = item.diffs.reduce((n, d) => n + (d.del || 0), 0);
+      const files = item.diffs.map((d) => d.file.split('/').pop()).filter(Boolean);
+      const verb = item.diffs.every((d) => d.op === 'add') ? '만듦' : item.diffs.every((d) => d.op === 'delete') ? '지움' : '수정';
+      const body = item.diffs.map((d) => {
+        const lang = diffLang(d.file);
+        const rows = d.hunks.flatMap((h, index) => {
+          let oldNo = h.o ?? null;
+          let newNo = h.n ?? null;
+          const sep = index > 0 ? ['<div class="df-row df-gap"><span class="df-no"></span><span class="df-sign"></span><span class="df-text">⋯</span></div>'] : [];
+          const words = diffWordRanges(h.lines);
+          return sep.concat(h.lines.map((line, i) => {
+            const sign = line[0];
+            const kind = sign === '+' ? 'add' : sign === '-' ? 'del' : 'ctx';
+            const shownNo = kind === 'del' ? oldNo : newNo;
+            if (kind !== 'add' && oldNo !== null) oldNo += 1;
+            if (kind !== 'del' && newNo !== null) newNo += 1;
+            return `<div class="df-row df-${kind}"><span class="df-no">${shownNo ?? ''}</span><span class="df-sign">${kind === 'ctx' ? '' : sign}</span><span class="df-text">${diffCodeHtml(line.slice(1), lang, words.get(i)) || ' '}</span></div>`;
+          }));
+        });
+        const opLabel = { add: '새 파일', delete: '삭제', update: '' }[d.op] || '';
+        const bodyHtml = d.op === 'delete' && !d.hunks.length ? ''
+          : foldedHtml(rows, DIFF_FOLD, (shown, rest) => `<div class="df-body">${shown.join('')}${rest.length ? `<template data-fold>${rest.join('')}</template>` : ''}</div>`);
+        return `<div class="df-file"><div class="df-head"><span class="df-path" title="${escapeHtml(d.file)}">${escapeHtml(d.file)}</span>${opLabel ? `<span class="df-op">${opLabel}</span>` : ''}<span class="df-stat"><b class="a">+${d.add || 0}</b> <b class="d">−${d.del || 0}</b></span></div>
+          ${bodyHtml}${d.cut ? '<div class="df-cut">… 길어서 일부만 보여요 (터미널 탭에서 전체)</div>' : ''}</div>`;
+      }).join('');
+      const failed = item.error && item.output ? `<pre>${escapeHtml(item.output)}</pre>` : '';
+      return `<details class="msg-tool msg-diff auto-open ${item.error ? 'error' : ''}" data-item="${item.id}" open><summary><i class="fas fa-pen text-slate-500 text-[11px]"></i>
+          <span class="tool-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name === 'exec' ? 'apply_patch' : item.name)}</span>
+          <span class="tool-sum">${escapeHtml(files.slice(0, 3).join(', '))}${files.length > 3 ? ` 외 ${files.length - 3}` : ''} ${verb}</span>
+          <span class="df-stat"><b class="a">+${add}</b> <b class="d">−${del}</b></span><span class="tool-state">${stateIcon}</span></summary>${failed}${body}</details>`;
     }
     // 서브에이전트 항목을 펼치면: 그 서브에이전트의 대화(작업 내용)를 보여 주고, 펼쳐 둔 동안 계속 새로 고친다
     const SUB_POLL_MS = 1500;
@@ -3086,6 +3262,10 @@
     }
     document.addEventListener('toggle', (event) => {
       const details = event.target;
+      // 도구 · 코드 변경은 기본으로 펼쳐 둔다 → 사용자가 접으면 다시 그려도 접힌 채로
+      if (details instanceof HTMLDetailsElement && details.classList.contains('auto-open')) {
+        if (details.open) delete details.dataset.userClosed; else details.dataset.userClosed = '1';
+      }
       if (!(details instanceof HTMLDetailsElement) || !details.dataset.subAgent) return;
       if (details.open) showSubagent(details); else clearTimeout(details._subTimer);
     }, true);
@@ -3119,6 +3299,9 @@
             tmp.innerHTML = logItemHtml(item);
             const el = tmp.firstElementChild;
             if (open) el.open = true;
+            else if (existing.el.dataset.userClosed) { el.open = false; el.dataset.userClosed = '1'; }
+            // '더 보기'로 펼쳐 둔 항목은 다시 그려도 펼친 채로
+            if (existing.el.hasAttribute('data-unfolded')) el.querySelectorAll('[data-fold-more]').forEach(unfold);
             existing.el.replaceWith(el);
             log.rendered.set(item.id, { key, el, item });
           }
@@ -3214,12 +3397,13 @@
       if (!data.items.length) logList.innerHTML = '<div class="log-empty">아직 대화가 없습니다.</div>';
       upsertLogItems(data.items);
       renderLogOlder();
-      logScroll.scrollTop = logScroll.scrollHeight;
+      followBottom();
     }
     // 채팅 검색 상자 감추기 (창을 바꾸거나 터미널 보기로 갈 때 · 아래 검색 코드보다 먼저 불릴 수 있어 DOM 만 쓴다)
     function hideChatSearch() {
       document.getElementById('chatSearch')?.classList.add('hidden');
       document.getElementById('chatSearchResults')?.classList.add('hidden');
+      window.UnivDashChatUsage?.paneChanged();
     }
     async function loadLatestLog() {
       const pane = state.paneId;
@@ -3369,6 +3553,7 @@
       const pane = state.paneId;
       if (!pane || log.pane !== pane || !log.available) return;
       if (log.loading) { toast('이전 대화를 불러오는 중이에요. 잠시 뒤 다시 눌러 주세요.', 'info'); return; }
+      log.follow = false;   // 검색 결과로 이동: 새 내용이 와도 보던 곳에 머문다
       const target = Math.max(0, id - 3);
       if (log.start > target) {
         log.loading = true;
@@ -3429,6 +3614,194 @@
       unmarkLogItem();
     }
     $('#chatSearchBtn').addEventListener('click', () => (chatSearch.classList.contains('hidden') ? openChatSearch() : closeChatSearch()));
+
+    // ── 사용 현황: 이 대화에서 쓴 스킬 · 플러그인 · MCP 서버 · 서브에이전트 · 내장 도구 ──
+    // 지금 / 방금 = 마지막 프롬프트 이후. 숫자키(1~5)로 종류 접기/펼치기, a 로 모두, Esc 로 닫기.
+    const chatUsage = $('#chatUsage');
+    const usageBtn = $('#chatUsageBtn');
+    const USAGE_LABELS = { skill: '스킬', plugin: '플러그인', mcp: 'MCP 서버', agent: '서브에이전트', builtin: '내장 도구' };
+    const usage = { pane: null, data: null, timer: null, seq: 0, busy: false, open: store.get('chat-usage-open', []) };
+    const usageSummary = $('#usageSummary');
+    const wideScreen = window.matchMedia('(min-width: 768px)');
+    // 하단바 요약은 넓은 화면의 채팅 보기에서만 (휴대폰은 안 띄움)
+    const summaryWanted = () => { const w = currentWindow(); return wideScreen.matches && !!state.paneId && !!w && !!agentOf(w) && modeFor(w) === 'log'; };
+    const usageWanted = () => !chatUsage.classList.contains('hidden') || summaryWanted();
+    const usageDot = (st) => `<span class="cu-dot ${st === 'running' ? 'run' : st === 'error' ? 'err' : st === 'ok' ? 'ok' : 'idle'}"></span>`;
+    function renderUsagePanel() {
+      const data = usage.data;
+      if (!data) { chatUsage.innerHTML = '<div class="cu-empty">불러오는 중…</div>'; return; }
+      if (!data.available) { chatUsage.innerHTML = '<div class="cu-empty">이 창의 대화 기록을 찾지 못했어요.</div>'; return; }
+      const allOpen = data.groups.every((g) => !g.items.length || usage.open.includes(g.group));
+      // 에이전트가 작업 중일 때만 '지금'이다. 대기 중이면 지난 질문에서 쓴 것(방금)이고, 끝나지 않은 도구는 중단된 것.
+      const busy = typeof data.busy === 'boolean' ? data.busy : usage.busy;
+      const st = (s) => (!busy && s === 'running' ? 'ok' : s);
+      const states = data.recent.map((r) => st(r.state));
+      const count = (s) => states.filter((x) => x === s).length;
+      const recent = data.recent.length
+        ? data.recent.map((r) => `<div class="cu-row${busy ? '' : ' past'}">${usageDot(busy ? st(r.state) : 'idle')}<span class="cu-kind">${USAGE_LABELS[r.group]}</span><span class="cu-name">${escapeHtml(r.name)}</span><span class="cu-count">×${r.count}</span></div>`).join('')
+        : `<div class="cu-empty">${busy ? '이번 질문에서는 아직 쓴 것이 없어요.' : '지난 질문에서 쓴 것이 없어요.'}</div>`;
+      const groups = data.groups.map((g, index) => {
+        const open = usage.open.includes(g.group);
+        const used = g.items.filter((r) => r.recent).length;
+        return `<div class="cu-group${open ? ' open' : ''}">
+          <button type="button" class="cu-ghead" data-cu-group="${g.group}" aria-expanded="${open}" ${g.items.length ? '' : 'disabled'}>
+            <kbd>${index + 1}</kbd><i class="fas fa-caret-${open ? 'down' : 'right'}"></i>
+            <span>${USAGE_LABELS[g.group]} · 사용 ${g.items.length}</span>${used && busy ? `<span class="cu-gnow">${usageDot('ok')}${used}</span>` : ''}
+          </button>
+          ${open ? `<div class="cu-items">${g.items.map((r) => `<div class="cu-row">${usageDot(r.recent && busy ? st(r.state) : 'idle')}<span class="cu-name">${escapeHtml(r.name)}</span><span class="cu-count">×${r.count}${r.recent ? ` <b>(+${r.recent})</b>` : ''}</span></div>`).join('')}</div>` : ''}
+        </div>`;
+      }).join('');
+      chatUsage.innerHTML = `
+        <div class="cu-head">
+          ${busy
+            ? `<span>${usageDot('running')}${count('running')} 실행</span><span>${usageDot('ok')}${count('ok')} 사용</span><span>${usageDot('error')}${count('error')} 오류</span>`
+            : '<span class="cu-idle">대기 중</span>'}<span class="cu-total" title="이 대화에서 지금까지 쓴 스킬 · 플러그인 · MCP · 서브에이전트 · 도구 가짓수">이 대화 ${data.total}가지</span>
+          <button type="button" class="cu-btn" data-cu-all>[a] ${allOpen ? '모두 접기' : '모두 펼침'}</button>
+          <button type="button" class="cu-btn cu-x" data-cu-close aria-label="닫기"><i class="fas fa-xmark"></i></button>
+        </div>
+        <div class="cu-body">
+          <div class="cu-title">${busy ? '지금 (작업 중)' : '방금 (지난 질문)'}</div>
+          <div class="cu-recent">${recent}</div>
+          <div class="cu-groups">${groups}</div>
+          <div class="cu-legend">${usageDot('ok')} 사용 ${usageDot('running')} 실행 중 ${usageDot('error')} 오류 ${usageDot('idle')} 지금 안 씀 · 숫자키로 그룹 접기/펼치기</div>
+        </div>`;
+    }
+    // 지금 쓰는 도구: "⚙ Bash · git status" (실행 중) / "방금 Read · app.js" (다음 도구를 고르는 중)
+    function usageNowText(current, names) {
+      if (!current) return names.length ? escapeHtml(names.slice(0, 2).join(', ')) : '작업 중';
+      const use = (current.use || []).find((u) => u[0] !== 'builtin');
+      const label = use ? `${USAGE_LABELS[use[0]]} ${use[1]}` : toolLabel(current.name);
+      const icon = current.running ? '<i class="fas fa-gear fa-spin us-spin"></i>' : '<span class="us-past">방금</span>';
+      return `${icon}<b>${escapeHtml(label)}</b>${current.summary ? ` · ${escapeHtml(current.summary)}` : ''}${current.more ? ` <span class="us-past">+${current.more}</span>` : ''}`;
+    }
+    const toolLabel = (name) => (name && name.startsWith('mcp__') ? name.split('__').slice(1).join(' · ') : name || '도구');
+    // 하단바 신호등 요약: 작업 중이면 이번 질문의 실행 · 사용 · 오류, 대기 중이면 흐리게 '대기 중'
+    function renderUsageSummary() {
+      const data = usage.data;
+      const show = summaryWanted() && data?.available && usage.pane === state.paneId;
+      usageSummary.classList.toggle('hidden', !show);
+      if (!show) return;
+      const busy = typeof data.busy === 'boolean' ? data.busy : usage.busy;
+      // 신호등은 '지금' 만: 대기 중이면 모두 0 (지난 질문 내용은 마우스를 올리거나 패널에서)
+      const states = busy ? data.recent.map((r) => r.state) : [];
+      const n = (st) => states.filter((x) => x === st).length;
+      const names = busy ? data.recent.filter((r) => r.group !== 'builtin').map((r) => r.name) : [];
+      const past = data.recent.filter((r) => r.group !== 'builtin').map((r) => r.name);
+      usageSummary.classList.toggle('idle', !busy);
+      usageSummary.innerHTML = `<span class="us-light">${usageDot('running')}${n('running')}</span><span class="us-light">${usageDot('ok')}${n('ok')}</span><span class="us-light">${usageDot('error')}${n('error')}</span>`
+        + `<span class="us-text">${busy ? usageNowText(data.current, names) : '대기 중'}</span>`;
+      usageSummary.title = busy
+        ? `${data.current ? `${data.current.running ? '실행 중' : '방금'}: ${toolLabel(data.current.name)}${data.current.summary ? ` · ${data.current.summary}` : ''}\n` : ''}지금 (작업 중): 실행 ${n('running')} · 사용 ${n('ok')} · 오류 ${n('error')}${names.length ? ` · ${names.join(', ')}` : ''} — 누르면 사용 현황`
+        : `대기 중${past.length ? ` · 지난 질문에서 쓴 것: ${past.join(', ')}` : ''} · 이 대화에서 쓴 것 ${data.total}가지 — 누르면 사용 현황`;
+    }
+    async function loadUsage() {
+      const pane = state.paneId;
+      if (!pane || !usageWanted()) return;
+      const seq = ++usage.seq;
+      try {
+        const data = await api('GET', `/api/transcript/usage?pane=${encodeURIComponent(pane)}`);
+        if (seq !== usage.seq || pane !== state.paneId) return;
+        const sig = JSON.stringify(data);
+        if (sig === usage.sig) return;
+        usage.sig = sig;
+        usage.data = data;
+        usage.pane = pane;
+        if (!chatUsage.classList.contains('hidden')) renderUsagePanel();
+        renderUsageSummary();
+      } catch (error) {
+        if (seq === usage.seq && !usage.data && !chatUsage.classList.contains('hidden')) chatUsage.innerHTML = `<div class="cu-empty">${escapeHtml(error.message || '불러오지 못했어요.')}</div>`;
+      }
+    }
+    function scheduleUsage() {
+      clearTimeout(usage.timer);
+      if (!usageWanted()) return;
+      // 작업 중에는 자주, 대기 중에는 드물게 · 화면이 안 보이면 멈춘다.
+      // 가벼운 모드는 더 드물게 (대화 기록이 오면 logged() 로 곧바로 다시 읽으니 반응은 그대로)
+      const lite = document.documentElement.hasAttribute('data-ui-lite');
+      const busy = usage.data?.busy || usage.busy;
+      usage.timer = setTimeout(async () => { if (!document.hidden) await loadUsage(); scheduleUsage(); }, busy ? (lite ? 5000 : 2000) : (lite ? 30000 : 8000));
+    }
+    function openUsage() {
+      if (modeFor(currentWindow()) !== 'log') return;
+      closeChatSearch();
+      if (usage.pane !== state.paneId) { usage.pane = state.paneId; usage.data = null; usage.sig = ''; }
+      chatUsage.classList.remove('hidden');
+      usageBtn.setAttribute('aria-expanded', 'true');
+      usageBtn.classList.add('on');
+      renderUsagePanel();
+      chatUsage.focus({ preventScroll: true });
+      loadUsage().then(scheduleUsage);
+    }
+    function closeUsage() {
+      chatUsage.classList.add('hidden');
+      usageBtn.setAttribute('aria-expanded', 'false');
+      usageBtn.classList.remove('on');
+      if (!usageWanted()) { clearTimeout(usage.timer); usage.seq += 1; }
+    }
+    function resetUsageFor(pane) {
+      usage.pane = pane; usage.data = null; usage.sig = '';
+      renderUsageSummary();
+      if (!chatUsage.classList.contains('hidden')) renderUsagePanel();
+      loadUsage().then(scheduleUsage);
+    }
+    usageSummary.addEventListener('click', () => (chatUsage.classList.contains('hidden') ? openUsage() : closeUsage()));
+    wideScreen.addEventListener?.('change', () => { renderUsageSummary(); if (usageWanted()) loadUsage().then(scheduleUsage); });
+    function toggleUsageGroup(group) {
+      usage.open = usage.open.includes(group) ? usage.open.filter((g) => g !== group) : [...usage.open, group];
+      store.set('chat-usage-open', usage.open);
+      renderUsagePanel();
+    }
+    usageBtn.addEventListener('click', () => (chatUsage.classList.contains('hidden') ? openUsage() : closeUsage()));
+    chatUsage.addEventListener('click', (event) => {
+      const group = event.target.closest('[data-cu-group]');
+      if (group) { toggleUsageGroup(group.dataset.cuGroup); return; }
+      if (event.target.closest('[data-cu-close]')) { closeUsage(); return; }
+      if (event.target.closest('[data-cu-all]') && usage.data) {
+        const groups = usage.data.groups.filter((g) => g.items.length).map((g) => g.group);
+        usage.open = groups.every((g) => usage.open.includes(g)) ? [] : groups;
+        store.set('chat-usage-open', usage.open);
+        renderUsagePanel();
+      }
+    });
+    document.addEventListener('keydown', (event) => {
+      if (chatUsage.classList.contains('hidden') || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+      const active = document.activeElement;
+      if (active && active.matches('input, textarea, select, [contenteditable="true"]')) return;
+      if (!sheetOverlay.hidden) return;
+      if (event.key === 'Escape') { event.preventDefault(); closeUsage(); return; }
+      if (!usage.data?.groups) return;
+      if (/^[1-5]$/.test(event.key)) {
+        const g = usage.data.groups[Number(event.key) - 1];
+        if (g?.items.length) { event.preventDefault(); toggleUsageGroup(g.group); }
+      } else if (event.key === 'a' || event.key === 'A') {
+        event.preventDefault();
+        chatUsage.querySelector('[data-cu-all]')?.click();
+      }
+    });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && usageWanted()) loadUsage(); });
+    window.UnivDashChatUsage = {
+      close: closeUsage,
+      // 채팅의 '작업 중' 표시와 같은 기준: 바뀌면 다시 그리고 곧바로 새로 읽는다
+      busy: (busy) => {
+        if (busy === usage.busy) return;
+        usage.busy = busy;
+        if (usageWanted()) loadUsage().then(scheduleUsage);
+      },
+      // 대화 기록이 새로 오면(답변 끝 · 도구 결과 등) 바로 다시 읽는다
+      logged: () => {
+        if (!usageWanted()) return;
+        clearTimeout(usage.kick);
+        usage.kick = setTimeout(() => loadUsage().then(scheduleUsage), 120);
+      },
+      // 다른 창으로 바꾸면 그 창 기록으로 다시 불러온다
+      paneChanged: () => { if (usage.pane !== state.paneId) resetUsageFor(state.paneId); },
+      // 채팅 ↔ 터미널 보기 전환 · 창 선택: 요약을 보이거나 감추고, 필요하면 불러온다
+      modeChanged: () => {
+        if (usage.pane !== state.paneId) { resetUsageFor(state.paneId); return; }
+        renderUsageSummary();
+        if (usageWanted()) { if (!usage.data) loadUsage().then(scheduleUsage); else scheduleUsage(); } else clearTimeout(usage.timer);
+      },
+    };
     // 결과를 눌러 입력칸을 벗어난 뒤에도 Esc 로 닫는다 (다른 입력칸 · 열린 시트에서는 그쪽이 먼저)
     document.addEventListener('keydown', (event) => {
       if (event.key !== 'Escape' || chatSearch.classList.contains('hidden') || event.defaultPrevented) return;
@@ -3486,7 +3859,7 @@
       const entry = { pane: state.paneId, text, at: Date.now(), afterId: log.total - 1, queuedBase: log.queued.length };
       log.sent.push(entry);
       renderPending();
-      logScroll.scrollTop = logScroll.scrollHeight;
+      followBottom();   // 내가 보낸 프롬프트: 다시 최신을 따라간다
       return entry;
     }
     setInterval(() => { if (log.sent.length) renderPending(); }, 30000);
@@ -3596,11 +3969,12 @@
     function updateChatStatus(screen) {
       const w = currentWindow();
       const status = w && agentOf(w) && modeFor(w) === 'log' ? chatStatusFrom(screen, w) : null;
+      window.UnivDashChatUsage?.busy(status?.kind === 'busy');
       const key = JSON.stringify(status);
       if (key === lastStatusKey) return;
       lastStatusKey = key;
-      const stick = logAtBottom();
-      if (!status) { chatStatus.className = 'chat-status hidden'; chatStatus.innerHTML = ''; return; }
+      const stick = log.follow || logAtBottom();
+      if (!status) { chatStatus.className = 'chat-status hidden'; chatStatus.innerHTML = ''; if (stick) pinBottom(); return; }
       chatStatus.classList.remove('hidden');
       chatStatus.className = `chat-status ${status.kind}`;
       if (status.kind === 'busy') {
@@ -3614,7 +3988,7 @@
       } else {
         chatStatus.innerHTML = waitingCardHtml(status);
       }
-      if (stick) logScroll.scrollTop = logScroll.scrollHeight;
+      if (stick) pinBottom();
     }
     chatStatus.addEventListener('click', (event) => {
       if (!event.target.closest('[data-live-toggle]')) return;
@@ -3677,11 +4051,12 @@
       if (log.pane !== state.paneId || log.loading) return;
       if (Array.isArray(data.queued)) { log.queued = data.queued; }
       log.submitted = Array.isArray(data.submitted) ? data.submitted : [];
-      const stick = logAtBottom();
+      const stick = log.follow || logAtBottom();
       if (data.total < log.total) { loadLatestLog(); return; }  // 세션이 바뀜 (/clear 등)
       // 그사이 기록이 너무 많이 쌓여 중간이 빠졌으면(백그라운드 · 재연결) 최신부터 다시 — 이전 것은 '더 보기'로
       if (data.items.length && (data.items[0].id > log.total || data.items.at(-1).id + 1 < data.total)) { loadLatestLog(); return; }
       const items = data.items.filter((item) => item.id >= log.start);
+      window.UnivDashChatUsage?.logged();
       const hasNew = items.some((item) => !log.rendered.has(item.id));
       if (hasNew) logList.querySelector('.log-empty')?.remove();
       upsertLogItems(items);
@@ -3689,7 +4064,7 @@
       if (Array.isArray(data.related)) upsertLogItems(data.related.filter((item) => log.rendered.has(item.id)));
       log.total = Math.max(log.total, data.total);
       renderPending();
-      if (stick) logScroll.scrollTop = logScroll.scrollHeight;
+      if (stick) pinBottom();
       else if (hasNew) jumpBtn.classList.remove('hidden');
     }
     socket.on('log', (message) => {
@@ -3699,8 +4074,45 @@
     });
     logScroll.addEventListener('scroll', () => {
       if (logScroll.scrollTop < 120) loadOlderLog();
+      // 맨 아래(정말 끝)로 돌아오면 다시 최신을 따라간다 (사용자가 올린 경우에만 꺼져 있으므로)
+      if (logScroll.scrollHeight - logScroll.scrollTop - logScroll.clientHeight < 4) log.follow = true;
       if (logAtBottom()) jumpBtn.classList.add('hidden');
     }, { passive: true });
+    // ── 자동 스크롤: 사용자가 '일부러' 위로 올릴 때만 멈춘다 ──
+    // 위치(맨 아래인가)로만 판단하면, 새 항목이 나중에 그려지며 커질 때(화면 밖 생략 · 그림 · 수식) 아래에서 밀려나
+    // 다음 갱신부터 따라가지 않는다. 그래서 사용자 입력(휠 · 터치 · 키 · 스크롤 막대)으로만 끈다.
+    // 위로 올리려는 입력이 오면 바로 끈다 (부드러운 스크롤은 몇 프레임 늦게 움직이므로 위치를 기다리지 않는다).
+    // 조금만 올렸다가 다시 끝까지 내리면 위 scroll 처리에서 다시 켜진다.
+    function stopFollow() { log.follow = false; }
+    logScroll.addEventListener('wheel', (event) => { if (event.deltaY < 0 && !event.ctrlKey) stopFollow(); }, { passive: true });
+    let touchY = null;
+    logScroll.addEventListener('touchstart', (event) => { touchY = event.touches[0]?.clientY ?? null; }, { passive: true });
+    logScroll.addEventListener('touchmove', (event) => {
+      const y = event.touches[0]?.clientY;
+      if (touchY !== null && y !== undefined && y - touchY > 6) stopFollow();   // 손가락을 아래로 = 위 내용을 본다
+    }, { passive: true });
+    logScroll.addEventListener('keydown', (event) => { if (['PageUp', 'ArrowUp', 'Home'].includes(event.key)) stopFollow(); });
+    // 스크롤 막대를 잡고 끄는 경우 (막대는 요소 오른쪽 가장자리)
+    logScroll.addEventListener('pointerdown', (event) => {
+      if (event.offsetX > logScroll.clientWidth) {
+        const top = logScroll.scrollTop;
+        const up = () => { if (logScroll.scrollTop < top - 4) stopFollow(); window.removeEventListener('pointerup', up); };
+        window.addEventListener('pointerup', up);
+      }
+    });
+    // 따라가는 중이면 맨 아래로 (그린 뒤 크기가 바뀌어도 다음 프레임에 한 번 더)
+    function pinBottom() {
+      if (!log.follow) return;
+      logScroll.scrollTop = logScroll.scrollHeight;
+      cancelAnimationFrame(pinBottom.raf);
+      pinBottom.raf = requestAnimationFrame(() => { if (log.follow) logScroll.scrollTop = logScroll.scrollHeight; });
+    }
+    function followBottom() { log.follow = true; jumpBtn.classList.add('hidden'); pinBottom(); }
+    // 내용 크기가 바뀌면(새 항목 · 나중에 그려지는 항목 · 접기/펼치기 · 상태 카드) 따라가는 중일 때만 아래에 붙인다
+    if ('ResizeObserver' in window) {
+      const keepPinned = new ResizeObserver(() => { if (log.follow && modeFor(currentWindow()) === 'log') pinBottom(); });
+      [logList, $('#chatPending'), chatStatus].forEach((el) => el && keepPinned.observe(el));
+    }
     logOlder.addEventListener('click', loadOlderLog);
     logList.addEventListener('click', async (event) => {
       const button = event.target.closest('[data-copy]');
@@ -5086,6 +5498,7 @@
         </div>`;
       const $$in = (sel) => root.querySelector(sel);
       const logEl = $$in('.tp-log');
+      window.UnivDashRouteChatWheel?.(logEl);   // 분할 화면 채팅도: 세로 휠은 채팅 전체, 가로만 카드
       const listEl = $$in('.tp-list');
       const statusEl = $$in('.tp-status');
       const screenEl = $$in('.tp-screen');
@@ -5239,7 +5652,15 @@
         chat.total = Math.max(chat.total, data.total);
         renderChat();
       }
-      logEl.addEventListener('scroll', () => { logStick = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 60; }, { passive: true });
+      // 본 채팅과 같은 방식: 사용자가 일부러 위로 올릴 때만 따라가기를 끄고, 끝까지 내리면 다시 켠다
+      logEl.addEventListener('scroll', () => { if (logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 4) logStick = true; }, { passive: true });
+      logEl.addEventListener('wheel', (event) => { if (event.deltaY < 0 && !event.ctrlKey) logStick = false; }, { passive: true });
+      let tpTouchY = null;
+      logEl.addEventListener('touchstart', (event) => { tpTouchY = event.touches[0]?.clientY ?? null; }, { passive: true });
+      logEl.addEventListener('touchmove', (event) => { const y = event.touches[0]?.clientY; if (tpTouchY !== null && y !== undefined && y - tpTouchY > 6) logStick = false; }, { passive: true });
+      if ('ResizeObserver' in window) {
+        new ResizeObserver(() => { if (logStick && !logEl.classList.contains('hidden')) logEl.scrollTop = logEl.scrollHeight; }).observe(listEl);
+      }
       listEl.addEventListener('click', async (event) => {
         const button = event.target.closest('[data-copy]');
         if (!button) return;

@@ -309,6 +309,20 @@ async def api_transcript_search(
     return {"available": True, "agent": agent, **data}
 
 
+@router.get("/api/transcript/usage", dependencies=api_auth)
+async def api_transcript_usage(pane: str):
+    """이 대화에서 쓴 스킬 · 플러그인 · MCP 서버 · 서브에이전트 · 내장 도구 (지금 / 방금 · 종류별)."""
+    try:
+        pane = await asyncio.to_thread(tmux_service.require_pane, pane)
+        path, agent = await _resolve_log(pane)
+    except (TmuxError, KeyError) as error:
+        _raise_for(error)
+    if path is None:
+        return {"available": False, "recent": [], "groups": [], "total": 0}
+    data = await asyncio.to_thread(transcript_service.usage, path, agent)
+    return {"available": True, "agent": agent, **data}
+
+
 @router.get("/api/transcript/image/{name}", dependencies=api_auth)
 async def api_transcript_image(name: str):
     """채팅에 사용자가 첨부한 그림 (대화 기록에서 꺼내 둔 캐시 · 이름은 내용 해시)."""

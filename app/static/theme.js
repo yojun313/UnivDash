@@ -49,12 +49,30 @@
     } catch (e) { /* noop */ }
   }
 
+  // 가벼운 모드: 블러 · 계속 도는 애니메이션 · 화면 밖 렌더링을 줄여 기기(GPU · CPU · RAM) 부담을 낮춘다. 기본은 꺼짐.
+  var LITE_KEY = 'univdash-lite';
+  function currentLite() { return get(LITE_KEY) === '1'; }
+  function applyLite(on, persist) {
+    if (on) html.setAttribute('data-ui-lite', '');
+    else html.removeAttribute('data-ui-lite');
+    if (persist) set(LITE_KEY, on ? '1' : '0');
+    try { window.dispatchEvent(new CustomEvent('univdash:litechange', { detail: { lite: on } })); } catch (e) { /* noop */ }
+  }
+
   applyStyle(currentStyle(), false);
   applyMode(currentMode(), false);
+  applyLite(currentLite(), false);
+
+  // 다른 탭에서 켜고 끄면 이 탭에도 바로 적용
+  window.addEventListener('storage', function (e) {
+    if (e.key === LITE_KEY) applyLite(e.newValue === '1', false);
+  });
 
   window.UnivDashTheme = {
     current: function () { return html.getAttribute('data-ui-theme-mode') === 'light' ? 'light' : 'dark'; },
     toggle: function () { applyMode(currentMode() === 'dark' ? 'light' : 'dark', true); },
+    lite: function () { return html.hasAttribute('data-ui-lite'); },
+    setLite: function (on) { applyLite(!!on, true); },
   };
   if (window.UnivDashKeys) window.UnivDashKeys.register('app.toggleMode', function () { window.UnivDashTheme.toggle(); });
 
@@ -81,6 +99,8 @@
       + '<div class="pmd-theme-body">' + optionsHtml + '</div>'
       + '<div class="pmd-theme-mode-row"><span>다크 모드</span>'
       + '<button type="button" class="pmd-mode-switch" aria-label="다크 모드 전환"></button></div>'
+      + '<div class="pmd-theme-mode-row pmd-lite-row"><span>가벼운 모드<small>블러 · 반짝임 효과를 줄여 GPU · CPU · 메모리를 아껴요</small></span>'
+      + '<button type="button" class="pmd-mode-switch pmd-lite-switch" aria-label="가벼운 모드 전환"></button></div>'
       + '</div>';
 
     document.body.appendChild(overlay);
@@ -92,10 +112,14 @@
     overlay.querySelectorAll('.pmd-theme-option').forEach(function (btn) {
       btn.classList.toggle('selected', btn.getAttribute('data-theme') === active);
     });
-    var modeSwitch = overlay.querySelector('.pmd-mode-switch');
+    var modeSwitch = overlay.querySelector('.pmd-mode-switch:not(.pmd-lite-switch)');
     var dark = currentMode() === 'dark';
     modeSwitch.classList.toggle('on', dark);
     modeSwitch.setAttribute('aria-pressed', String(dark));
+    var liteSwitch = overlay.querySelector('.pmd-lite-switch');
+    var lite = currentLite();
+    liteSwitch.classList.toggle('on', lite);
+    liteSwitch.setAttribute('aria-pressed', String(lite));
   }
 
   function init() {
@@ -117,8 +141,12 @@
         close();
       });
     });
-    overlay.querySelector('.pmd-mode-switch').addEventListener('click', function () {
+    overlay.querySelector('.pmd-mode-switch:not(.pmd-lite-switch)').addEventListener('click', function () {
       applyMode(currentMode() === 'dark' ? 'light' : 'dark', true);
+      markSelected(overlay);
+    });
+    overlay.querySelector('.pmd-lite-switch').addEventListener('click', function () {
+      applyLite(!currentLite(), true);
       markSelected(overlay);
     });
     window.addEventListener('keydown', function (e) {

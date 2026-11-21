@@ -10,6 +10,7 @@ pane → 로그 파일 찾기 (추측 없이 실행 중인 프로세스 기준):
 """
 
 import base64
+import difflib
 import hashlib
 import json
 import os
@@ -487,6 +488,311 @@ _NOTIFY_TAG = re.compile(
 _AGENT_MSG = re.compile(r"Message Type:\s*(\w+).*?Payload:\n?(.*)", re.DOTALL)
 SUBAGENT_TOOLS = {"Agent", "Task", "spawn_agent"}
 
+# ── 사용 현황 (스킬 · 플러그인 · MCP 서버 · 서브에이전트 · 내장 도구) ──
+_CODEX_SKILL_FILE = re.compile(
+    r"(?:/plugins/cache/[^/\s\"']+/([A-Za-z0-9_.-]{1,80})/[^/\s\"']+)?/skills/([A-Za-z0-9_.:-]{1,80})/SKILL\.md\b"
+)
+# Codex 코드 모드: exec 하나 안에서 tools.exec_command(...) · tools.apply_patch(...) 등을 부른다
+_CODEX_INNER = re.compile(r"\btools\.([A-Za-z_][A-Za-z0-9_]{0,80})\s*\(")
+_CODEX_STR = r"(\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'|`[^`]*`)"
+_CODEX_ARG = {
+    "exec_command": re.compile(r"\bcmd\s*:\s*" + _CODEX_STR),
+    "write_stdin": re.compile(r"\bchars\s*:\s*" + _CODEX_STR),
+    "view_image": re.compile(r"\bpath\s*:\s*" + _CODEX_STR),
+    "web__run": re.compile(r"\b(?:q|query|url|location)\s*:\s*" + _CODEX_STR),
+}
+_CODEX_PATCH_FILE = re.compile(r"\*\*\* (?:Add|Update|Delete) File: ([^\n\\\"]+)")
+_CODEX_INNER_LABEL = {"web__run": "web"}
+
+
+def _codex_inner(text: str) -> list[str]:
+    """exec 안에서 부른 도구 이름들 (순서대로, 중복 없이)."""
+    return list(dict.fromkeys(m.group(1) for m in _CODEX_INNER.finditer(text)))
+
+
+def _unquote(value: str) -> str:
+    if value[:1] in {'"', "'"}:
+        try:
+            return str(json.loads(value)) if value[0] == '"' else value[1:-1]
+        except ValueError:
+            return value[1:-1]
+    return value[1:-1]
+
+
+def _codex_act(text: str) -> list[str] | None:
+    """Codex exec 가 실제로 하는 일: [도구 이름, 한 줄 내용] (하단바 '지금 쓰는 도구'용)."""
+    inner = _codex_inner(text)
+    if not inner:
+        return None
+    tool = inner[0]
+    detail = ""
+    pattern = _CODEX_ARG.get(tool)
+    if pattern:
+        match = pattern.search(text)
+        if match:
+            detail = _unquote(match.group(1))
+    elif tool == "apply_patch":
+        files = _CODEX_PATCH_FILE.findall(text)
+        detail = ", ".join(dict.fromkeys(f.strip() for f in files))
+    return [_CODEX_INNER_LABEL.get(tool, tool), detail]
+
+
+_MCP_PLUGIN = re.compile(r"^plugin_([A-Za-z0-9_.-]+?)_([A-Za-z0-9_.-]+)$")
+_USE_NAME = re.compile(r"^[A-Za-z0-9_.:@/ -]{1,120}$")
+
+
+def _use_of(name: str, data: Any, namespace: str = "") -> list[list[str]]:
+    """도구 호출 하나가 무엇을 썼는지: [[종류, 이름], ...] (종류: skill · plugin · mcp · agent · builtin)."""
+    if isinstance(data, str):
+        try:
+            parsed = json.loads(data)
+        except ValueError:
+            parsed = data
+        data = parsed
+    args = data if isinstance(data, dict) else {}
+    uses: list[list[str]] = []
+
+    def add(group: str, value: Any) -> None:
+        if isinstance(value, str):
+            value = value.strip()
+            if value and _USE_NAME.match(value) and [group, value] not in uses:
+                uses.append([group, value])
+
+    if name == "Skill":
+        skill = args.get("skill") or args.get("name")
+        if isinstance(skill, str) and skill.strip():
+            add("skill", skill)
+            if ":" in skill:
+                add("plugin", skill.split(":", 1)[0])
+            return uses
+    if name in {"Agent", "Task"}:
+        add("agent", args.get("subagent_type") or "general-purpose")
+        return uses
+    if name == "spawn_agent":
+        add(
+            "agent",
+            args.get("agent_type")
+            or args.get("task_name")
+            or args.get("role")
+            or "default",
+        )
+        return uses
+    if name.startswith("mcp__") and name.count("__") >= 2:
+        server = name.split("__")[1]
+        plugin = _MCP_PLUGIN.match(server)
+        if plugin:
+            add("plugin", plugin.group(1))
+            server = plugin.group(2)
+        add("mcp", server)
+        return uses
+    text = json.dumps(data, ensure_ascii=False) if not isinstance(data, str) else data
+    inner = _codex_inner(text or "") if name == "exec" else []
+    if inner:
+        # Codex 코드 모드: exec 자체가 아니라 안에서 부른 도구를 센다
+        for tool in inner:
+            if tool.startswith("mcp__") and tool.count("__") >= 2:
+                add("mcp", tool.split("__")[1])
+            else:
+                add("builtin", _CODEX_INNER_LABEL.get(tool, tool))
+    else:
+        add("builtin", name)
+    # Codex 는 스킬을 도구가 아니라 SKILL.md 를 읽어서 쓴다 (플러그인 스킬: …/plugins/cache/<곳>/<플러그인>/<버전>/skills/<스킬>)
+    for match in _CODEX_SKILL_FILE.finditer(text or ""):
+        plugin, skill = match.group(1), match.group(2)
+        add("skill", f"{plugin}:{skill}" if plugin else skill)
+        if plugin:
+            add("plugin", plugin)
+    return uses
+
+
+# ── 코드 변경 (diff): 터미널처럼 채팅에도 바뀐 줄을 보인다 ──
+DIFF_MAX_LINES = 400  # 도구 호출 하나에서 보일 최대 줄 수 (넘으면 잘라 cut 표시)
+DIFF_LINE_CHARS = 400
+_PATCH_FILE = re.compile(r"^\*\*\* (Add|Update|Delete) File: (.+)$")
+_PATCH_MOVE = re.compile(r"^\*\*\* Move to: (.+)$")
+_CODEX_PATCH_ARG = re.compile(
+    r"\btools\.apply_patch\s*\(\s*(\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'|`[^`]*`)"
+)
+
+
+_CODEX_PATCH_LITERAL = re.compile(
+    r"(\"\*\*\* Begin Patch(?:[^\"\\]|\\.)*\"|'\*\*\* Begin Patch(?:[^'\\]|\\.)*'|`\*\*\* Begin Patch[^`]*`)"
+)
+
+
+class _DiffBudget:
+    """한 도구 호출의 diff 전체 줄 수 한도."""
+
+    def __init__(self) -> None:
+        self.left = DIFF_MAX_LINES
+        self.cut = False
+
+    def take(self, lines: list[str]) -> list[str]:
+        if len(lines) > self.left:
+            self.cut = True
+        kept = lines[: max(0, self.left)]
+        self.left -= len(kept)
+        return [
+            line if len(line) <= DIFF_LINE_CHARS else line[:DIFF_LINE_CHARS] + "…"
+            for line in kept
+        ]
+
+
+def _diff_file(path: Any, op: str = "update") -> dict:
+    return {"file": str(path or ""), "op": op, "hunks": [], "add": 0, "del": 0}
+
+
+def _count(diff: dict, lines: list[str]) -> None:
+    diff["add"] += sum(1 for line in lines if line.startswith("+"))
+    diff["del"] += sum(1 for line in lines if line.startswith("-"))
+
+
+def _diff_strings(path: Any, old: Any, new: Any, budget: _DiffBudget) -> dict | None:
+    """Edit 의 old_string → new_string (파일 속 줄 번호는 모른다)."""
+    if not isinstance(old, str) or not isinstance(new, str):
+        return None
+    diff = _diff_file(path)
+    rows = list(
+        difflib.unified_diff(
+            old.splitlines(), new.splitlines(), lineterm="", n=max(len(old), 3)
+        )
+    )[2:]
+    hunk: list[str] = []
+    for row in rows:
+        if row.startswith("@@"):
+            continue
+        hunk.append(row if row[:1] in {"+", "-", " "} else " " + row)
+    _count(diff, hunk)
+    diff["hunks"].append({"o": None, "n": None, "lines": budget.take(hunk)})
+    return diff
+
+
+def _diff_structured(path: Any, patch: Any, budget: _DiffBudget) -> dict | None:
+    """Claude 가 결과에 남기는 structuredPatch (실제 파일 줄 번호 포함)."""
+    if not isinstance(patch, list) or not patch:
+        return None
+    diff = _diff_file(path)
+    for hunk in patch:
+        if not isinstance(hunk, dict) or not isinstance(hunk.get("lines"), list):
+            continue
+        lines = [str(line) for line in hunk["lines"]]
+        _count(diff, lines)
+        diff["hunks"].append(
+            {
+                "o": hunk.get("oldStart"),
+                "n": hunk.get("newStart"),
+                "lines": budget.take(lines),
+            }
+        )
+    return diff if diff["hunks"] else None
+
+
+def _diff_created(path: Any, content: Any, budget: _DiffBudget) -> dict | None:
+    if not isinstance(content, str):
+        return None
+    diff = _diff_file(path, "add")
+    lines = ["+" + line for line in content.splitlines()]
+    _count(diff, lines)
+    diff["hunks"].append({"o": None, "n": 1, "lines": budget.take(lines)})
+    return diff
+
+
+def _diffs_from_patch(text: str, budget: _DiffBudget) -> list[dict]:
+    """Codex apply_patch 형식 (*** Begin Patch / *** Update File: … / @@ / +-)."""
+    diffs: list[dict] = []
+    current: dict | None = None
+    lines: list[str] = []
+
+    def flush() -> None:
+        if current is not None and lines:
+            _count(current, lines)
+            current["hunks"].append({"o": None, "n": None, "lines": budget.take(lines)})
+        lines.clear()
+
+    for raw in text.splitlines():
+        head = _PATCH_FILE.match(raw)
+        if head:
+            flush()
+            op = {"Add": "add", "Update": "update", "Delete": "delete"}[head.group(1)]
+            current = _diff_file(head.group(2).strip(), op)
+            diffs.append(current)
+            continue
+        move = _PATCH_MOVE.match(raw)
+        if move and current is not None:
+            current["file"] += f" → {move.group(1).strip()}"
+            continue
+        if current is None or raw.startswith("*** "):
+            continue
+        if raw.startswith("@@"):
+            flush()
+            continue
+        if raw[:1] in {"+", "-", " "}:
+            lines.append(raw)
+        elif raw == "":
+            lines.append(" ")
+    flush()
+    return [d for d in diffs if d["hunks"] or d["op"] == "delete"]
+
+
+def _tool_diffs(name: str, data: Any) -> list[dict]:
+    """도구 입력에서 바로 알 수 있는 코드 변경 (결과가 오기 전에도 보인다)."""
+    budget = _DiffBudget()
+    if isinstance(data, str) and name in {"apply_patch", "exec"}:
+        text = data
+        if name == "exec":
+            if "tools.apply_patch" not in data:
+                return []
+            match = _CODEX_PATCH_ARG.search(data)
+            # 패치를 변수에 먼저 담는 경우: const patch = "*** Begin Patch…"; tools.apply_patch(patch)
+            match = match or _CODEX_PATCH_LITERAL.search(data)
+            if not match:
+                return []
+            text = _unquote(match.group(1))
+        diffs = _diffs_from_patch(text, budget)
+    elif isinstance(data, dict) and name in {"Edit", "MultiEdit", "Write"}:
+        path = data.get("file_path")
+        if name == "Write":
+            diffs = [_diff_created(path, data.get("content"), budget)]
+        elif name == "Edit":
+            diffs = [
+                _diff_strings(
+                    path, data.get("old_string"), data.get("new_string"), budget
+                )
+            ]
+        else:
+            merged = _diff_file(path)
+            for edit in data.get("edits") or []:
+                if isinstance(edit, dict):
+                    one = _diff_strings(
+                        path, edit.get("old_string"), edit.get("new_string"), budget
+                    )
+                    if one:
+                        merged["hunks"] += one["hunks"]
+                        merged["add"] += one["add"]
+                        merged["del"] += one["del"]
+            diffs = [merged] if merged["hunks"] else []
+    else:
+        return []
+    diffs = [d for d in diffs if d]
+    if diffs and budget.cut:
+        diffs[-1]["cut"] = True
+    return diffs
+
+
+def _result_diffs(result: Any) -> list[dict]:
+    """Claude 결과(toolUseResult)의 structuredPatch: 실제 줄 번호가 있는 diff."""
+    if not isinstance(result, dict):
+        return []
+    budget = _DiffBudget()
+    diff = _diff_structured(
+        result.get("filePath"), result.get("structuredPatch"), budget
+    )
+    if diff is None and result.get("type") == "create":
+        diff = _diff_created(result.get("filePath"), result.get("content"), budget)
+    if diff and budget.cut:
+        diff["cut"] = True
+    return [diff] if diff else []
+
 
 def _encrypted(value: Any) -> bool:
     """Codex 가 암호화해 기록한 값 (Fernet 토큰)."""
@@ -524,6 +830,8 @@ class _Log:
         # 하면 압축이 끝날 때까지 기록되지 않는다) → 그 턴이 시작된 시각 (epoch 초)
         self.thread_id = ""
         self.awaiting: float | None = None
+        # Claude: 턴이 끝났는가 (system turn_duration · 중단). 프롬프트 · 도구가 새로 오면 다시 진행 중.
+        self.claude_done = True
 
     def _add(self, kind: str, text: str = "", ts: str = "", **extra) -> dict:
         item = {
@@ -534,6 +842,10 @@ class _Log:
             **extra,
         }
         self.items.append(item)
+        if kind in {"user", "tool"}:
+            self.claude_done = False
+        elif kind == "system" and text == "사용자가 중단함":
+            self.claude_done = True
         return item
 
     def _user(self, content: Any, ts: str, **flags) -> str | None:
@@ -553,7 +865,9 @@ class _Log:
         self._add(parsed[0], parsed[1], ts, **flags, **extra)
         return parsed[0]
 
-    def _tool(self, call_id: str, name: str, data: Any, ts: str) -> None:
+    def _tool(
+        self, call_id: str, name: str, data: Any, ts: str, namespace: str = ""
+    ) -> None:
         summary = _tool_summary(name, data)
         if name == "SendMessage" and isinstance(data, dict):
             # 서브에이전트에게 추가 지시: "받는 에이전트 이름 · 요약"
@@ -569,7 +883,15 @@ class _Log:
             summary=summary,
             output=None,
             error=False,
+            use=_use_of(name, data, namespace),
         )
+        if name == "exec" and isinstance(data, str):
+            act = _codex_act(data)
+            if act:
+                item["act"] = act
+        diffs = _tool_diffs(name, data)
+        if diffs:
+            item["diffs"] = diffs
         if call_id:
             self.by_call[call_id] = item
 
@@ -609,6 +931,10 @@ class _Log:
                     item["agent"] = path
                     item["running"] = True
                     return
+        if item is not None and not error:
+            diffs = _result_diffs(launched)
+            if diffs:
+                item["diffs"] = diffs  # 실제 파일 줄 번호가 있는 것으로 바꾼다
         if item is not None:
             item["output"] = _clip(
                 _blocks_text(output) if not isinstance(output, str) else output,
@@ -649,6 +975,12 @@ class _Log:
 
     def _claude(self, d: dict) -> None:
         kind, ts = d.get("type"), d.get("timestamp") or ""
+        if (
+            kind == "system"
+            and d.get("subtype") == "turn_duration"
+            and not (d.get("isSidechain") and not self.sidechain)
+        ):
+            self.claude_done = True
         if kind == "ai-title" and isinstance(d.get("aiTitle"), str):
             self.title = d["aiTitle"]
         if kind == "queue-operation":
@@ -781,6 +1113,7 @@ class _Log:
                 p.get("name") or "shell",
                 p.get("arguments") or p.get("input") or p.get("action"),
                 ts,
+                str(p.get("namespace") or ""),
             )
         elif ptype in {
             "function_call_output",
@@ -1013,6 +1346,113 @@ def search(path: Path, agent: str, query: str, limit: int = 100) -> dict:
         "items": results,
         "matches": len(found),
         "truncated": len(found) > limit,
+    }
+
+
+USAGE_GROUPS = ("skill", "plugin", "mcp", "agent", "builtin")
+
+
+def _one_line(text: Any, limit: int) -> str:
+    """하단바용 한 줄: 첫 줄만, 공백 정리, 길면 … 로 자른다."""
+    line = " ".join(str(text or "").split("\n", 1)[0].split())
+    return line if len(line) <= limit else line[: limit - 1] + "…"
+
+
+def usage(path: Path, agent: str) -> dict:
+    """이 대화에서 쓴 스킬 · 플러그인 · MCP 서버 · 서브에이전트 · 내장 도구.
+
+    recent: 마지막 프롬프트 이후(지금 / 방금) 쓴 것. 상태는 running(실행 중) · error(오류) · ok(사용).
+    """
+    with _lock:
+        log = _cached_log(path, agent)
+        tools = []
+        last_user = -1
+        last_tool = None
+        for item in log.items:
+            if item.get("kind") == "user":
+                last_user = item["id"]
+                last_tool = None
+            elif item.get("kind") == "tool":
+                last_tool = item
+            if item.get("kind") == "tool" and item.get("use"):
+                running = bool(item.get("running")) or item.get("output") is None
+                tools.append(
+                    (item["id"], item["use"], running, bool(item.get("error")))
+                )
+        # 지금 답변 중인가: 기록에 턴 끝 표시가 있으면 바로 쉬는 중 (화면 표시보다 빠르고 정확하다)
+        busy = log.turn_open if agent == "codex" else not log.claude_done
+        # 지금 쓰는 도구 (실행 중인 것 중 마지막, 없으면 이번 질문의 마지막 도구)
+        running_now = [
+            item
+            for item in log.items[last_user + 1 :]
+            if item.get("kind") == "tool"
+            and (item.get("running") or item.get("output") is None)
+        ]
+        pick = running_now[-1] if running_now else last_tool
+        current = (
+            {
+                "name": (pick.get("act") or [pick.get("name")])[0] or "",
+                "summary": _one_line(
+                    pick["act"][1] if pick.get("act") else pick.get("summary"), 100
+                ),
+                "running": bool(running_now),
+                "use": pick.get("use") or [],
+                "more": max(0, len(running_now) - 1),
+            }
+            if busy and pick is not None
+            else None
+        )
+    total: dict[tuple[str, str], dict] = {}
+    recent: dict[tuple[str, str], dict] = {}
+    for item_id, uses, running, error in tools:
+        # 결과가 없는 도구 호출: 마지막 프롬프트 이후 것만 실행 중으로 본다 (예전 것은 중단된 것)
+        live = busy and running and item_id > last_user
+        state = "running" if live else "error" if error else "ok"
+        for group, name in uses:
+            for bucket, on in ((total, True), (recent, item_id > last_user)):
+                if not on:
+                    continue
+                row = bucket.setdefault(
+                    (group, name),
+                    {
+                        "group": group,
+                        "name": name,
+                        "count": 0,
+                        "state": "ok",
+                        "last": 0,
+                    },
+                )
+                row["count"] += 1
+                row["last"] = item_id
+                if state == "running" or (state == "error" and row["state"] == "ok"):
+                    row["state"] = state
+                elif state == "ok" and row["state"] == "error" and bucket is recent:
+                    row["state"] = "ok"  # 다시 해서 됐으면 사용으로
+    for (group, name), row in total.items():
+        row["recent"] = recent.get((group, name), {}).get("count", 0)
+        if (group, name) in recent:
+            row["state"] = recent[(group, name)]["state"]
+        elif row["state"] == "running":
+            row["state"] = "ok"
+    order = {group: index for index, group in enumerate(USAGE_GROUPS)}
+    recent_rows = sorted(recent.values(), key=lambda r: (order[r["group"]], -r["last"]))
+    groups = []
+    for group in USAGE_GROUPS:
+        rows = sorted(
+            (r for r in total.values() if r["group"] == group),
+            key=lambda r: (-r["count"], r["name"].lower()),
+        )
+        groups.append({"group": group, "items": rows})
+    states = [r["state"] for r in recent_rows]
+    return {
+        "recent": recent_rows,
+        "groups": groups,
+        "running": states.count("running"),
+        "used": states.count("ok"),
+        "errors": states.count("error"),
+        "total": len(total),
+        "busy": busy,
+        "current": current,
     }
 
 

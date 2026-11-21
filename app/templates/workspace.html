@@ -102,6 +102,7 @@
                                 <p id="termSubtitle" class="truncate text-[11px] text-white/40">—</p>
                             </div>
                             <button id="chatSearchBtn" type="button" class="term-tool hidden" title="채팅 검색 (내 프롬프트 · 최종 답변)" aria-label="채팅 검색"><i class="fas fa-magnifying-glass text-xs"></i></button>
+                            <button id="chatUsageBtn" type="button" class="term-tool hidden" title="사용 현황 (스킬 · 플러그인 · MCP · 서브에이전트 · 도구)" aria-label="사용 현황" aria-expanded="false"><i class="fas fa-puzzle-piece text-xs"></i></button>
                             <button id="termViewBtn" type="button" class="term-tool" title="보기 설정" aria-label="보기 설정"><i class="fas fa-text-height text-xs"></i></button>
                             <button id="termMoreBtn" type="button" class="term-tool" title="창 메뉴" aria-label="창 메뉴"><i class="fas fa-ellipsis-vertical text-sm"></i></button>
                         </div>
@@ -140,6 +141,8 @@
                             </div>
                             <div id="chatSearchResults" class="cs-results hidden" role="listbox" aria-label="검색 결과"></div>
                         </div>
+                        <!-- 사용 현황: 이 대화에서 쓴 스킬 · 플러그인 · MCP 서버 · 서브에이전트 · 내장 도구 -->
+                        <div id="chatUsage" class="chat-usage hidden" role="dialog" aria-label="사용 현황" tabindex="-1"></div>
                         <button id="jumpBottomBtn" type="button" class="jump-bottom hidden" aria-label="최신 출력으로 이동"><i class="fas fa-arrow-down text-xs"></i><span>최신</span></button>
                         <div id="termOffline" class="hidden absolute inset-x-0 top-0 m-2 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-center text-[11px] font-bold text-amber-300 backdrop-blur">연결이 끊어져 다시 연결하는 중입니다...</div>
                     </div>
@@ -193,6 +196,8 @@
                                 <button id="agentSwitchBtn" type="button" class="submit-toggle qs-btn hidden" title="지금 에이전트를 끄고 다른 에이전트를 새 대화로 켜기">Codex로 바꾸기</button>
                             </div>
                             <div class="flex flex-shrink-0 items-center gap-1 min-w-0">
+                                <!-- 사용 현황 요약 (넓은 화면 · 채팅 보기): 누르면 사용 현황 패널 -->
+                                <button id="usageSummary" type="button" class="usage-summary hidden" title="사용 현황 (스킬 · 플러그인 · MCP · 서브에이전트 · 도구)" aria-label="사용 현황 열기"></button>
                                 <span id="composerHint" class="truncate hidden sm:inline">⌘/Ctrl+Enter 전송</span>
                                 <button id="histPrev" type="button" class="hist-btn" title="이전 프롬프트 (↑)" aria-label="이전 프롬프트"><i class="fas fa-chevron-up"></i></button>
                                 <button id="histNext" type="button" class="hist-btn" title="다음 프롬프트 (↓)" aria-label="다음 프롬프트"><i class="fas fa-chevron-down"></i></button>

@@ -15,7 +15,12 @@
   let failures = 0;
 
   const on = (key) => !!U().settings.get(`sysmon-${key}`);
-  const interval = () => Math.min(60, Math.max(1, Number(U().settings.get('sysmon-interval')) || 2)) * 1000;
+  // 가벼운 모드: 갱신 주기를 두 배로 (최소 4초)
+  const lite = () => document.documentElement.hasAttribute('data-ui-lite');
+  const interval = () => {
+    const base = Math.min(60, Math.max(1, Number(U().settings.get('sysmon-interval')) || 2));
+    return (lite() ? Math.max(4, base * 2) : base) * 1000;
+  };
   const anyOn = () => KEYS.some(on);
   const wide = window.matchMedia('(min-width: 768px)');
   // 탭이 안 보이거나, 사이드바를 접었거나(데스크톱), 휴대폰에서 사이드바를 닫아 두었으면 묻지 않는다
