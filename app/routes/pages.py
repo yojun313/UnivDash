@@ -17,13 +17,13 @@ PAGES = {
     "explorer": ("explorer.html", "Explorer"),
     "server": ("server.html", "Servers"),
     "domains": ("domains.html", "Domains"),
-    "ai_usage": ("ai_usage.html", "AI Usage"),
+    "ai_usage": ("ai_usage.html", "AI"),
     "git": ("git.html", "Git"),
 }
 NAV_ITEMS = (
     ("workspace", "/", "fa-terminal", "Workspace"),
     ("git", "/git", "fa-code-branch", "Git"),
-    ("ai_usage", "/ai-usage", "fa-robot", "AI Usage"),
+    ("ai_usage", "/ai-usage", "fa-robot", "AI"),
     ("server", "/server", "fa-server", "Servers"),
     ("domains", "/domains", "fa-globe", "Domains"),
 )

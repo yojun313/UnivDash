@@ -23,6 +23,17 @@
   }
 
   function renderWindow(window) {
+    // 이 계정에는 5시간 한도가 없다 (Anthropic 이 값을 주지 않음)
+    if (window.unlimited) {
+      return `
+      <div class="glass-soft rounded-xl p-3.5">
+        <div class="flex items-baseline justify-between gap-2">
+          <p class="text-xs font-bold text-white/70">${escapeHtml(window.label)} (5시간)</p>
+          <p class="font-mono text-sm font-bold text-emerald-300">제한 없음</p>
+        </div>
+        <p class="mt-1.5 text-[10px] text-white/40">이 계정은 지금 5시간 한도가 적용되지 않아요. 주간 한도만 있어요.</p>
+      </div>`;
+    }
     const color = levelColor(window.remaining_percent);
     const reset = window.resets_at
       ? `${duration(new Date(window.resets_at) - Date.now())} 후 리셋 · ${new Date(window.resets_at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' })}`

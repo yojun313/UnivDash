@@ -7,6 +7,97 @@
 {% block content %}
         <div class="flex-1 overflow-y-auto p-4 md:p-6 safe-bottom">
         <div class="max-w-7xl mx-auto">
+            <div class="ai-tabs glass-soft mb-3 inline-flex rounded-xl p-1 text-xs font-bold" role="tablist" aria-label="AI">
+                <button type="button" role="tab" data-ai-tab="usage" aria-selected="true" class="rounded-lg px-4 py-2 transition"><i class="fas fa-chart-column mr-1.5"></i>AI 사용량</button>
+                <button type="button" role="tab" data-ai-tab="api" aria-selected="false" class="rounded-lg px-4 py-2 transition"><i class="fas fa-plug mr-1.5"></i>OpenAI 호환 API<span id="llmTabDot" class="llm-dot ml-1.5 hidden"></span></button>
+            </div>
+
+            <section id="llm-api" class="mb-8 hidden space-y-5">
+                <div class="glass rounded-2xl p-5 shadow-xl">
+                    <div class="flex flex-wrap items-center gap-3">
+                        <div class="min-w-0 flex-1">
+                            <div class="flex items-center gap-2">
+                                <h2 class="text-lg font-bold text-white">OpenAI 호환 API 서버</h2>
+                                <span id="llmStatus" class="llm-badge">확인 중</span>
+                            </div>
+                            <p class="mt-1 text-xs text-white/50">이 서버에 로그인된 Claude Code · Codex 를 <code>/llm/v1/chat/completions</code> 로 쓸 수 있게 해요. 요청마다 서버와 분리된 격리 컨테이너 안에서 도구 없는 순수 LLM 으로만 돌아서, API 로는 서버의 파일 · 프로세스 · 내부망에 닿을 수 없어요.</p>
+                        </div>
+                        <button type="button" id="llmEnabled" class="pmd-mode-switch" aria-label="API 서버 켜기 · 끄기" aria-pressed="false"></button>
+                    </div>
+                    <div class="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                        <div class="glass-soft rounded-xl p-3.5">
+                            <p class="text-[10px] font-bold uppercase tracking-wider text-white/40">Base URL</p>
+                            <div class="mt-1.5 flex items-center gap-2">
+                                <code id="llmBaseUrl" class="min-w-0 flex-1 truncate text-sm text-white/80"></code>
+                                <button type="button" id="llmCopyUrl" class="llm-btn"><i class="fas fa-copy"></i> 복사</button>
+                            </div>
+                            <p class="mt-1.5 text-[10px] text-white/40">OpenAI SDK · LangChain 등에서 <code>base_url</code> 로 넣고, <code>api_key</code> 에는 아래에서 만든 토큰을 넣어요.</p>
+                        </div>
+                        <div class="glass-soft rounded-xl p-3.5">
+                            <p class="text-[10px] font-bold uppercase tracking-wider text-white/40">지금</p>
+                            <p id="llmNow" class="mt-1.5 text-sm text-white/80">—</p>
+                            <p class="mt-1.5 text-[10px] text-white/40">꺼져 있으면 <code>/llm/v1</code> 주소는 없는 주소처럼(404) 응답해요.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <div class="glass rounded-2xl p-5 shadow-xl">
+                        <p class="mb-3 text-xs font-bold uppercase tracking-wider text-white/50"><i class="fas fa-user-gear mr-1.5 text-blue-400"></i>제공자 · 계정</p>
+                        <div id="llmProviders" class="space-y-4"></div>
+                    </div>
+                    <div class="glass rounded-2xl p-5 shadow-xl">
+                        <div class="mb-3 flex items-center justify-between gap-2">
+                            <p class="text-xs font-bold uppercase tracking-wider text-white/50"><i class="fas fa-sliders mr-1.5 text-purple-400"></i>설정</p>
+                            <button type="button" id="llmEditSettings" class="llm-btn"><i class="fas fa-pen"></i> 바꾸기</button>
+                        </div>
+                        <div id="llmSettings" class="space-y-2 text-xs text-white/70"></div>
+                    </div>
+                </div>
+
+                <div class="glass rounded-2xl p-5 shadow-xl">
+                    <div class="mb-3 flex items-center justify-between gap-2">
+                        <p class="text-xs font-bold uppercase tracking-wider text-white/50"><i class="fas fa-key mr-1.5 text-amber-400"></i>API 토큰</p>
+                        <button type="button" id="llmNewToken" class="llm-btn primary"><i class="fas fa-plus"></i> 새 토큰</button>
+                    </div>
+                    <div id="llmTokens"></div>
+                </div>
+
+                <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <div class="glass rounded-2xl p-5 shadow-xl">
+                        <p class="mb-3 text-xs font-bold uppercase tracking-wider text-white/50"><i class="fas fa-flask mr-1.5 text-emerald-400"></i>시험해 보기</p>
+                        <div class="flex flex-wrap gap-2">
+                            <select id="llmTestModel" class="llm-input" aria-label="모델"></select>
+                            <button type="button" id="llmTestRun" class="llm-btn primary"><i class="fas fa-play"></i> 보내기</button>
+                        </div>
+                        <textarea id="llmTestPrompt" class="llm-input mt-2 w-full" rows="3" maxlength="20000" placeholder="프롬프트를 적어 보세요 (토큰 없이, 서버가 꺼져 있어도 시험할 수 있어요)">안녕! 한 문장으로 자기소개해 줘.</textarea>
+                        <pre id="llmTestOut" class="llm-out mt-2 hidden"></pre>
+                    </div>
+                    <div class="glass rounded-2xl p-5 shadow-xl">
+                        <div class="mb-3 flex items-center justify-between gap-2">
+                            <p class="text-xs font-bold uppercase tracking-wider text-white/50"><i class="fas fa-code mr-1.5 text-cyan-400"></i>사용 예시</p>
+                            <div class="glass-soft flex rounded-lg p-0.5 text-[10px] font-bold" id="llmExampleTabs">
+                                <button type="button" data-llm-ex="curl" class="rounded-md px-2 py-1">curl</button>
+                                <button type="button" data-llm-ex="python" class="rounded-md px-2 py-1">Python</button>
+                                <button type="button" data-llm-ex="node" class="rounded-md px-2 py-1">Node</button>
+                            </div>
+                        </div>
+                        <pre id="llmExample" class="llm-out"></pre>
+                    </div>
+                </div>
+
+                <div class="glass rounded-2xl p-5 shadow-xl">
+                    <div class="mb-3 flex items-center justify-between gap-2">
+                        <p class="text-xs font-bold uppercase tracking-wider text-white/50"><i class="fas fa-list mr-1.5 text-orange-400"></i>최근 요청 <span class="font-medium normal-case text-white/35">· 프롬프트와 답변 내용은 기록하지 않아요</span></p>
+                        <div class="flex gap-2">
+                            <button type="button" id="llmRefresh" class="llm-btn" aria-label="새로 고침"><i class="fas fa-rotate"></i></button>
+                            <button type="button" id="llmClearLog" class="llm-btn"><i class="fas fa-trash-can"></i> 비우기</button>
+                        </div>
+                    </div>
+                    <div id="llmLog" class="overflow-x-auto"></div>
+                </div>
+            </section>
+
             <section id="ai-usage" class="mb-8 scroll-mt-6 space-y-5">
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                     <div>
@@ -85,4 +176,5 @@
 
 {% block scripts %}
     <script src="{{ asset('ai-usage.js') }}"></script>
+    <script src="{{ asset('llm-api.js') }}"></script>
 {% endblock %}

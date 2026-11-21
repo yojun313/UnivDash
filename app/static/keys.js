@@ -18,7 +18,7 @@
     viewer: '파일 뷰어 · 탐색기',
     git: 'Git',
     server: 'Servers',
-    ai: 'AI Usage',
+    ai: 'AI',
   };
   // 같은 화면에 함께 있는 범위끼리만 키가 겹치면 안 된다
   const GROUP = { global: '*', workspace: 'ws', tabs: 'ws', viewer: 'ws', git: 'git', server: 'server', ai: 'ai' };
@@ -35,7 +35,7 @@
     ['app.newSession', 'global', '새 tmux 세션', ['t t']],
     ['nav.workspace', 'global', 'Workspace 로 가기', ['g w'], { href: '/' }],
     ['nav.git', 'global', 'Git 으로 가기', ['g g'], { href: '/git' }],
-    ['nav.ai', 'global', 'AI Usage 로 가기', ['g a'], { href: '/ai-usage' }],
+    ['nav.ai', 'global', 'AI 로 가기', ['g a'], { href: '/ai-usage' }],
     ['nav.server', 'global', 'Servers 로 가기', ['g s'], { href: '/server' }],
     ['nav.domains', 'global', 'Domains 로 가기', ['g d'], { href: '/domains' }],
     ['app.logout', 'global', '로그아웃', [], { click: '.sb-logout', hiddenOk: true }],

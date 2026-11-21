@@ -159,8 +159,13 @@ class SecurityMiddleware:
             await self._reject(scope, receive, send, 400, "Bad Request")
             return
 
-        if (is_websocket or scope["method"] in UNSAFE_METHODS) and not is_same_origin(
-            headers
+        # /llm/v1/ (OpenAI 호환 API)는 브라우저가 아닌 프로그램이 부르므로 Origin 이 없다. 이 경로는 로그인 쿠키를
+        # 전혀 보지 않고 Authorization 토큰만 확인하므로(app/routes/llm_api_routes.py) CSRF 대상이 아니다.
+        token_api = not is_websocket and scope.get("path", "").startswith("/llm/v1/")
+        if (
+            (is_websocket or scope["method"] in UNSAFE_METHODS)
+            and not token_api
+            and not is_same_origin(headers)
         ):
             logger.warning(
                 "교차 출처 요청 차단 · path=%s · origin=%s",

@@ -750,6 +750,13 @@ class AIUsageService:
                         )
                     )
 
+        # 5시간(세션) 한도를 알려 주지 않는 계정이 있다 (five_hour: null · limits 에 session 없음 — 예: Max 20x).
+        # 칸이 통째로 사라지면 고장처럼 보이므로 '제한 없음'으로 표시한다.
+        if windows and not any(w.get("window_minutes") == 300 for w in windows):
+            session = cls._window("claude-session-none", "현재 세션", 0, None, 300, now)
+            session["unlimited"] = True
+            windows.insert(0, session)
+
         breakdown = []
         raw_breakdown = utilization.get("seven_day_breakdown")
         if isinstance(raw_breakdown, dict) and isinstance(

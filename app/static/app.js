@@ -2301,6 +2301,8 @@
       // 넓은 화면: 요금제 아래에 로그인한 계정 메일 / 좁은 화면(요금제 칸이 숨음): 그래프를 누르면 알림으로
       return `<span class="um-provider"><span>${name}</span>${account ? `<span class="um-account">${escapeHtml(account)}</span>` : ''}</span>`
         + `<span class="um-who hidden" data-account="${escapeHtml(account)}" data-provider="${escapeHtml(agent === 'codex' ? 'Codex' : 'Claude')}"></span>` + gauges.map(([name, x]) => {
+        // 이 계정에는 5시간 한도가 없다 (Anthropic 이 값을 주지 않음) → 막대 대신 '제한 없음'
+        if (x.unlimited) return `<div class="um ok" title="이 계정은 지금 5시간(세션) 한도가 적용되지 않아요. 주간 한도만 있어요."><span class="um-label">${name}</span><span class="um-val">제한 없음</span></div>`;
         const left = Math.round(x.remaining_percent);
         const tone = left > 50 ? 'ok' : left > 20 ? 'mid' : 'low';
         const reset = resetText(x.resets_at);

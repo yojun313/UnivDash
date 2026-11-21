@@ -17,6 +17,7 @@ from app.routes import (
     domain_routes,
     fs_routes,
     git_routes,
+    llm_api_routes,
     pty_routes,
     push_routes,
     server_routes,
@@ -115,3 +116,4 @@ app.include_router(settings_routes.router)
 app.include_router(push_routes.router)
 app.include_router(share_routes.router)
 app.include_router(view_share_routes.router)
+app.include_router(llm_api_routes.router)
