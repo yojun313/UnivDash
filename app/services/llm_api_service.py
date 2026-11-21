@@ -14,7 +14,8 @@
 - 셸을 거치지 않는다 (argv 로 직접 실행). 프롬프트는 표준 입력으로만 넣는다. 모델 이름은 정해진 글자만.
 - 서버의 로그인은 건드리지 않는다: 컨테이너에는 접근 토큰(Claude) · 갱신 토큰을 뺀 로그인 사본(Codex)만 넣는다.
   컨테이너 안에서는 토큰을 갱신할 수 없으므로 서버 쪽 로그인이 바뀌거나 풀리지 않는다.
-- 요청 내용(프롬프트 · 답변)은 기록하지 않는다. 기록은 시각 · 토큰 이름 · 모델 · 계정 · 걸린 시간 · 토큰 수뿐.
+- 요청 기록: 시각 · 토큰 이름 · 모델 · 계정 · 걸린 시간 · 토큰 수. 설정(기본 켜짐)에 따라 받은 프롬프트 · 보낸 답변도
+  저장한다 (data/llm-api-content/, 폴더 700 · 파일 600, 보관 기간 뒤 삭제). 대시보드에 로그인한 관리자만 볼 수 있다.
 """
 
 import asyncio
@@ -57,6 +58,9 @@ DEFAULTS = {
     "default_model": "claude",
     "aliases": {},
     "max_concurrency": 2,
+    "fast": True,  # 빠른 응답: 생각(추론) 단계를 줄인다
+    "keep_content": True,  # 받은 프롬프트 · 보낸 답변을 저장해 관리 화면에서 볼 수 있게
+    "content_days": 30,  # 내용 보관 기간 (지나면 지운다)
     "timeout": 300,
     "max_input_chars": 400_000,
     "tokens": {},
@@ -235,10 +239,17 @@ def state() -> dict:
         "aliases": config["aliases"],
         "max_concurrency": config["max_concurrency"],
         "timeout": config["timeout"],
+        "fast": config["fast"],
+        "keep_content": config["keep_content"],
+        "content_days": config["content_days"],
         "tokens": tokens,
         "models": [m["id"] for m in models(config)],
         "active": _active,
-        "sandbox": {"problem": llm_sandbox.problem(), "image": llm_sandbox.IMAGE},
+        "sandbox": {
+            "problem": llm_sandbox.problem(),
+            "image": llm_sandbox.IMAGE,
+            "running": llm_sandbox.container_running(),
+        },
         "log": recent_log(100),
     }
 
@@ -256,6 +267,12 @@ def update_settings(changes: dict) -> None:
             config["strategy"] = changes["strategy"]
         if "max_concurrency" in changes:
             config["max_concurrency"] = max(1, min(8, int(changes["max_concurrency"])))
+        if "keep_content" in changes:
+            config["keep_content"] = bool(changes["keep_content"])
+        if "content_days" in changes:
+            config["content_days"] = max(1, min(365, int(changes["content_days"])))
+        if "fast" in changes:
+            config["fast"] = bool(changes["fast"])
         if "timeout" in changes:
             config["timeout"] = max(10, min(1800, int(changes["timeout"])))
         if "aliases" in changes:
@@ -450,6 +467,30 @@ def _route(model: str, aliases: dict) -> tuple[str, str]:
     return provider, sub
 
 
+def codex_models() -> list[str]:
+    """Codex 가 쓸 수 있는 모델 이름들 — Codex CLI 가 받아 둔 목록(~/.codex/models_cache.json)에서 읽는다."""
+    try:
+        from app.services import codex_accounts
+
+        data = json.loads(
+            (codex_accounts.codex_home() / "models_cache.json").read_text(
+                encoding="utf-8"
+            )
+        )
+    except (OSError, ValueError):
+        return []
+    found = []
+    for item in data.get("models") or [] if isinstance(data, dict) else []:
+        slug = item.get("slug") if isinstance(item, dict) else None
+        if (
+            isinstance(slug, str)
+            and MODEL_RE.match(slug)
+            and item.get("visibility") == "list"
+        ):
+            found.append((item.get("priority") or 999, slug))
+    return [slug for _, slug in sorted(found)]
+
+
 def models(config: dict | None = None) -> list[dict]:
     if config is None:
         with _lock:
@@ -460,6 +501,7 @@ def models(config: dict | None = None) -> list[dict]:
         out += [{"id": f"claude/{m}", "owned_by": "anthropic"} for m in CLAUDE_MODELS]
     if config["providers"].get("codex", True) and installed("codex"):
         out.append({"id": "codex", "owned_by": "openai"})
+        out += [{"id": f"codex/{m}", "owned_by": "openai"} for m in codex_models()]
     known = {m["id"] for m in out}
     out += [{"id": a, "owned_by": "alias"} for a in config["aliases"] if a not in known]
     return out
@@ -610,11 +652,11 @@ def _codex_auth(account: dict) -> dict:
 
 
 async def _lines(
-    name: str, argv: list[str], env: dict, stdin: str, timeout: float
+    target: tuple[str, str, str], argv: list[str], env: dict, stdin: str, timeout: float
 ) -> AsyncIterator[dict]:
-    """컨테이너를 띄워 표준 출력의 JSON 줄을 하나씩 준다. 끝나면 {"_exit": 코드, "_stderr": 글}.
+    """격리 컨테이너 안에서 CLI 를 돌려 표준 출력의 JSON 줄을 하나씩 준다. 끝나면 {"_exit": 코드, "_stderr": 글}.
 
-    받는 쪽이 그만두거나(연결 끊김) 시간이 넘으면 컨테이너를 없앤다.
+    target = (요청 id, 계정 폴더, 사용자 번호). 받는 쪽이 그만두거나(연결 끊김) 시간이 넘으면 안의 프로세스를 끝낸다.
     """
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -661,8 +703,13 @@ async def _lines(
         )
         finished = True
         stderr = (await stderr_task).decode("utf-8", "replace")
-        if code == 125:  # docker 자체가 컨테이너를 띄우지 못함
-            logger.error("LLM API: 격리 컨테이너 시작 실패 · %s", stderr[-500:])
+        if (
+            code in (125, 126)
+            or "is not running" in stderr
+            or "No such container" in stderr
+        ):
+            llm_sandbox._container_ok = (0.0, "")  # 다음 요청에서 다시 띄운다
+            logger.error("LLM API: 격리 컨테이너에서 실행 실패 · %s", stderr[-500:])
             raise ApiError(
                 503, "Could not start the sandbox.", "api_error", "sandbox_unavailable"
             )
@@ -679,8 +726,8 @@ async def _lines(
             502, "The CLI produced an oversized message.", "api_error"
         ) from error
     finally:
+        llm_sandbox.kill(*target)  # 끝났어도 부른다 (pid 파일 정리)
         if not finished:
-            llm_sandbox.kill(name)
             try:
                 proc.kill()
             except ProcessLookupError:
@@ -732,7 +779,7 @@ def _cli_error(provider: str, detail: str, code: int | None = None) -> ApiError:
 
 
 async def _run_claude(
-    account: dict, model: str, system: str, prompt: str, timeout: float
+    account: dict, model: str, system: str, prompt: str, timeout: float, fast: bool
 ) -> AsyncIterator[tuple[str, object]]:
     exe = find_command("claude")
     if not exe:
@@ -762,24 +809,27 @@ async def _run_claude(
     ]
     if model:
         command += ["--model", model]
-    name = llm_sandbox.new_name()
-    argv = llm_sandbox.run_argv(
-        name,
-        await llm_sandbox.ensure_proxy(),
-        exe,
+    home, user = llm_sandbox.account_home("claude", account["id"])
+    target = (llm_sandbox.new_request(), home, user)
+    extra = {
+        "CLAUDE_CONFIG_DIR": "{home}/cfg",
+        "DISABLE_AUTOUPDATER": "1",
+        "DISABLE_TELEMETRY": "1",
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    }
+    if fast:
+        extra["MAX_THINKING_TOKENS"] = "0"  # 생각 단계 없이 바로 답한다
+    argv = llm_sandbox.exec_argv(
+        *target,
         command,
         timeout=timeout,
-        env={
-            "CLAUDE_CONFIG_DIR": "/work/cfg",
-            "DISABLE_AUTOUPDATER": "1",
-            "DISABLE_TELEMETRY": "1",
-        },
+        env=extra,
         pass_env=("CLAUDE_CODE_OAUTH_TOKEN",),
     )
     env = llm_sandbox.client_env({"CLAUDE_CODE_OAUTH_TOKEN": token})
     got_text = False
     failure = ""
-    async for event in _lines(name, argv, env, prompt, timeout):
+    async for event in _lines(target, argv, env, prompt, timeout):
         if "_exit" in event:
             if not got_text:
                 raise _cli_error(
@@ -836,7 +886,7 @@ async def _run_claude(
 
 
 async def _run_codex(
-    account: dict, model: str, system: str, prompt: str, timeout: float
+    account: dict, model: str, system: str, prompt: str, timeout: float, fast: bool
 ) -> AsyncIterator[tuple[str, object]]:
     exe = find_command("codex")
     if not exe:
@@ -847,6 +897,7 @@ async def _run_codex(
             "provider_unavailable",
         )
     auth = await asyncio.to_thread(_codex_auth, account)
+    home, user = llm_sandbox.account_home("codex", account["id"])
     command = [
         "codex",
         "exec",
@@ -860,26 +911,26 @@ async def _run_codex(
         "never",
         "--json",
         "-C",
-        "/work",
+        f"/work/{home}/cwd",
         "-c",
         'web_search="disabled"',
     ]
+    if fast:
+        command += ["-c", 'model_reasoning_effort="low"']
     for feature in CODEX_OFF:
         command += ["--disable", feature]
     if model:
         command += ["-m", model]
     command.append("-")
     text = f"[Instructions]\n{system}\n\n{prompt}" if system else prompt
-    # Codex 는 로그인을 파일로만 읽는다 → (갱신 토큰을 뺀) 사본을 환경 변수로 넘겨 컨테이너의 메모리 폴더에만 쓴다.
+    # Codex 는 로그인을 파일로만 읽는다 → (갱신 토큰을 뺀) 사본을 환경 변수로 넘겨 컨테이너 안 계정 폴더(메모리)에만 쓴다.
     # 서버 디스크에는 아무것도 남기지 않는다.
-    name = llm_sandbox.new_name()
-    argv = llm_sandbox.run_argv(
-        name,
-        await llm_sandbox.ensure_proxy(),
-        exe,
+    target = (llm_sandbox.new_request(), home, user)
+    argv = llm_sandbox.exec_argv(
+        *target,
         command,
         timeout=timeout,
-        env={"CODEX_HOME": "/work/codex", "UD_FILE": "/work/codex/auth.json"},
+        env={"CODEX_HOME": "{home}/codex", "UD_FILE": "codex/auth.json"},
         pass_env=("UD_FILE_DATA",),
     )
     env = llm_sandbox.client_env({"UD_FILE_DATA": json.dumps(auth)})
@@ -888,7 +939,7 @@ async def _run_codex(
     got_text = False
     answer = ""
     failure = ""
-    async for event in _lines(name, argv, env, text, timeout):
+    async for event in _lines(target, argv, env, text, timeout):
         if "_exit" in event:
             if answer and not got_text:
                 got_text = True
@@ -970,6 +1021,15 @@ async def generate(
             "api_error",
             "sandbox_unavailable",
         )
+    try:
+        await llm_sandbox.ensure_container()
+    except (RuntimeError, OSError) as error:
+        raise ApiError(
+            503,
+            "The sandbox is not available on this server.",
+            "api_error",
+            "sandbox_unavailable",
+        ) from error
     with _lock:
         config = _load()
     if len(prompt) + len(system) > config["max_input_chars"]:
@@ -999,7 +1059,12 @@ async def generate(
             started = False
             try:
                 async for kind, value in runner(
-                    account, sub, system, prompt, float(config["timeout"])
+                    account,
+                    sub,
+                    system,
+                    prompt,
+                    float(config["timeout"]),
+                    bool(config["fast"]),
                 ):
                     started = started or kind == "text"
                     yield kind, value
@@ -1041,9 +1106,112 @@ def _load_log() -> None:
             _log.append(entry)
 
 
-def record_request(record: dict | None, entry: dict) -> None:
-    """요청 하나를 기록하고 토큰의 누적 값을 올린다 (프롬프트 · 답변은 적지 않는다)."""
+# 요청 내용 (받은 메시지 · 보낸 답변): 요청마다 파일 하나 (data/llm-api-content/<id>.json · 폴더 700 · 파일 600).
+# 대시보드에 로그인한 관리자만 본다. 보관 기간이 지나거나 개수 · 용량이 넘으면 오래된 것부터 지운다.
+CONTENT_ID = re.compile(r"^[0-9a-f]{16}$")
+CONTENT_TEXT_MAX = 400_000  # 메시지 하나 · 답변 하나에서 저장할 최대 글자
+CONTENT_MAX_FILES = 5000
+CONTENT_MAX_BYTES = 300 * 1024 * 1024
+_content_pruned = 0.0
+
+
+def _content_dir() -> Path:
+    path = data_dir() / "llm-api-content"
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(path, 0o700)
+    return path
+
+
+def _clip_content(text) -> str:
+    text = text if isinstance(text, str) else str(text or "")
+    if len(text) <= CONTENT_TEXT_MAX:
+        return text
+    return text[:CONTENT_TEXT_MAX] + f"\n… ({len(text) - CONTENT_TEXT_MAX}자 생략)"
+
+
+def _prune_content(days: int) -> None:
+    """(_lock 안에서) 보관 기간이 지난 내용, 개수 · 용량을 넘는 오래된 내용을 지운다. 10분에 한 번."""
+    global _content_pruned
+    now = time.time()
+    if now - _content_pruned < 600:
+        return
+    _content_pruned = now
+    files = []
+    for path in _content_dir().glob("*.json"):
+        try:
+            info = path.stat()
+        except OSError:
+            continue
+        if now - info.st_mtime > days * 86400:
+            path.unlink(missing_ok=True)
+        else:
+            files.append((info.st_mtime, info.st_size, path))
+    files.sort(reverse=True)  # 새것부터
+    total = 0
+    for index, (_, size, path) in enumerate(files):
+        total += size
+        if index >= CONTENT_MAX_FILES or total > CONTENT_MAX_BYTES:
+            path.unlink(missing_ok=True)
+
+
+def _save_content(request_id: str, content: dict, days: int) -> bool:
+    try:
+        path = _content_dir() / f"{request_id}.json"
+        data = {
+            "messages": [
+                {
+                    "role": str(m.get("role") or "user")[:20],
+                    "text": _clip_content(m.get("text")),
+                }
+                for m in (content.get("messages") or [])[:2000]
+                if isinstance(m, dict)
+            ],
+            "answer": _clip_content(content.get("answer")),
+            "error": str(content.get("error") or "")[:2000],
+        }
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, ensure_ascii=False)
+        _prune_content(days)
+        return True
+    except OSError:
+        logger.exception("LLM API 요청 내용 저장 실패")
+        return False
+
+
+def request_content(request_id: str) -> dict | None:
+    """요청 하나의 기록 + 저장된 내용 (없으면 None)."""
+    if not CONTENT_ID.match(request_id or ""):
+        return None
+    with _lock:
+        _load_log()
+        entry = next((dict(e) for e in _log if e.get("id") == request_id), None)
+    try:
+        data = json.loads(
+            (_content_dir() / f"{request_id}.json").read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        data = None
+    if entry is None and data is None:
+        return None
+    return {"entry": entry, "content": data if isinstance(data, dict) else None}
+
+
+def record_request(
+    record: dict | None, entry: dict, content: dict | None = None
+) -> None:
+    """요청 하나를 기록하고 토큰의 누적 값을 올린다. 설정이 켜져 있으면 받은 메시지 · 보낸 답변도 저장한다."""
+    request_id = secrets.token_hex(8)
+    with _lock:
+        config = _load()
+        saved_content = bool(
+            content is not None
+            and config["keep_content"]
+            and _save_content(request_id, content, int(config["content_days"]))
+        )
     entry = {
+        "id": request_id,
+        "has_content": saved_content,
         "ts": time.time(),
         "token": record["name"] if record else "관리자 테스트",
         "token_id": record["id"] if record else None,
@@ -1098,3 +1266,7 @@ def clear_log() -> None:
         _load_log()
         _log.clear()
         _log_path().unlink(missing_ok=True)
+        for path in _content_dir().glob(
+            "*.json"
+        ):  # 저장해 둔 프롬프트 · 답변도 함께 지운다
+            path.unlink(missing_ok=True)

@@ -60,6 +60,8 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(agent_update_all.update_prompt_loop()),
         asyncio.create_task(share_service.cleanup_loop()),
         asyncio.create_task(view_share_service.cleanup_loop()),
+        # OpenAI 호환 API 가 켜져 있으면 격리 컨테이너를 띄워 둔다 (꺼져 있으면 남은 컨테이너를 내린다)
+        asyncio.create_task(llm_api_routes.sync_sandbox()),
     ]
     try:
         yield

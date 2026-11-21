@@ -1,12 +1,13 @@
 // 화면 공유 보기 (읽기 전용) — 화면을 1초마다 받아 그리기만 한다. 서버로 보내는 것은 화면 요청뿐이다.
 // - 링크 토큰은 주소의 # 뒤에 있다 (서버로 가지 않음). 읽은 뒤 주소창에서 지우고 이 탭에만 기억한다.
+// - 접근 코드는 맞게 넣으면 이 브라우저에 기억한다 (공유가 끝날 때까지) → 링크를 다시 열 때 또 묻지 않는다.
 // - 접근 코드(공유한 사람이 따로 전달)를 넣어야 화면이 나온다. 코드를 넣기 전에는 제목조차 받지 않는다.
 // - 터미널 내용은 textContent 로만 넣고, 색은 직접 계산한 값만 style 에 넣는다 (내용이 HTML 로 해석되지 않는다).
 (function () {
   'use strict';
 
   const TOKEN_KEY = 'univdash-view-token';
-  const CODE_KEY = 'univdash-view-code';
+  const CODE_KEY = 'univdash-view-codes';
   const TOKEN = /^[A-Za-z0-9_-]{43}$/;
   const store = {
     get(key) { try { return sessionStorage.getItem(key) || ''; } catch (e) { return ''; } },
@@ -16,14 +17,43 @@
   let token = '';
   const fromHash = location.hash.slice(1);
   if (TOKEN.test(fromHash)) {
-    if (store.get(TOKEN_KEY) !== fromHash) store.drop(CODE_KEY);
     token = fromHash;
     store.set(TOKEN_KEY, token);
   } else {
     token = store.get(TOKEN_KEY);
   }
   try { history.replaceState(null, '', location.pathname); } catch (e) { /* noop */ }
-  let code = store.get(CODE_KEY);
+  // 접근 코드는 한 번 맞게 넣으면 이 브라우저에 기억해 둔다 (공유가 끝나는 시각까지). 같은 링크를 새 탭 · 다음 날 다시
+  // 열어도 코드를 또 묻지 않는다. 공유마다 따로 기억하고, 코드가 틀렸다고 나오거나 공유가 끝나면 지운다.
+  const codes = {
+    key: (t) => t.slice(0, 16),
+    all() {
+      try {
+        const data = JSON.parse(localStorage.getItem(CODE_KEY) || '{}');
+        return data && typeof data === 'object' ? data : {};
+      } catch (e) { return {}; }
+    },
+    save(data) { try { localStorage.setItem(CODE_KEY, JSON.stringify(data)); } catch (e) { /* 저장 불가 */ } },
+    get(t) {
+      const data = this.all();
+      const now = Date.now() / 1000;
+      let changed = false;
+      Object.keys(data).forEach((k) => { if (!data[k] || !(data[k].expires > now)) { delete data[k]; changed = true; } });
+      if (changed) this.save(data);
+      const saved = data[this.key(t)];
+      return saved && typeof saved.code === 'string' ? saved.code : '';
+    },
+    set(t, value, expires) {
+      const data = this.all();
+      data[this.key(t)] = { code: value, expires: Number(expires) || (Date.now() / 1000 + 86400) };
+      this.save(data);
+    },
+    drop(t) {
+      const data = this.all();
+      if (data[this.key(t)]) { delete data[this.key(t)]; this.save(data); }
+    },
+  };
+  let code = TOKEN.test(token) ? codes.get(token) : '';
 
   const $ = (id) => document.getElementById(id);
   const term = $('vwTerm');
@@ -60,12 +90,14 @@
     setNote(text);
     meta.textContent = '';
     store.drop(TOKEN_KEY);
-    store.drop(CODE_KEY);
+    if (TOKEN.test(token)) codes.drop(token);
   }
-  function askCode(message) {
+  // keep: 기억해 둔 코드를 지우지 않는다 (틀려서가 아니라 잠시 막혔을 때)
+  function askCode(message, keep) {
     clearTimeout(timer);
     code = '';
-    store.drop(CODE_KEY);
+    if (!keep && TOKEN.test(token)) codes.drop(token);
+    $('vwForget').classList.add('hidden');
     term.replaceChildren();
     last = null;
     hash = '';
@@ -228,7 +260,7 @@
     if (response.status === 429) {
       let state = '';
       try { state = (await response.clone().json()).state; } catch (e) { /* noop */ }
-      if (state === 'code_locked') { askCode(await lockedText(response)); return null; }
+      if (state === 'code_locked') { askCode(await lockedText(response), true); return null; }
       const wait = Number(response.headers.get('Retry-After')) || 5;
       setDot('wait'); schedule(Math.min(60, wait) * 1000); return null;
     }
@@ -507,7 +539,7 @@
     if (response.status === 429) {
       let state = '';
       try { state = (await response.clone().json()).state; } catch (e) { /* noop */ }
-      if (state === 'code_locked') { askCode(await lockedText(response)); return; }
+      if (state === 'code_locked') { askCode(await lockedText(response), true); return; }
       if (code) { askCode('잠시 뒤 다시 시도해 주세요.'); return; }
       setNote('잠시 뒤 새로 고쳐 주세요.');
       return;
@@ -518,12 +550,22 @@
     $('vwTitle').textContent = title;
     document.title = `${title} · 화면 보기`;
     expires = Number(info.expires) || 0;
-    store.set(CODE_KEY, code);
+    codes.set(token, code, expires);
+    forgetBtn.classList.remove('hidden');
     codeForm.classList.add('hidden');
     // 에이전트(Claude · Codex) 창이면 채팅 · 터미널 탭을 둘 다 보여 주고 채팅부터 연다
     tabs.classList.toggle('hidden', !info.chat);
     setMode(info.chat ? 'chat' : 'term');
   }
+
+  // 같이 쓰는 컴퓨터용: 기억해 둔 코드를 지우고 코드 입력 화면으로 돌아간다
+  const forgetBtn = $('vwForget');
+  forgetBtn.addEventListener('click', () => {
+    if (stopped) return;
+    tabs.classList.add('hidden');
+    forgetBtn.classList.add('hidden');
+    askCode('기억해 둔 코드를 지웠어요. 다시 보려면 코드를 넣어 주세요.');
+  });
 
   codeForm.addEventListener('submit', (event) => {
     event.preventDefault();

@@ -91,6 +91,9 @@
       ['계정 고르는 방법', state.strategy === 'round_robin' ? '돌아가며 (요청마다 다음 계정)' : '순서대로 (지금 로그인된 계정 먼저, 한도가 차면 다음 계정)'],
       ['동시에 처리할 요청', `${state.max_concurrency}건`],
       ['응답 제한 시간', `${state.timeout}초`],
+      ['빠른 응답', state.fast ? '켜짐 (생각 단계를 줄여 빨리 답함)' : '꺼짐 (더 깊이 생각하고 답함 · 느림)'],
+      ['요청 내용 저장', state.keep_content ? `켜짐 (프롬프트 · 답변을 ${state.content_days}일 보관)` : '꺼짐 (내용은 남기지 않음)'],
+      ['격리 컨테이너', state.sandbox?.problem ? '쓸 수 없음' : state.sandbox?.running ? '떠 있음 (univdash-llm)' : '내려가 있음 (서버를 켜면 뜸)'],
       ['모델 별칭', aliases.length ? aliases.map(([a, t]) => `${a} → ${t}`).join(', ') : '없음'],
     ].map(([k, v, hint]) => `<div class="llm-set"><span>${escapeHtml(k)}${hint ? ` <span style="opacity:.5;font-weight:500">(${escapeHtml(hint)})</span>` : ''}</span><span>${escapeHtml(v)}</span></div>`).join('');
 
@@ -115,9 +118,9 @@
     const chosen = select.value || state.default_model;
     select.innerHTML = state.models.map((m) => `<option value="${escapeHtml(m)}"${m === chosen ? ' selected' : ''}>${escapeHtml(m)}</option>`).join('');
 
-    $('llmLog').innerHTML = state.log.length ? `<table class="llm-log"><thead><tr><th>시각</th><th>토큰</th><th>모델</th><th>계정</th><th>결과</th><th>걸린 시간</th><th>입력</th><th>출력</th><th>IP</th></tr></thead><tbody>${
+    $('llmLog').innerHTML = state.log.length ? `<table class="llm-log"><thead><tr><th>시각</th><th>토큰</th><th>모델</th><th>계정</th><th>결과</th><th>걸린 시간</th><th>입력</th><th>출력</th><th>IP</th><th></th></tr></thead><tbody>${
       state.log.map((e) => `<tr><td>${escapeHtml(when(e.ts))}</td><td>${escapeHtml(e.token || '')}</td><td>${escapeHtml(e.model || '')}${e.stream ? ' <span style="opacity:.5">stream</span>' : ''}</td><td>${escapeHtml(e.account || '—')}</td>
-        <td class="${e.status < 400 ? 'ok' : 'bad'}">${e.status}${e.error ? ` ${escapeHtml(e.error)}` : ''}</td><td>${(e.ms / 1000).toFixed(1)}초</td><td>${num(e.input_tokens)}</td><td>${num(e.output_tokens)}</td><td>${escapeHtml(e.ip || '')}</td></tr>`).join('')
+        <td class="${e.status < 400 ? 'ok' : 'bad'}">${e.status}${e.error ? ` ${escapeHtml(e.error)}` : ''}</td><td>${(e.ms / 1000).toFixed(1)}초</td><td>${num(e.input_tokens)}</td><td>${num(e.output_tokens)}</td><td>${escapeHtml(e.ip || '')}</td><td>${e.id ? `<button type="button" class="llm-btn" data-llm-view="${escapeHtml(e.id)}"${e.has_content ? '' : ' disabled title="내용을 저장하지 않은 요청이에요"'}><i class="fas fa-eye"></i> 내용</button>` : ''}</td></tr>`).join('')
     }</tbody></table>` : '<p class="llm-empty">아직 요청이 없어요.</p>';
     renderExample();
   }
@@ -174,6 +177,9 @@
             <option value="order"${state.strategy === 'order' ? ' selected' : ''}>순서대로 — 지금 로그인된 계정 먼저, 한도가 차면 다음 계정</option>
             <option value="round_robin"${state.strategy === 'round_robin' ? ' selected' : ''}>돌아가며 — 요청마다 다음 계정 (한도를 고르게 씀)</option></select></label>
         <label>동시에 처리할 요청 (1–8)<input name="max_concurrency" inputmode="numeric" value="${state.max_concurrency}" maxlength="1" autocomplete="off"></label>
+        <label class="check-row"><input type="checkbox" name="fast"${state.fast ? ' checked' : ''}> 빠른 응답 — 생각(추론) 단계를 줄여 답을 빨리 받기</label>
+        <label class="check-row"><input type="checkbox" name="keep_content"${state.keep_content ? ' checked' : ''}> 요청 내용 저장 — 받은 프롬프트와 보낸 답변을 최근 요청에서 볼 수 있게</label>
+        <label>내용 보관 기간 (일, 1–365)<input name="content_days" inputmode="numeric" value="${state.content_days}" maxlength="3" autocomplete="off"></label>
         <label>응답 제한 시간 (초, 10–1800)<input name="timeout" inputmode="numeric" value="${state.timeout}" maxlength="4" autocomplete="off"></label>
         <label>모델 별칭 — 한 줄에 하나, "받을 이름 = 실제 모델"<textarea name="aliases" rows="4" spellcheck="false" placeholder="gpt-4o = claude/sonnet&#10;gpt-4o-mini = claude/haiku">${escapeHtml(aliasText)}</textarea></label>
         <p class="text-[11px] opacity-60 leading-5">별칭을 두면 모델 이름이 gpt-4o 로 고정된 프로그램도 그대로 쓸 수 있어요.</p>`,
@@ -187,7 +193,8 @@
         state = await api('/api/llm/settings', { method: 'PUT', body: {
           default_model: String(values.default_model || '').trim(), strategy: values.strategy,
           max_concurrency: Math.max(1, Math.min(8, Number(values.max_concurrency) || 2)),
-          timeout: Math.max(10, Math.min(1800, Number(values.timeout) || 300)), aliases,
+          timeout: Math.max(10, Math.min(1800, Number(values.timeout) || 300)), aliases, fast: !!values.fast,
+          keep_content: !!values.keep_content, content_days: Math.max(1, Math.min(365, Number(values.content_days) || 30)),
         } });
         render();
         toast('설정을 저장했어요.', 'success');
@@ -299,9 +306,32 @@
     button.disabled = false;
     load(true);
   });
+  // 요청 하나의 받은 프롬프트 · 보낸 답변 보기
+  const ROLE = { system: '시스템', developer: '시스템', user: '사용자', assistant: '어시스턴트', tool: '도구', function: '도구' };
+  $('llmLog').addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-llm-view]');
+    if (!button || button.disabled) return;
+    let data;
+    try { data = await api(`/api/llm/log/${encodeURIComponent(button.dataset.llmView)}`); } catch (error) { toast(error.message, 'error'); return; }
+    const e = data.entry || {};
+    const c = data.content;
+    const block = (label, text, cls = '') => `<div class="llm-msg"><div class="llm-msg-head"><b>${escapeHtml(label)}</b><span>${num(String(text || '').length)}자</span>
+        <button type="button" class="llm-btn" data-copy-text><i class="fas fa-copy"></i> 복사</button></div><pre class="llm-out ${cls}">${escapeHtml(text || '(비어 있음)')}</pre></div>`;
+    const body = c
+      ? `${c.messages.map((m) => block(ROLE[m.role] || m.role, m.text)).join('')}${c.answer || !c.error ? block('답변', c.answer) : ''}${c.error ? block('오류', c.error, 'error') : ''}`
+      : '<p class="llm-empty">이 요청은 내용이 저장되어 있지 않아요 (내용 저장이 꺼져 있었거나 보관 기간이 지났어요).</p>';
+    ui().infoSheet({
+      title: '요청 내용',
+      subtitle: [when(e.ts), e.token, e.model, e.account, e.status ? `${e.status}${e.error ? ` ${e.error}` : ''}` : '', e.ms ? `${(e.ms / 1000).toFixed(1)}초` : ''].filter(Boolean).join(' · '),
+      bodyHtml: `<div class="share-box llm-content">${body}</div>`,
+      onMount(sheet) {
+        sheet.querySelectorAll('[data-copy-text]').forEach((b) => b.addEventListener('click', () => copy(b.closest('.llm-msg').querySelector('pre').textContent, '복사했어요.')));
+      },
+    });
+  });
   $('llmRefresh').addEventListener('click', () => load());
   $('llmClearLog').addEventListener('click', async () => {
-    const ok = await ui().confirmSheet({ title: '요청 기록을 비울까요?', message: '토큰별 누적 사용량은 그대로 남아요.', confirmLabel: '비우기', danger: true });
+    const ok = await ui().confirmSheet({ title: '요청 기록을 비울까요?', message: '저장해 둔 프롬프트 · 답변도 함께 지워져요. 토큰별 누적 사용량은 그대로 남아요.', confirmLabel: '비우기', danger: true });
     if (ok) change('/api/llm/log', 'DELETE', undefined, '기록을 비웠어요.');
   });
 

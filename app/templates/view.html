@@ -24,6 +24,7 @@
   <span class="vw-tools">
     <button type="button" id="vwFit" aria-pressed="true" title="화면 너비에 맞추기">맞춤</button>
     <button type="button" id="vwPause" aria-pressed="false" title="잠시 멈추기">멈춤</button>
+    <button type="button" id="vwForget" class="hidden" title="이 브라우저에 기억해 둔 접근 코드를 지워요 (같이 쓰는 컴퓨터라면 눌러 주세요)">코드 지우기</button>
   </span>
 </header>
 <main class="vw-main" id="vwMain">
@@ -33,6 +34,7 @@
     <p>공유한 사람에게 따로 받은 코드예요. 코드가 있어야 화면을 볼 수 있어요.</p>
     <input id="vwCodeInput" name="code" inputmode="text" autocapitalize="characters" autocomplete="one-time-code" spellcheck="false" maxlength="20" placeholder="XXXX-XXXX-XXXX" aria-label="접근 코드" required>
     <button type="submit" id="vwCodeBtn">보기</button>
+    <p class="vw-code-hint">한 번 넣으면 이 브라우저에 기억해서, 공유가 끝날 때까지 다시 묻지 않아요.</p>
     <p class="vw-code-err" id="vwCodeErr" role="alert"></p>
   </form>
   <div class="vw-chat hidden" id="vwChat">

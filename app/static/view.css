@@ -82,3 +82,4 @@ body { display: flex; flex-direction: column; }
 .vd-gap { color: #6e7681; }
 .vd-cut { padding: 6px 12px; color: var(--muted); font-size: 12px; }
 .vw-more { display: block; width: 100%; font: inherit; font-size: 12px; font-weight: 700; color: #93c5fd; background: transparent; border: 0; border-top: 1px solid var(--line); padding: 6px; cursor: pointer; }
+.vw-code .vw-code-hint { margin-top: 10px; font-size: 11.5px; }

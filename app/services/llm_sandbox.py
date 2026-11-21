@@ -1,4 +1,7 @@
-"""LLM API 격리 실행: Claude · Codex CLI 를 요청마다 '나갈 수 없는' Docker 컨테이너 안에서만 돌린다.
+"""LLM API 격리 실행: Claude · Codex CLI 를 '나갈 수 없는' Docker 컨테이너 안에서만 돌린다.
+
+API 서버가 켜져 있는 동안 컨테이너 하나(univdash-llm)를 계속 띄워 두고, 요청은 그 안에서 실행한다 (docker exec).
+계정마다 사용자 번호 · 폴더(700)가 달라 다른 계정의 요청끼리 서로의 토큰 · 파일을 볼 수 없다.
 
 컨테이너가 볼 수 있는 것
 - 파일: 기본 이미지(ubuntu) + CLI 실행 파일 하나(읽기 전용) + 공개 CA 인증서(읽기 전용) + 빈 메모리 폴더(/work · /tmp).
@@ -8,7 +11,7 @@
   이 프록시는 AI 서비스 주소(api.anthropic.com · chatgpt.com · api.openai.com)의 443 포트로 가는 연결만 이어 준다.
   서버의 다른 포트 · 내부망 · 그 밖의 인터넷으로는 갈 수 없다.
 - 권한: root 아님(65534) · capability 전부 제거 · no-new-privileges · 루트 파일시스템 읽기 전용 · 메모리 폴더는 noexec ·
-  프로세스 수 · 메모리 · CPU 제한 · Docker 기본 seccomp/AppArmor. 요청이 끝나면 컨테이너는 사라진다 (--rm).
+  프로세스 수 · 메모리 · CPU 제한 · Docker 기본 seccomp/AppArmor. 안의 파일은 메모리에만 있어 컨테이너를 내리면 사라진다.
 - 로그인: 오래 쓰는 값은 넣지 않는다. Claude 는 접근 토큰(몇 시간짜리)을 환경 변수로, Codex 는 갱신 토큰을 뺀 로그인 사본만.
   컨테이너 안에서는 토큰을 갱신할 수 없으므로 서버의 로그인이 바뀌거나 풀릴 일이 없다.
 
@@ -36,19 +39,12 @@ MAX_TUNNELS = 64
 CONTAINER_UID = "65534:65534"
 
 # 컨테이너 안에서 도는 작은 중계기: 127.0.0.1:PORT 로 온 연결을 바깥 프록시의 유닉스 소켓으로 그대로 넘기고,
-# 뒤에 적힌 명령(CLI)을 실행한다. 환경 변수로 받은 파일 하나(UD_FILE · UD_FILE_DATA)를 먼저 메모리 폴더에 쓴다.
+# 뒤에 적힌 명령을 실행한다.
 # 기본 이미지에 있는 perl 만 쓴다.
 SHIM = r"""#!/usr/bin/perl
 use strict; use warnings;
 use IO::Socket::INET; use IO::Socket::UNIX; use IO::Select; use POSIX ();
 my ($sock, $port, @cmd) = @ARGV;
-# 넘겨받은 파일 하나(로그인 사본)를 메모리 폴더에 쓴다 → 서버 디스크에는 남지 않는다
-if (defined $ENV{UD_FILE} && defined $ENV{UD_FILE_DATA}) {
-    my $path = $ENV{UD_FILE}; (my $dir = $path) =~ s{/[^/]+$}{};
-    umask 077; mkdir $dir unless -d $dir;
-    open(my $fh, '>', $path) or die "write: $!"; print $fh $ENV{UD_FILE_DATA}; close $fh;
-    delete $ENV{UD_FILE}; delete $ENV{UD_FILE_DATA};
-}
 my $listen = IO::Socket::INET->new(LocalAddr => '127.0.0.1', LocalPort => $port, Listen => 64, ReuseAddr => 1) or die "listen: $!";
 $SIG{CHLD} = 'IGNORE';
 my $pid = fork();
@@ -226,42 +222,73 @@ async def ensure_proxy() -> Path:
     return folder
 
 
-# ── 컨테이너 ──────────────────────────────────────────────────────────────────
-def new_name() -> str:
-    return f"{LABEL}-{secrets.token_hex(8)}"
+# ── 컨테이너: API 서버가 켜져 있는 동안 하나를 계속 띄워 두고, 요청은 그 안에서 실행한다 ─────────
+CONTAINER = "univdash-llm"
+SPEC_LABEL = "univdash-llm.spec"
+WORK_SIZE = "512m"
+_container_lock: asyncio.Lock | None = None
+_container_ok: tuple[float, str] = (0.0, "")  # (확인한 시각, 그때의 spec)
+
+# 컨테이너 안에서 요청 하나를 실행하는 껍데기 (sh). 계정마다 폴더 · 사용자 번호가 다르다 → 다른 계정의 요청이
+# 서로의 토큰 · 파일을 볼 수 없다 (폴더는 700). 같은 계정의 요청끼리는 폴더를 같이 써서 CLI 가 받아 둔 캐시를
+# 다시 쓴다 (매번 처음부터 준비하지 않아 빠르다).
+EXEC_SCRIPT = (
+    'D=/work/$UD_HOME; umask 077; mkdir -p "$D/cwd" && cd "$D/cwd" || exit 97; '
+    'if [ -n "$UD_FILE" ]; then mkdir -p "$(dirname "$D/$UD_FILE")" && printf %s "$UD_FILE_DATA" > "$D/$UD_FILE.new" '
+    '&& mv -f "$D/$UD_FILE.new" "$D/$UD_FILE" || exit 98; fi; '
+    'unset UD_FILE_DATA; echo $$ > "$D/.pid-$UD_REQ"; '
+    'exec timeout -k 5 "$UD_TIMEOUT" "$@"'
+)
+KILL_SCRIPT = (
+    # sh 내장 kill 은 프로세스 묶음(-pid) 지정이 셸마다 달라 perl 로 보낸다
+    'f=/work/$UD_HOME/.pid-$UD_REQ; p=$(cat "$f" 2>/dev/null); rm -f "$f"; '
+    '[ -n "$p" ] && perl -e \'kill("KILL", -$ARGV[0]); kill("KILL", $ARGV[0])\' "$p"; exit 0'
+)
 
 
-def run_argv(
-    name: str,
-    proxy_folder: Path,
-    binary: str,
-    command: list[str],
-    *,
-    timeout: float,
-    env: dict[str, str] | None = None,
-    pass_env: tuple[str, ...] = (),
-) -> list[str]:
-    """docker run 명령. binary 는 컨테이너 안 /usr/local/bin/<이름> 으로 읽기 전용으로 붙는다.
+def binaries() -> dict[str, str]:
+    """컨테이너에 (읽기 전용으로) 붙일 CLI 실행 파일: {이름: 실제 경로}."""
+    from app.paths import find_command
 
-    pass_env 의 값은 명령줄에 적지 않고 docker 클라이언트의 환경에서 넘긴다 (ps 에 토큰이 보이지 않게).
-    """
-    docker = docker_bin()
-    if not docker:
-        raise RuntimeError("docker not found")
-    real = os.path.realpath(binary)
-    inside = f"/usr/local/bin/{command[0]}"
+    found = {}
+    for name in ("claude", "codex"):
+        path = find_command(name)
+        if path:
+            found[name] = os.path.realpath(path)
+    return found
+
+
+def _spec(proxy_folder: Path) -> str:
+    """컨테이너 구성이 바뀌었는지 알아보는 값 (CLI 가 업데이트되면 실행 파일 경로가 바뀐다 → 다시 띄운다)."""
+    import hashlib
+
+    parts = [
+        IMAGE,
+        str(proxy_folder),
+        SHIM,
+        EXEC_SCRIPT,
+        WORK_SIZE,
+        *sorted(f"{k}={v}" for k, v in binaries().items()),
+    ]
+    return hashlib.sha256("\n".join(parts).encode()).hexdigest()[:16]
+
+
+def _create_argv(proxy_folder: Path, spec: str) -> list[str]:
     proxy = f"http://127.0.0.1:{PROXY_PORT}"
     argv = [
-        docker,
+        docker_bin() or "docker",
         "run",
-        "--rm",
-        "-i",
+        "-d",
         "--pull",
         "never",
         "--name",
-        name,
+        CONTAINER,
         "--label",
         LABEL,
+        "--label",
+        f"{SPEC_LABEL}={spec}",
+        "--restart",
+        "no",
         "--network",
         "none",
         "--read-only",
@@ -270,19 +297,19 @@ def run_argv(
         "--security-opt",
         "no-new-privileges",
         "--pids-limit",
-        "256",
+        "512",
         "--memory",
-        "2g",
+        "4g",
         "--memory-swap",
-        "2g",
+        "4g",
         "--cpus",
-        "2",
+        "4",
         "--user",
         CONTAINER_UID,
         "--log-driver",
         "none",
         "--tmpfs",
-        "/work:rw,nosuid,nodev,noexec,size=64m,mode=1777",
+        f"/work:rw,nosuid,nodev,noexec,size={WORK_SIZE},mode=1777",
         "--tmpfs",
         "/tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777",
         "-v",
@@ -291,38 +318,146 @@ def run_argv(
         f"{_shim_path()}:/shim.pl:ro",
         "-v",
         "/etc/ssl/certs:/etc/ssl/certs:ro",
-        "-v",
-        f"{real}:{inside}:ro",
-        "-w",
-        "/work",
     ]
-    fixed = {
-        "HOME": "/work",
+    for name, path in binaries().items():
+        argv += ["-v", f"{path}:/usr/local/bin/{name}:ro"]
+    for key, value in {
         "HTTPS_PROXY": proxy,
         "HTTP_PROXY": proxy,
         "ALL_PROXY": proxy,
         "NO_COLOR": "1",
         "TERM": "dumb",
-        **(env or {}),
-    }
-    for key, value in fixed.items():
+    }.items():
         argv += ["-e", f"{key}={value}"]
-    for key in pass_env:
-        argv += ["-e", key]
-    # 대시보드가 죽어도 컨테이너가 남지 않게 안에서도 시간 제한을 건다
+    # 주 프로세스: 프록시 중계기를 띄워 두고 잠든다
     argv += [
         IMAGE,
         "perl",
         "/shim.pl",
         "/px/proxy.sock",
         str(PROXY_PORT),
-        "timeout",
-        "-k",
-        "5",
-        str(int(timeout) + 30),
-        *command,
+        "sleep",
+        "infinity",
     ]
     return argv
+
+
+async def _docker(*args: str, timeout: float = 30) -> tuple[int, str]:
+    proc = await asyncio.create_subprocess_exec(
+        docker_bin() or "docker",
+        *args,
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        env=client_env(),
+    )
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except TimeoutError:
+        proc.kill()
+        return 124, "timeout"
+    return proc.returncode or 0, out.decode("utf-8", "replace").strip()
+
+
+async def ensure_container() -> None:
+    """격리 컨테이너가 (지금 구성으로) 떠 있게 한다. 이미 떠 있으면 아무것도 하지 않는다."""
+    global _container_lock, _container_ok
+    folder = await ensure_proxy()
+    spec = _spec(folder)
+    if _container_ok[1] == spec and time.monotonic() - _container_ok[0] < 5:
+        return
+    if _container_lock is None:
+        _container_lock = asyncio.Lock()
+    async with _container_lock:
+        code, out = await _docker(
+            "inspect",
+            "-f",
+            '{{.State.Running}} {{index .Config.Labels "' + SPEC_LABEL + '"}}',
+            CONTAINER,
+        )
+        if code == 0 and out == f"true {spec}":
+            _container_ok = (time.monotonic(), spec)
+            return
+        if code == 0:  # 멈췄거나 구성이 달라졌다 → 다시 만든다
+            await _docker("rm", "-f", CONTAINER)
+        code, out = await _docker(*_create_argv(folder, spec)[1:], timeout=60)
+        if code != 0:
+            _container_ok = (0.0, "")
+            logger.error("LLM 격리: 컨테이너를 띄우지 못함 · %s", out[-400:])
+            raise RuntimeError("sandbox container failed to start")
+        _container_ok = (time.monotonic(), spec)
+        logger.info("LLM 격리 컨테이너를 띄움 · %s", CONTAINER)
+
+
+async def stop_container() -> None:
+    global _container_ok
+    _container_ok = (0.0, "")
+    if not docker_bin():
+        return
+    code, _ = await _docker("rm", "-f", CONTAINER)
+    if code == 0:
+        logger.info("LLM 격리 컨테이너를 내림 · %s", CONTAINER)
+
+
+def container_running() -> bool:
+    docker = docker_bin()
+    if not docker:
+        return False
+    try:
+        done = subprocess.run(
+            [docker, "inspect", "-f", "{{.State.Running}}", CONTAINER],
+            capture_output=True,
+            timeout=10,
+            check=False,
+            env=client_env(),
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return done.returncode == 0 and done.stdout.strip() == b"true"
+
+
+def new_request() -> str:
+    return secrets.token_hex(8)
+
+
+def account_home(provider: str, account_id: str) -> tuple[str, str]:
+    """(컨테이너 안 폴더 이름, 사용자 번호) — 계정마다 정해진 값."""
+    import hashlib
+
+    digest = hashlib.sha256(f"{provider}:{account_id}".encode()).hexdigest()
+    uid = 100000 + int(digest[:8], 16) % 60000
+    return f"a-{digest[:12]}", f"{uid}:{uid}"
+
+
+def exec_argv(
+    request: str,
+    home: str,
+    user: str,
+    command: list[str],
+    *,
+    timeout: float,
+    env: dict[str, str] | None = None,
+    pass_env: tuple[str, ...] = (),
+) -> list[str]:
+    """떠 있는 컨테이너 안에서 CLI 를 실행하는 명령 (docker exec).
+
+    env 값의 {home} 은 컨테이너 안 계정 폴더(/work/<home>)로 바뀐다.
+    pass_env 의 값은 명령줄에 적지 않고 docker 클라이언트의 환경에서 넘긴다 (ps 에 토큰이 보이지 않게).
+    """
+    base = f"/work/{home}"
+    argv = [docker_bin() or "docker", "exec", "-i", "--user", user]
+    fixed = {
+        "HOME": base,
+        "UD_HOME": home,
+        "UD_REQ": request,
+        "UD_TIMEOUT": str(int(timeout) + 30),  # 대시보드가 죽어도 안에서 스스로 끝난다
+        **{k: v.replace("{home}", base) for k, v in (env or {}).items()},
+    }
+    for key, value in fixed.items():
+        argv += ["-e", f"{key}={value}"]
+    for key in pass_env:
+        argv += ["-e", key]
+    return [*argv, CONTAINER, "sh", "-c", EXEC_SCRIPT, "sh", *command]
 
 
 def client_env(extra: dict[str, str] | None = None) -> dict[str, str]:
@@ -337,14 +472,30 @@ def client_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     return env
 
 
-def kill(name: str) -> None:
-    """컨테이너를 바로 없앤다 (기다리지 않는다). docker 클라이언트만 죽이면 컨테이너는 계속 돌기 때문."""
+def kill(request: str, home: str, user: str) -> None:
+    """요청 하나의 프로세스 묶음을 컨테이너 안에서 끝낸다 (기다리지 않는다).
+
+    docker exec 클라이언트만 죽이면 안의 프로세스는 계속 돌기 때문. 끝난 요청에 불러도 괜찮다 (pid 파일만 지운다).
+    """
     docker = docker_bin()
     if not docker:
         return
     try:
         subprocess.Popen(
-            [docker, "kill", name],
+            [
+                docker,
+                "exec",
+                "--user",
+                user,
+                "-e",
+                f"UD_HOME={home}",
+                "-e",
+                f"UD_REQ={request}",
+                CONTAINER,
+                "sh",
+                "-c",
+                KILL_SCRIPT,
+            ],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -352,4 +503,4 @@ def kill(name: str) -> None:
             start_new_session=True,
         )
     except OSError:
-        logger.warning("LLM 격리: 컨테이너 %s 를 끝내지 못함", name)
+        logger.warning("LLM 격리: 요청 %s 를 끝내지 못함", request)

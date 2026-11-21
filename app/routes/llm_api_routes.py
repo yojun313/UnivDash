@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from app.security import LoginRateLimiter, client_key
 from app.services import llm_api_service as llm
+from app.services import llm_sandbox
 from app.services.auth_service import AuthService
 from app.services.llm_api_service import ApiError
 
@@ -266,6 +267,10 @@ class _Run:
         self.usage: dict | None = None
         self.error: ApiError | None = None
         self.started = time.monotonic()
+        # 기록용: 받은 메시지 (역할 · 글). 따로 정하지 않으면 시스템 지시 + 프롬프트
+        self.messages: list[dict] = (
+            [{"role": "system", "text": system}] if system else []
+        ) + [{"role": "user", "text": prompt}]
         self.task = asyncio.create_task(self._pump())
 
     async def _pump(self) -> None:
@@ -313,7 +318,12 @@ class _Run:
             "ip": self.ip,
         }
         try:
-            llm.record_request(self.record, entry)
+            content = {
+                "messages": self.messages,
+                "answer": self.final_text() if output else "",
+                "error": self.error.message if self.error else "",
+            }
+            llm.record_request(self.record, entry, content)
         except Exception:
             logger.exception("LLM API 기록 실패")
 
@@ -392,6 +402,11 @@ async def chat_completions(request: Request):
         return _error(error)
 
     run = _Run(record, model, system, prompt, json_mode, stream, client_key(request))
+    run.messages = [
+        {"role": str(m.get("role") or "user"), "text": _content_text(m.get("content"))}
+        for m in body["messages"][:2000]
+        if isinstance(m, dict)
+    ]
     completion_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
     created = int(time.time())
     model_name = model or await asyncio.to_thread(llm.default_model)
@@ -529,6 +544,18 @@ async def _plain_response(run: _Run, completion_id: str, created: int, model_nam
     )
 
 
+async def sync_sandbox() -> None:
+    """API 서버가 켜져 있으면 격리 컨테이너를 띄워 두고, 꺼져 있으면 내린다."""
+    try:
+        if await asyncio.to_thread(llm.enabled):
+            if not await asyncio.to_thread(llm_sandbox.problem):
+                await llm_sandbox.ensure_container()
+        else:
+            await llm_sandbox.stop_container()
+    except Exception:
+        logger.exception("LLM 격리 컨테이너 상태를 맞추지 못함")
+
+
 # ── 관리 ──────────────────────────────────────────────────────────────────────
 def _bad(error: Exception):
     if isinstance(error, KeyError):
@@ -556,6 +583,9 @@ class SettingsBody(BaseModel):
     aliases: dict[str, str] | None = None
     max_concurrency: int | None = Field(default=None, ge=1, le=8)
     timeout: int | None = Field(default=None, ge=10, le=1800)
+    fast: bool | None = None
+    keep_content: bool | None = None
+    content_days: int | None = Field(default=None, ge=1, le=365)
 
 
 @router.put("/api/llm/settings", dependencies=api_auth)
@@ -564,6 +594,8 @@ async def llm_settings(body: SettingsBody):
         await asyncio.to_thread(llm.update_settings, body.model_dump(exclude_none=True))
     except (ValueError, ApiError) as error:
         _bad(error)
+    if body.enabled is not None:
+        await sync_sandbox()
     return await asyncio.to_thread(llm.state)
 
 
@@ -630,6 +662,15 @@ async def llm_delete_token(token_id: str):
     return {"ok": True}
 
 
+@router.get("/api/llm/log/{request_id}", dependencies=api_auth)
+async def llm_log_item(request_id: str):
+    """요청 하나의 받은 메시지 · 보낸 답변 (관리자만)."""
+    data = await asyncio.to_thread(llm.request_content, request_id[:16])
+    if data is None:
+        raise HTTPException(status_code=404, detail="기록을 찾을 수 없어요.")
+    return data
+
+
 @router.delete("/api/llm/log", dependencies=api_auth)
 async def llm_clear_log():
     await asyncio.to_thread(llm.clear_log)
@@ -659,6 +700,10 @@ async def llm_test(body: TestBody, request: Request):
     except asyncio.CancelledError:
         run.cancel()
         raise
+    if not await asyncio.to_thread(llm.enabled):
+        await (
+            llm_sandbox.stop_container()
+        )  # 꺼 둔 상태에서 시험만 한 경우: 컨테이너를 남기지 않는다
     if run.error:
         raise HTTPException(
             status_code=502,
