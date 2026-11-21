@@ -2024,3 +2024,10 @@ html[data-ui-theme-mode="light"] .dom-modal-actions .dom-danger { background: #d
 .share-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .share-row { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 10px; border: 1px solid rgba(148,163,184,0.2); }
 .share-row button { flex: 0 0 auto; min-height: 34px; padding: 0 14px; border-radius: 10px; font-size: 12px; font-weight: 800; }
+.access-code { padding: 12px; border-radius: 12px; border: 1px solid rgba(245,158,11,0.40); background: rgba(245,158,11,0.10); }
+.access-code .ac-label { font-size: 12px; font-weight: 800; }
+.access-code .ac-label span { font-weight: 600; opacity: .7; }
+.access-code .ac-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.access-code .ac-value { flex: 1 1 auto; font: 700 20px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; user-select: all; }
+.access-code button { flex: 0 0 auto; min-height: 38px; padding: 0 14px; border-radius: 10px; font-size: 12px; font-weight: 800; }
+.share-tag { display: inline-block; font-size: 10px; font-weight: 800; padding: 0 6px; border-radius: 999px; background: rgba(245,158,11,0.16); color: rgb(217,119,6); margin-left: 4px; vertical-align: 1px; }

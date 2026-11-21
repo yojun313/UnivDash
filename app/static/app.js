@@ -779,8 +779,118 @@
         { icon: hidden ? 'fa-eye' : 'fa-eye-slash', label: hidden ? '다시 표시' : '목록에서 숨기기', onClick: () => toggleHidden(w.key) },
         ...(agentSwitchActions(w).length ? ['sep', ...agentSwitchActions(w)] : []),
         'sep',
+        { icon: 'fa-eye', label: '읽기 전용으로 화면 공유', sub: '로그인 없이 보기만', onClick: () => viewShareForm(w) },
+        { icon: 'fa-link', label: '공유 중인 화면 관리', onClick: () => viewSharesSheet() },
+        'sep',
         { icon: 'fa-trash-can', label: 'tmux 창 종료', danger: true, onClick: () => killWindow(w) },
       ],
+    });
+  }
+
+  // ── 화면 공유 (읽기 전용): 링크를 받은 사람은 이 창 화면을 보기만 한다. 입력 · 키 · 크기 바꾸기는 할 수 없다 ──
+  const VIEW_TIMES = [[15, '15분'], [30, '30분'], [60, '1시간'], [180, '3시간'], [720, '12시간'], [1440, '1일'], [4320, '3일'], [10080, '7일']];
+  const VIEW_HISTORY = [[0, '지금 화면만'], [300, '최근 300줄까지'], [2000, '최근 2000줄까지']];
+  const viewWhen = (t) => new Date(t * 1000).toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  function viewLeft(share) {
+    const minutes = Math.max(0, Math.ceil((share.expires * 1000 - Date.now()) / 60000));
+    return minutes >= 1440 ? `${Math.floor(minutes / 1440)}일 ${Math.floor((minutes % 1440) / 60)}시간 남음`
+      : minutes >= 60 ? `${Math.floor(minutes / 60)}시간 ${minutes % 60}분 남음` : `${minutes}분 남음`;
+  }
+  async function copyLink(link) {
+    try { await navigator.clipboard.writeText(link); toast('공유 링크를 복사했어요.', 'ok', null, 1500); } catch (e) { toast('복사하지 못했어요. 링크를 길게 눌러 복사하세요.', 'error'); }
+  }
+  function viewShareForm(w) {
+    const pane = agentPaneOf(w);
+    if (!pane) { toast('공유할 화면을 찾지 못했어요.', 'error'); return; }
+    const opts = (list, value) => list.map(([v, label]) => `<option value="${v}"${v === value ? ' selected' : ''}>${label}</option>`).join('');
+    formSheet({
+      title: '읽기 전용으로 화면 공유', subtitle: `${displayName(w)} · ${w.session}:${w.index}`, submitLabel: '링크 만들기',
+      fields: [{ name: 'title', label: '보는 사람에게 보일 이름', value: displayName(w), maxlength: 60 }],
+      extraHtml: `<label>볼 수 있는 시간<select name="minutes">${opts(VIEW_TIMES, 60)}</select></label>
+        <label>보여 줄 범위<select name="history">${opts(VIEW_HISTORY, 0)}</select></label>
+        <p class="text-[11px] opacity-60 leading-5"><i class="fas fa-key mr-1"></i>링크와 함께 <b>접근 코드</b>가 만들어져요. 코드를 받은 사람만 볼 수 있어요 (화면 공유는 코드가 항상 필요해요).</p>
+        <p class="text-[11px] opacity-60 leading-5"><i class="fas fa-shield-halved mr-1"></i>링크와 코드를 받은 사람은 로그인 없이 이 창의 화면을 <b>보기만</b> 할 수 있어요. 입력 · 키 · 창 크기 바꾸기는 아예 할 수 없고, 다른 창이나 파일도 볼 수 없어요. 화면에 찍힌 API 키 · 토큰 같은 값은 가려서 보내지만 모든 비밀을 알아보지는 못하니, 비밀이 화면에 나오지 않게 조심하세요. 창을 닫거나 시간이 지나면 링크가 끊겨요.</p>`,
+      async onSubmit(values) {
+        const result = await api('POST', '/api/view-shares', {
+          pane, title: String(values.title || '').trim(), minutes: Number(values.minutes) || 60, history: Number(values.history) || 0,
+        });
+        setTimeout(() => viewShareResult(result), 0);
+        return false;
+      },
+    });
+  }
+  function viewShareResult({ url, code, share }) {
+    const link = `${location.origin}${url}`;
+    infoSheet({
+      title: '화면 공유 링크를 만들었어요', subtitle: share.title,
+      bodyHtml: `<div class="share-box">${accessCodeHtml(code)}
+        <div class="share-link mt-3"><input readonly value="${escapeHtml(link)}" aria-label="공유 링크" spellcheck="false">
+          <button type="button" class="btn-glow" data-copy><i class="fas fa-copy mr-1"></i>링크 복사</button>
+          ${navigator.share ? '<button type="button" class="sheet-cancel" data-send><i class="fas fa-share-nodes mr-1"></i>보내기</button>' : ''}</div>
+        <p class="text-[12px] opacity-75 leading-5 mt-3">${escapeHtml(viewWhen(share.expires))}까지 볼 수 있어요 · ${escapeHtml(VIEW_HISTORY.find(([v]) => v === share.history)?.[1] || '')}</p>
+        <p class="text-[11px] opacity-60 leading-5 mt-1"><i class="fas fa-triangle-exclamation mr-1"></i>링크와 코드는 지금만 보여요. 링크만으로는 열리지 않고 코드가 꼭 있어야 해요. 코드는 링크와 다른 방법(직접 말하기 · 다른 메신저)으로 볼 사람에게만 전달하세요. 창 메뉴 › 공유 중인 화면 관리에서 언제든 끊을 수 있어요.</p></div>`,
+      onMount(body) {
+        const input = body.querySelector('.share-link input');
+        input.addEventListener('focus', () => input.select());
+        mountAccessCode(body, code);
+        body.querySelector('[data-copy]').addEventListener('click', () => copyLink(link));
+        // 보내기에는 링크만 싣는다 (코드는 따로 전달)
+        body.querySelector('[data-send]')?.addEventListener('click', () => navigator.share({ title: share.title, url: link }).catch(() => {}));
+      },
+    });
+  }
+  // 접근 코드 상자 (화면 공유 · 파일 공유 공용) — explorer.js 도 window.UnivDashAccessCode 로 쓴다
+  function accessCodeHtml(code) {
+    return `<div class="access-code"><div class="ac-label"><i class="fas fa-key mr-1"></i>접근 코드 <span>· 볼 사람에게 직접 전달하세요</span></div>
+        <div class="ac-row"><code class="ac-value">${escapeHtml(code)}</code>
+        <button type="button" class="sheet-cancel" data-copy-code><i class="fas fa-copy mr-1"></i>코드 복사</button></div></div>`;
+  }
+  function mountAccessCode(body, code) {
+    body.querySelector('[data-copy-code]')?.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(code); toast('접근 코드를 복사했어요.', 'ok', null, 1500); } catch (e) { toast('복사하지 못했어요. 코드를 직접 적어 전달하세요.', 'error'); }
+    });
+  }
+  window.UnivDashAccessCode = { html: accessCodeHtml, mount: mountAccessCode };
+  async function viewSharesSheet() {
+    let list;
+    try { list = (await api('GET', '/api/view-shares')).shares; } catch (error) { toast(error.message, 'error'); return; }
+    const windowOf = (pane) => state.windows.find((w) => w.panes.some((p) => p.id === pane));
+    const rows = list.map((s) => {
+      const w = windowOf(s.pane);
+      const where = w ? displayName(w) : '닫힌 창';
+      const status = !s.pane_alive ? '창이 닫혀 볼 수 없음' : s.watching ? `지금 ${s.watching}곳에서 보는 중` : '보는 사람 없음';
+      return `<li class="share-row" data-view-share="${escapeHtml(s.id)}">
+          <i class="fas ${s.pane_alive ? 'fa-eye' : 'fa-eye-slash'} opacity-70"></i>
+          <div class="min-w-0 flex-1"><div class="truncate font-semibold">${escapeHtml(s.title)}</div>
+            <div class="truncate text-[11px] opacity-60">${escapeHtml(where)} · ${escapeHtml(VIEW_HISTORY.find(([v]) => v === s.history)?.[1] || '')}</div>
+            <div class="text-[11px] opacity-75">${escapeHtml(viewLeft(s))} · ${escapeHtml(status)} · ${Number(s.opens) || 0}번 열림</div></div>
+          <button type="button" class="sheet-danger" data-revoke>끊기</button></li>`;
+    }).join('');
+    infoSheet({
+      title: '공유 중인 화면', subtitle: list.length ? `${list.length}개 · 시간이 지나면 저절로 끊겨요` : '',
+      bodyHtml: `<div class="share-box">${list.length ? `<ul class="share-list">${rows}</ul>
+          <div class="sheet-buttons" style="padding:12px 0 0"><button type="button" class="sheet-danger" data-revoke-all>모두 끊기</button></div>`
+        : '<p class="opacity-70 text-sm">공유 중인 화면이 없어요. 창 메뉴 › 읽기 전용으로 화면 공유에서 만들 수 있어요.</p>'}</div>`,
+      onMount(body) {
+        body.querySelectorAll('[data-revoke]').forEach((button) => button.addEventListener('click', async () => {
+          const row = button.closest('[data-view-share]');
+          button.disabled = true;
+          try {
+            await api('DELETE', `/api/view-shares/${encodeURIComponent(row.dataset.viewShare)}`);
+            row.remove();
+            toast('공유를 끊었어요. 이제 볼 수 없어요.', 'ok');
+          } catch (error) { button.disabled = false; toast(error.message, 'error'); }
+        }));
+        const all = body.querySelector('[data-revoke-all]');
+        all?.addEventListener('click', async () => {
+          all.disabled = true;
+          try {
+            const { revoked } = await api('DELETE', '/api/view-shares');
+            closeSheet();
+            toast(`화면 공유 ${revoked}개를 모두 끊었어요.`, 'ok');
+          } catch (error) { all.disabled = false; toast(error.message, 'error'); }
+        });
+      },
     });
   }
 

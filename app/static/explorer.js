@@ -1141,9 +1141,10 @@
         extraHtml: `<label>받을 수 있는 시간<select name="minutes">${opts(SHARE_TIMES, 15)}</select></label>
           <label>받을 수 있는 횟수<select name="count">${opts(SHARE_COUNTS, 0)}</select></label>
           ${isDir ? '<label class="check-row"><input type="checkbox" name="skip_ignored"> .gitignore 항목 빼기 (node_modules · .venv 등)</label>' : ''}
+          <label class="check-row"><input type="checkbox" name="require_code"> 접근 코드도 있어야 받을 수 있게 (링크와 따로 전달할 코드를 만들어요)</label>
           <p class="text-[11px] opacity-60 leading-5"><i class="fas fa-shield-halved mr-1"></i>링크를 받은 사람은 로그인 없이 ${isDir ? '이 폴더 하나만 zip 으로' : '이 파일 하나만'} 받을 수 있어요. 다른 파일 · 폴더는 볼 수 없고, 시간이 지나면 링크가 사라져요.${isDir ? ' 지금 내용을 묶어 두므로 나중에 바뀐 내용은 들어가지 않아요. .env · 개인 키 · .git 은 빠져요.' : ''}</p>`,
         async onSubmit(values) {
-          const body = { path: entry.path, minutes: Number(values.minutes) || 15, max_downloads: Number(values.count) || 0, skip_ignored: !!values.skip_ignored };
+          const body = { path: entry.path, minutes: Number(values.minutes) || 15, max_downloads: Number(values.count) || 0, skip_ignored: !!values.skip_ignored, require_code: !!values.require_code };
           const result = await api('/api/share', { method: 'POST', body });
           if (result.state === 'done') { setTimeout(() => shareResult(result), 0); return false; }
           setTimeout(() => waitShare(entry, result.job), 0);
@@ -1180,17 +1181,21 @@
       const count = share.max_downloads ? `${share.downloads}/${share.max_downloads}번 받음` : `${share.downloads}번 받음`;
       return `${time} 남음 · ${count}`;
     }
-    function shareResult({ url, share }) {
+    function shareResult({ url, code, share }) {
       const link = `${location.origin}${url}`;
+      const codeBox = code ? window.UnivDashAccessCode?.html(code) : '';
       ui().infoSheet({
         title: '공유 링크를 만들었어요', subtitle: `${share.name} · ${formatSize(share.size)}`,
-        bodyHtml: `<div class="share-box"><div class="share-link"><input readonly value="${escapeHtml(link)}" aria-label="공유 링크" spellcheck="false">
+        bodyHtml: `<div class="share-box">${codeBox ? `${codeBox}<div class="mt-3"></div>` : ''}<div class="share-link"><input readonly value="${escapeHtml(link)}" aria-label="공유 링크" spellcheck="false">
             <button type="button" class="btn-glow" data-copy><i class="fas fa-copy mr-1"></i>복사</button>
             ${navigator.share ? '<button type="button" class="sheet-cancel" data-send><i class="fas fa-share-nodes mr-1"></i>보내기</button>' : ''}</div>
           <p class="text-[12px] opacity-75 leading-5 mt-3">${escapeHtml(shareWhen(share.expires))}까지 받을 수 있어요 · ${escapeHtml(share.max_downloads ? `${share.max_downloads}번만` : '횟수 제한 없음')}</p>
-          <p class="text-[11px] opacity-60 leading-5 mt-1"><i class="fas fa-triangle-exclamation mr-1"></i>링크는 지금만 보여요. 링크를 아는 사람은 누구나 받을 수 있으니 받을 사람에게만 보내세요. 탐색기 ⋯ 메뉴 › 공유 중인 링크에서 언제든 끊을 수 있어요.</p></div>`,
+          <p class="text-[11px] opacity-60 leading-5 mt-1"><i class="fas fa-triangle-exclamation mr-1"></i>${code
+            ? '링크와 코드는 지금만 보여요. 링크만으로는 받을 수 없고 코드가 꼭 있어야 해요. 코드는 링크와 다른 방법(직접 말하기 · 다른 메신저)으로 받을 사람에게만 전달하세요.'
+            : '링크는 지금만 보여요. 링크를 아는 사람은 누구나 받을 수 있으니 받을 사람에게만 보내세요.'} 탐색기 ⋯ 메뉴 › 공유 중인 링크에서 언제든 끊을 수 있어요.</p></div>`,
         onMount(body) {
-          const input = body.querySelector('input');
+          if (code) window.UnivDashAccessCode?.mount(body, code);
+          const input = body.querySelector('.share-link input');
           input.addEventListener('focus', () => input.select());
           body.querySelector('[data-copy]').addEventListener('click', () => copyText(link, '공유 링크 복사'));
           body.querySelector('[data-send]')?.addEventListener('click', () => navigator.share({ title: share.name, url: link }).catch(() => {}));
@@ -1202,7 +1207,7 @@
       try { list = (await api('/api/shares')).shares; } catch (error) { toast(error.message, 'error'); return; }
       const rows = list.map((s) => `<li class="share-row" data-share="${escapeHtml(s.id)}">
           <i class="fas ${s.kind === 'dir' ? 'fa-file-zipper' : 'fa-file'} opacity-70"></i>
-          <div class="min-w-0 flex-1"><div class="truncate font-semibold">${escapeHtml(s.name)}</div>
+          <div class="min-w-0 flex-1"><div class="truncate font-semibold">${escapeHtml(s.name)}${s.has_code ? '<span class="share-tag"><i class="fas fa-key"></i> 코드</span>' : ''}</div>
             <div class="truncate text-[11px] opacity-60">${escapeHtml(shortHome(s.path))}</div>
             <div class="text-[11px] opacity-75">${escapeHtml(shareLeft(s))} · ${escapeHtml(formatSize(s.size))}</div></div>
           <button type="button" class="sheet-danger" data-revoke>끊기</button></li>`).join('');

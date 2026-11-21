@@ -19,6 +19,8 @@
   .warn { color: var(--warn); }
   button { margin-top: 22px; width: 100%; border: 0; border-radius: 10px; padding: 13px 16px; font: inherit; font-weight: 600; background: var(--accent); color: var(--accent-text); cursor: pointer; }
   button:hover { filter: brightness(1.08); }
+  input.code { display: block; width: 100%; margin-top: 20px; padding: 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); text-align: center; letter-spacing: .12em; font: 600 18px ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; }
+  input.code + button { margin-top: 12px; }
 </style>
 </head>
 <body>
@@ -31,6 +33,19 @@
   <div class="icon" aria-hidden="true">⏳</div>
   <h1>잠시 뒤 다시 시도해 주세요</h1>
   <p class="meta">잘못된 링크를 너무 많이 열었어요.</p>
+{% elif code_locked %}
+  <div class="icon" aria-hidden="true">⏳</div>
+  <h1>잠시 뒤 다시 시도해 주세요</h1>
+  <p class="meta">접근 코드가 여러 번 틀려 약 {{ wait }}분 동안 막혔어요.</p>
+{% elif need_code %}
+  <div class="icon" aria-hidden="true">🔒</div>
+  <h1>접근 코드가 필요해요</h1>
+  <p class="meta">보낸 사람에게 따로 받은 코드를 넣으면 받을 수 있어요.</p>
+  <form method="post" action="{{ action }}" autocomplete="off">
+    <input name="code" class="code" inputmode="text" autocapitalize="characters" autocomplete="one-time-code" spellcheck="false" maxlength="20" placeholder="XXXX-XXXX-XXXX" aria-label="접근 코드" required>
+    <button type="submit">코드 확인하고 내려받기</button>
+  </form>
+  {% if wrong %}<p class="note warn" role="alert">접근 코드가 맞지 않아요. 다시 넣어 주세요.</p>{% endif %}
 {% elif busy %}
   <div class="icon" aria-hidden="true">⏳</div>
   <h1>받는 사람이 많아요</h1>

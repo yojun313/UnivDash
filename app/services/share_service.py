@@ -10,6 +10,8 @@
   .env · 개인 키 · .git 은 뺀다. 받는 쪽 요청으로 서버가 압축 작업을 하지 않는다.
 - 비밀이 모여 있는 폴더(~/.ssh · ~/.claude · ~/.codex · ~/.univdash 등)와 그 안, 탐색기 루트(홈 전체)는 공유할 수 없다.
 - 만료 · 횟수 소진 · 취소된 링크는 없는 링크와 똑같이 응답한다.
+- 고르면(기본 꺼짐) 접근 코드도 만든다: 링크와 따로 전달하는 코드가 있어야 받을 수 있고, 코드를 넣기 전에는
+  파일 이름 · 크기도 보여 주지 않는다 (app/services/access_code.py).
 """
 
 import asyncio
@@ -25,7 +27,7 @@ import time
 from pathlib import Path
 
 from app.paths import data_dir
-from app.services import fs_service
+from app.services import access_code, fs_service
 from app.services.fs_service import FsError
 
 logger = logging.getLogger(__name__)
@@ -212,11 +214,16 @@ def create(
     max_downloads: int,
     archive: Path | None = None,
     size: int | None = None,
-) -> tuple[str, dict]:
-    """링크를 만든다. (토큰, 공개 정보) — 토큰은 이때만 알 수 있다."""
+    require_code: bool = False,
+) -> tuple[str, str | None, dict]:
+    """링크를 만든다. (토큰, 접근 코드 또는 None, 공개 정보) — 토큰 · 코드는 이때만 알 수 있다.
+
+    require_code 면 링크와 따로 전달할 접근 코드를 만들고, 받을 때 그 코드가 있어야 한다.
+    """
     minutes = max(MINUTES_MIN, min(MINUTES_MAX, int(minutes)))
     now = time.time()
     token = secrets.token_urlsafe(32)
+    code, stored = access_code.make() if require_code else (None, {})
     share = {
         "id": secrets.token_hex(8),
         "path": str(real),
@@ -228,6 +235,7 @@ def create(
         "max_downloads": max(0, int(max_downloads)),
         "downloads": 0,
         "archive": archive.name if archive else None,
+        **stored,
     }
     try:
         with _lock:
@@ -246,29 +254,33 @@ def create(
             archive.unlink(missing_ok=True)
         raise
     logger.info(
-        "공유 링크 만듦 · %s · %s · %d분 · 횟수 %s",
+        "공유 링크 만듦 · %s · %s · %d분 · 횟수 %s%s",
         share["id"],
         real,
         minutes,
         share["max_downloads"] or "제한 없음",
+        " · 접근 코드 필요" if code else "",
     )
-    return token, public(share)
+    return token, code, public(share)
 
 
 def public(share: dict) -> dict:
     return {
-        key: share[key]
-        for key in (
-            "id",
-            "path",
-            "kind",
-            "name",
-            "size",
-            "created",
-            "expires",
-            "max_downloads",
-            "downloads",
-        )
+        "has_code": bool(share.get("code_hash")),
+        **{
+            key: share[key]
+            for key in (
+                "id",
+                "path",
+                "kind",
+                "name",
+                "size",
+                "created",
+                "expires",
+                "max_downloads",
+                "downloads",
+            )
+        },
     }
 
 
@@ -287,6 +299,7 @@ def revoke(share_id: str) -> bool:
             if share.get("id") == share_id:
                 _drop(shares.pop(key))
                 _save(shares)
+                access_code.forget(share_id)
                 logger.info("공유 링크 취소 · %s · %s", share_id, share["path"])
                 return True
     return False

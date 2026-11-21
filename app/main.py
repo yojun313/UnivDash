@@ -24,6 +24,7 @@ from app.routes import (
     share_routes,
     tmux_routes,
     upload_routes,
+    view_share_routes,
 )
 from app.security import SecurityMiddleware, env_flag, resolve_secret_key
 from app.services import (
@@ -37,6 +38,7 @@ from app.services import (
     share_service,
     tool_install,
     upload_service,
+    view_share_service,
 )
 from app.services.auth_service import SESSION_MAX_AGE
 
@@ -56,6 +58,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(codex_auto_switch.loop()),
         asyncio.create_task(agent_update_all.update_prompt_loop()),
         asyncio.create_task(share_service.cleanup_loop()),
+        asyncio.create_task(view_share_service.cleanup_loop()),
     ]
     try:
         yield
@@ -111,3 +114,4 @@ app.include_router(pty_routes.router)
 app.include_router(settings_routes.router)
 app.include_router(push_routes.router)
 app.include_router(share_routes.router)
+app.include_router(view_share_routes.router)

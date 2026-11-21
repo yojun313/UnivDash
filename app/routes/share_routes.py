@@ -11,7 +11,8 @@ import secrets
 import threading
 import time
 from datetime import datetime
-from urllib.parse import quote
+from functools import partial
+from urllib.parse import parse_qs, quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -19,7 +20,7 @@ from pydantic import BaseModel, Field
 
 from app.routes.pages import templates
 from app.security import LoginRateLimiter, client_key
-from app.services import push_service, share_service
+from app.services import access_code, push_service, share_service
 from app.services.auth_service import AuthService
 from app.services.fs_service import FsError
 
@@ -61,6 +62,9 @@ class ShareRequest(BaseModel):
     )
     max_downloads: int = Field(default=0, ge=0, le=1000)
     skip_ignored: bool = False
+    require_code: bool = (
+        False  # 링크와 따로 전달하는 접근 코드가 있어야 받을 수 있게 (기본 꺼짐)
+    )
 
 
 _jobs: dict[str, dict] = {}
@@ -75,8 +79,8 @@ def _bad(error: Exception):
     ) from error
 
 
-def _link(token: str, share: dict) -> dict:
-    return {"state": "done", "url": f"/s/{token}", "share": share}
+def _link(token: str, code: str | None, share: dict) -> dict:
+    return {"state": "done", "url": f"/s/{token}", "code": code, "share": share}
 
 
 def _run_job(job: dict, real, body: ShareRequest) -> None:
@@ -86,8 +90,14 @@ def _run_job(job: dict, real, body: ShareRequest) -> None:
 
     try:
         archive, size = share_service.zip_for_share(real, body.skip_ignored, progress)
-        token, share = share_service.create(
-            real, "dir", body.minutes, body.max_downloads, archive, size
+        token, code, share = share_service.create(
+            real,
+            "dir",
+            body.minutes,
+            body.max_downloads,
+            archive,
+            size,
+            require_code=body.require_code,
         )
     except (FsError, OSError) as error:
         job.update(state="error", error=str(error) or "공유 링크를 만들지 못했어요.")
@@ -96,7 +106,7 @@ def _run_job(job: dict, real, body: ShareRequest) -> None:
         logger.exception("공유 링크 만들기 실패 · %s", real)
         job.update(state="error", error="공유 링크를 만들지 못했어요.")
         return
-    job.update(_link(token, share))
+    job.update(_link(token, code, share))
 
 
 @router.post("/api/share", dependencies=api_auth)
@@ -107,12 +117,19 @@ async def create_share(body: ShareRequest):
         _bad(error)
     if kind == "file":
         try:
-            token, share = await asyncio.to_thread(
-                share_service.create, real, kind, body.minutes, body.max_downloads
+            token, code, share = await asyncio.to_thread(
+                partial(
+                    share_service.create,
+                    real,
+                    kind,
+                    body.minutes,
+                    body.max_downloads,
+                    require_code=body.require_code,
+                )
             )
         except (FsError, OSError) as error:
             _bad(error)
-        return _link(token, share)
+        return _link(token, code, share)
     now = time.monotonic()
     for job_id in [
         j
@@ -147,6 +164,7 @@ _JOB_FIELDS = (
     "done_bytes",
     "total_bytes",
     "url",
+    "code",
     "share",
     "error",
 )
@@ -231,6 +249,9 @@ async def share_page(request: Request, token: str):
     share, error = await asyncio.to_thread(_lookup, request, token)
     if error:
         return error
+    if share.get("code_hash"):
+        # 코드를 넣기 전에는 파일 이름 · 크기도 보여 주지 않는다
+        return _page(request, 200, need_code=True, action=f"/s/{token}")
     left = (
         share["max_downloads"] - share["downloads"] if share["max_downloads"] else None
     )
@@ -246,6 +267,48 @@ async def share_page(request: Request, token: str):
         left=left,
         action=f"/s/{token}",
     )
+
+
+CODE_FORM_MAX = 1024
+
+
+async def _form_code(request: Request) -> str:
+    """폼으로 온 접근 코드 (본문이 크거나 형식이 다르면 빈 값)."""
+    if not (request.headers.get("content-type") or "").startswith(
+        "application/x-www-form-urlencoded"
+    ):
+        return ""
+    body = b""
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > CODE_FORM_MAX:
+            return ""
+    values = parse_qs(body.decode("utf-8", "replace"), max_num_fields=4).get("code")
+    return values[0] if values else ""
+
+
+async def _code_denied(
+    request: Request, share: dict, token: str
+) -> HTMLResponse | None:
+    """접근 코드가 맞으면 None, 아니면 다시 넣게 하는 페이지."""
+    result = await asyncio.to_thread(
+        access_code.check, share, await _form_code(request)
+    )
+    if result:
+        return None
+    who = client_key(request)
+    if result is None:
+        wait = access_code.locked(share["id"]) or 60
+        logger.warning("공유 링크 접근 코드 잠김 · %s · client=%s", share["id"], who)
+        if access_code.should_notify(share["id"]):
+            task = asyncio.create_task(_notify_lock(share))
+            _tasks.add(task)
+            task.add_done_callback(_tasks.discard)
+        response = _page(request, 429, code_locked=True, wait=max(1, (wait + 59) // 60))
+        response.headers["Retry-After"] = str(wait)
+        return response
+    logger.warning("공유 링크 접근 코드 틀림 · %s · client=%s", share["id"], who)
+    return _page(request, 403, need_code=True, wrong=True, action=f"/s/{token}")
 
 
 def _take_slot(share_id: str) -> bool:
@@ -273,6 +336,8 @@ async def share_download(request: Request, token: str):
     share, error = await asyncio.to_thread(_lookup, request, token)
     if error:
         return error
+    if share.get("code_hash") and (denied := await _code_denied(request, share, token)):
+        return denied
     if not _take_slot(share["id"]):
         response = _page(request, 429, busy=True)
         response.headers["Retry-After"] = "30"
@@ -332,6 +397,21 @@ async def _notify(share: dict) -> None:
                 "title": "공유 링크로 받아 갔어요",
                 "body": f"{share['name']} · {count}",
                 "tag": f"univdash-share-{share['id']}",
+                "url": "/explorer",
+            },
+            skip_focused=False,
+        )
+    except Exception:
+        logger.exception("공유 알림 실패")
+
+
+async def _notify_lock(share: dict) -> None:
+    try:
+        await push_service.send(
+            {
+                "title": "공유 링크 접근 코드가 여러 번 틀렸어요",
+                "body": f"{share['name']} · 15분 동안 막았어요. 모르는 사람이면 링크를 끊으세요.",
+                "tag": f"univdash-share-lock-{share['id']}",
                 "url": "/explorer",
             },
             skip_focused=False,
