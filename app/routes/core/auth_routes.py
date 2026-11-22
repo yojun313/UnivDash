@@ -3,10 +3,12 @@ import logging
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.assets import install as install_assets
 from app.i18n import N_, _
 from app.security import LoginRateLimiter, client_key
+from app.services.core import auth_service
 from app.services.core.auth_service import AuthService, config_problem, sessions
 
 router = APIRouter()
@@ -145,3 +147,81 @@ async def session_revoke_others(request: Request):
         client_key(request),
     )
     return {"ok": True, "count": count}
+
+
+# ── Two-factor authentication, enrolled in the browser ────────────────────────
+# Enrolment: /setup hands out a fresh secret (QR code + key) → /enable activates it once the authenticator
+# app shows a matching code. Enabling signs every other device out and keeps this browser signed in.
+
+
+class TotpCode(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str = Field(min_length=6, max_length=12)
+
+
+class TotpDisable(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    password: str = Field(min_length=1, max_length=256)
+    code: str = Field(min_length=6, max_length=12)
+
+
+@router.get("/api/auth/totp", dependencies=[Depends(AuthService.require_user)])
+async def totp_status():
+    return auth_service.totp_status()
+
+
+@router.post("/api/auth/totp/setup")
+async def totp_setup(request: Request, user: str = Depends(AuthService.require_user)):
+    try:
+        return auth_service.totp_begin(_current_sid(request), user)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@router.post("/api/auth/totp/enable")
+async def totp_enable(
+    body: TotpCode, request: Request, user: str = Depends(AuthService.require_user)
+):
+    client = client_key(request)
+    try:
+        auth_service.totp_enable(_current_sid(request), body.code)
+    except ValueError as error:
+        logger.warning("two-factor enrolment failed · client=%s", client)
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    # The secret is part of every session's fingerprint, so all sessions just became invalid.
+    # Issue a new one for this browser; the other devices have to sign in again with a code.
+    AuthService.start_session(request, user)
+    logger.info("two-factor enabled · %s · client=%s", user, client)
+    return auth_service.totp_status()
+
+
+@router.post("/api/auth/totp/disable")
+async def totp_disable(
+    body: TotpDisable, request: Request, user: str = Depends(AuthService.require_user)
+):
+    client = client_key(request)
+    retry_after = login_limiter.retry_after(client)
+    if retry_after:
+        raise HTTPException(
+            status_code=429,
+            detail=_(
+                "로그인 시도가 너무 많습니다. {seconds}초 후 다시 시도하십시오.",
+                seconds=retry_after,
+            ),
+            headers={"Retry-After": str(retry_after)},
+        )
+    try:
+        auth_service.totp_disable(body.password, body.code)
+    except ValueError as error:
+        login_limiter.record_failure(client)
+        logger.warning("two-factor disable refused · client=%s", client)
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    AuthService.start_session(request, user)
+    logger.info("two-factor disabled · %s · client=%s", user, client)
+    return auth_service.totp_status()
+
+
+@router.post("/api/auth/totp/dismiss", dependencies=[Depends(AuthService.require_user)])
+async def totp_dismiss():
+    auth_service.totp_dismiss()
+    return {"ok": True}

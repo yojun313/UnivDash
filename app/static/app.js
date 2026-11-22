@@ -281,8 +281,8 @@
   function formSheet({ title, subtitle, fields = [], extraHtml = '', submitLabel = t('저장'), onMount, onSubmit }) {
     const inputs = fields.map((field) => `
       <label>${escapeHtml(field.label)}
-        <input name="${field.name}" value="${escapeHtml(field.value ?? '')}" placeholder="${escapeHtml(field.placeholder ?? '')}"
-          maxlength="${field.maxlength || 100}" autocomplete="off" autocapitalize="off" spellcheck="false" ${field.inputmode ? `inputmode="${field.inputmode}"` : ''}>
+        <input name="${field.name}" type="${field.type === 'password' ? 'password' : 'text'}" value="${escapeHtml(field.value ?? '')}" placeholder="${escapeHtml(field.placeholder ?? '')}"
+          maxlength="${field.maxlength || 100}" autocomplete="${escapeHtml(field.autocomplete || 'off')}" autocapitalize="off" spellcheck="false" ${field.inputmode ? `inputmode="${field.inputmode}"` : ''}>
       </label>`).join('');
     openSheet(`${sheetHead(title, subtitle)}<form class="sheet-form-wrap"><div class="sheet-form">${inputs}${extraHtml}</div>
       <div class="sheet-buttons"><button type="button" class="sheet-cancel" data-close>${t('취소')}</button><button type="submit" class="btn-glow">${escapeHtml(submitLabel)}</button></div></form>`, (body) => {

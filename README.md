@@ -1,7 +1,7 @@
 <h1 align="center">UnivDash</h1>
 
 <p align="center">
-  <b>Run Claude Code, Codex and Gemini from your phone.</b><br>
+  <b>Run Claude Code, Codex and Gemini from any browser: desktop, tablet or phone.</b><br>
   A self-hosted web dashboard for the coding agents in your tmux sessions.
 </p>
 
@@ -17,7 +17,9 @@
   <img src="./docs/assets/screens/desktop-workspace.png" alt="UnivDash workspace: window list with agent states, the full conversation with tool calls and diffs" width="94%">
 </p>
 
-UnivDash turns the tmux sessions on your server into a dashboard you open in a browser. Every window shows up in one list with the agent running in it and its state: **working**, **waiting for your answer**, or **idle**. Open one to read the whole conversation, answer a permission prompt with one tap, or send the next prompt with photos and files attached, from a laptop or from the phone in your pocket.
+UnivDash turns the tmux sessions on your server into a dashboard you open in a browser. Every window shows up in one list with the agent running in it and its state: **working**, **waiting for your answer**, or **idle**. Open one to read the whole conversation, answer a permission prompt with one tap, or send the next prompt with photos and files attached.
+
+It is one web app for every screen. On a desktop it is a full workspace: tabs, split views, pop-out windows, a file tree beside the chat, drag and drop, and keyboard shortcuts you can remap. On a tablet or phone the same pages become a touch layout with a tab bar, bottom sheets and a key bar, and it installs to the home screen with push notifications. Your layout and settings follow you across devices.
 
 Around that it puts the things you otherwise open five tools for: remaining usage limits, several accounts per agent, a Git client, server and process monitoring, a file explorer, read-only sharing, and an OpenAI-compatible API in front of your subscriptions.
 
@@ -33,7 +35,7 @@ The installer needs `git`, `tmux` and `curl`, and never uses sudo. It:
 
 1. installs [uv](https://docs.astral.sh/uv/) into your home folder if it is missing,
 2. downloads UnivDash into `~/UnivDash` and installs its dependencies,
-3. asks for a login name, a password (press Enter to generate one) and a port,
+3. asks for a login name, a password (typed twice to confirm, or press Enter to generate one) and a port,
 4. starts the dashboard in the background and prints its address.
 
 Then manage it with the launcher:
@@ -72,11 +74,13 @@ uv run python tools/demo/demo.py down
 The demo runs in its own folder with its own tmux socket, made-up projects, conversations and usage, and stand-in agents that only draw a screen. It reads no real account and calls no provider. The screenshots on this page come from it (`tools/demo/capture.py`).
 </details>
 
-### Use it from your phone
+After your first sign-in the dashboard offers to set up **two-factor authentication**: scan a QR code with an authenticator app and confirm one code. You can turn it on or off later in Settings › Signed-in devices.
 
-UnivDash listens on `127.0.0.1` by default. To reach it from a phone, put it behind HTTPS: [Tailscale](https://tailscale.com/kb/1223/funnel) or a Cloudflare Tunnel are the quickest; nginx and Caddy work too. Then set `SESSION_HTTPS_ONLY=true` and `ALLOWED_HOSTS=your.domain` in `.env`.
+### Use it from other devices
 
-On iPhone, open the site in Safari → Share → **Add to Home Screen**. It runs full screen with its own icon and receives notifications.
+UnivDash listens on `127.0.0.1` by default, which is enough for a browser on the same machine. To reach it from another computer, a tablet or a phone, put it behind HTTPS: [Tailscale](https://tailscale.com/kb/1223/funnel) or a Cloudflare Tunnel are the quickest; nginx and Caddy work too. Then set `SESSION_HTTPS_ONLY=true` and `ALLOWED_HOSTS=your.domain` in `.env`.
+
+On a desktop it runs in any modern browser. On iPhone or iPad, open the site in Safari → Share → **Add to Home Screen**. It runs full screen with its own icon and receives notifications.
 
 <table>
   <tr>
@@ -97,7 +101,7 @@ On iPhone, open the site in Safari → Share → **Add to Home Screen**. It runs
 | **State per window** | *Working*, *needs your answer* (permission and choice prompts) or *idle*, with an unread mark when a reply arrived that you have not seen. Sort by state, activity, name or your own order; group windows into colored folders. |
 | **The whole conversation** | The chat view reads the agent's own session log, so it goes back to the first prompt even though the terminal has no scrollback. Tool calls fold away, edits are shown as diffs, sub-agents open inline, and search covers every prompt and answer. |
 | **One-tap answers** | When an agent asks, the question and its choices appear under the chat as buttons. |
-| **Prompting from a phone** | Multi-line prompts sent as one paste, per-window drafts, quick phrases and history, a key bar (`Esc`, `⇧Tab`, arrows, `^C`…), photos / files / pasted screenshots attached the way the agent expects them. |
+| **Prompting from any device** | Multi-line prompts sent as one paste, per-window drafts, quick phrases and history, a key bar (`Esc`, `⇧Tab`, arrows, `^C`…), photos / files / pasted screenshots attached the way the agent expects them. |
 | **Start, restart, switch** | Start a session with any agent, update and restart it into the same conversation, switch a window to another agent and hand the conversation over, or fork a conversation into a new session. |
 | **Models and accounts** | Change the model from a button. Keep several logins per agent and switch between them; windows come back in the same conversation. Codex can switch accounts by itself when a limit runs out. |
 | **Survives reboots** | Sessions and their conversations are restored after the server restarts. |
@@ -129,7 +133,7 @@ On iPhone, open the site in Safari → Share → **Add to Home Screen**. It runs
 | **Server** | CPU per core, GPU, memory, disk and network; PM2 processes with logs, restart and `ecosystem.config.js` editing. |
 | **Domains** | nginx reverse-proxy domains and certbot certificates through one small root helper with a single sudo rule. |
 | **Explorer** | A file tree over your server with upload, download, rename, move and trash. Viewer and editor tabs for code, Markdown, images, video, PDF, Office and HWP documents, and Jupyter notebooks; Markdown exports to PDF. |
-| **Terminal** | A plain shell tab next to your agents, split views, and popping tabs out into their own window. |
+| **Desktop workspace** | Tabs for windows and files side by side, split views, tabs popped out into their own browser window, a plain shell tab next to your agents, and remappable keyboard shortcuts for nearly everything. |
 | **Sharing** | Read-only links for a file, a folder, a live terminal or a whole agent conversation, protected by an access code, with secrets masked. |
 
 <table>
@@ -141,7 +145,7 @@ On iPhone, open the site in Safari → Share → **Add to Home Screen**. It runs
 
 ### The rest
 
-Installable as a home-screen app with push notifications · keyboard shortcuts you can remap · four themes in dark and light · English and Korean (Settings › Display) · every setting stored on the server, so the phone and the desktop see the same layout.
+Works in any modern browser on desktop, tablet and phone · installable as an app with push notifications · keyboard shortcuts you can remap · four themes in dark and light · English and Korean (Settings › Display) · every setting stored on the server, so the phone and the desktop see the same layout.
 
 ## Requirements
 
@@ -159,7 +163,7 @@ Settings live in `.env` in the project folder. `tools/setup.py` writes the first
 | `ADMIN_PASS_HASH` / `ADMIN_PASS` | Password as a PBKDF2 hash (`python tools/security.py hash-password`), or in plain text (12+ characters) |
 | `SECRET_KEY` | Session secret, 32+ characters |
 | `HOST`, `PORT` | Bind address (default `127.0.0.1`) and port (default `8000`) |
-| `ADMIN_TOTP_SECRET` | Two-factor login with an authenticator app (`python tools/security.py totp`) |
+| `ADMIN_TOTP_SECRET` | Two-factor login set in `.env` (`python tools/security.py totp`). Optional: two-factor can also be enrolled in the browser, in which case leave this empty |
 | `SESSION_HTTPS_ONLY` | `true` behind HTTPS: `__Host-` secure cookie and HSTS |
 | `ALLOWED_HOSTS` | Allowed `Host` headers, e.g. `dash.example.com` (blocks DNS rebinding) |
 | `SESSION_MAX_HOURS`, `SESSION_IDLE_MINUTES` | Session lifetime (default 12 h) and idle timeout (default 240 min) |
@@ -176,7 +180,7 @@ Settings live in `.env` in the project folder. `tools/setup.py` writes the first
 
 UnivDash can type into your terminals, so treat access to it like shell access.
 
-- **Login**: PBKDF2 password hash, optional TOTP (codes cannot be reused), per-IP and global rate limits, audit log.
+- **Login**: PBKDF2 password hash, optional TOTP enrolled in the browser or in `.env` (codes cannot be reused; turning it off needs the password and a code), per-IP and global rate limits, audit log.
 - **Sessions**: random IDs stored server-side as hashes; sign out everywhere; idle and absolute expiry; changing the password ends every session.
 - **Browser**: no external CDN, strict CSP (`script-src 'self'`), same-origin `Origin` required for every write and WebSocket, `SameSite=Strict` cookies, no `/docs` or OpenAPI endpoints.
 - **Commands**: tmux, PM2, Git and Docker are run without a shell, on IDs that exist, with allow-lists. Uploads are authenticated before the body is read.

@@ -385,5 +385,6 @@
  "이전 프롬프트": "Previous prompt",
  "Shift+Tab (모드 전환)": "Shift+Tab (switch mode)",
  "Terminal 끝내기": "End Terminal",
- "⌘/Ctrl+Enter 전송": "⌘/Ctrl+Enter to send"
+ "⌘/Ctrl+Enter 전송": "⌘/Ctrl+Enter to send",
+ "로그인": "Sign in"
 }

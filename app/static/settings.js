@@ -104,7 +104,22 @@
     document.body.appendChild(form);
     form.submit();
   }
-  const devicesSection = () => logoutRow() + deviceList();
+  // Two-factor authentication (twofactor.js does the enrolment). null: loading · { enabled, source }
+  let twoFactor = null;
+  const twoFactorRow = () => {
+    const state = !twoFactor ? t('확인하는 중…') : twoFactor.source === 'env' ? t('켜짐 (서버 설정 .env 로 관리)') : twoFactor.enabled ? t('켜짐') : t('꺼짐');
+    const action = !twoFactor || twoFactor.source === 'env' ? '' : `<button type="button" class="ud-set-btn" data-two-factor><i class="fas fa-shield-halved"></i> ${twoFactor.enabled ? t('끄기') : t('등록')}</button>`;
+    return `
+    <div class="ud-set-row">
+      <div class="ud-set-text"><p class="ud-set-title">${t('이중 인증')}<span class="ud-set-badge${twoFactor?.enabled ? ' local' : ''}">${state}</span></p><p class="ud-set-desc">${t('로그인할 때 비밀번호와 함께 인증 앱의 6자리 코드를 입력합니다.')}</p></div>
+      ${action}
+    </div>`;
+  };
+  async function loadTwoFactor() {
+    try { twoFactor = await window.UnivDashTwoFactor.status(); } catch (error) { twoFactor = null; }
+    if (overlay && !overlay.hidden && tab === 'devices') render();
+  }
+  const devicesSection = () => logoutRow() + twoFactorRow() + deviceList();
   function deviceList() {
     if (!devices) return `<p class="ud-set-note"><i class="fas fa-circle-notch fa-spin"></i> ${t('로그인된 기기를 불러오는 중…')}</p>`;
     if (devices.error) return `<p class="ud-set-note">${esc(devices.error)}</p><button type="button" class="ud-set-btn" data-devices-reload><i class="fas fa-rotate"></i> ${t('다시 불러오기')}</button>`;
@@ -490,7 +505,7 @@
     if (!TABS.some((item) => item.id === id)) return;
     tab = id;
     raw.set(TAB_KEY, id);
-    if (id === 'devices') loadDevices();
+    if (id === 'devices') { loadDevices(); loadTwoFactor(); }
     render();
     overlay.querySelector('.ud-set-tabs .on')?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
   }
@@ -528,6 +543,7 @@
     const tabBtn = event.target.closest('[data-tab]');
     if (tabBtn) { selectTab(tabBtn.dataset.tab); return; }
     if (tab === 'keys' && event.target.closest('.ud-set-body') && onKeysClick(event)) return;
+    if (event.target.closest('[data-two-factor]')) { window.UnivDashTwoFactor.open(loadTwoFactor); return; }
     const bye = event.target.closest('[data-logout]');
     if (bye) { logout(bye.dataset.logout === '/logout-all'); return; }
     const out = event.target.closest('[data-device-out], [data-devices-others]');
@@ -680,7 +696,7 @@
       U().toast(error.message, 'error');
     }
     if (!overlay.hidden) render();
-    if (tab === 'devices') loadDevices();
+    if (tab === 'devices') { loadDevices(); loadTwoFactor(); }
   }
   function close() {
     if (!overlay || overlay.hidden) return;

@@ -70,8 +70,189 @@ def _password_hash() -> str:
     return os.getenv("ADMIN_PASS_HASH", "").strip()
 
 
-def _totp_secret() -> str:
+def _env_totp_secret() -> str:
     return os.getenv("ADMIN_TOTP_SECRET", "").strip().replace(" ", "").upper()
+
+
+def _totp_secret() -> str:
+    """The TOTP secret: ADMIN_TOTP_SECRET in .env wins; otherwise the one enrolled in the browser."""
+    return _env_totp_secret() or str(_totp_state().get("secret") or "")
+
+
+# ── Two-factor enrolment from the browser ─────────────────────────────────────
+# The secret enrolled on the website is kept in the data folder (file mode 600), next to the session list.
+# .env still works and takes precedence, so an existing ADMIN_TOTP_SECRET setup is unchanged.
+
+TOTP_PENDING_SECONDS = 15 * 60
+TOTP_MAX_ATTEMPTS = 6
+_totp_lock = threading.Lock()
+_totp_cache: tuple[int, dict] = (-1, {})
+_totp_pending: dict[str, dict] = {}  # session id → {"secret", "at", "tries"}
+
+
+def _totp_file() -> Path:
+    return data_dir() / "totp.json"
+
+
+def _totp_state() -> dict:
+    global _totp_cache
+    path = _totp_file()
+    try:
+        stamp = path.stat().st_mtime_ns
+    except OSError:
+        return {}
+    if _totp_cache[0] == stamp:
+        return _totp_cache[1]
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    _totp_cache = (stamp, data)
+    return data
+
+
+def _write_totp_state(data: dict) -> None:
+    global _totp_cache
+    path = _totp_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump(data, handle)
+    os.replace(tmp, path)
+    _totp_cache = (-1, {})
+
+
+def check_password(password: str) -> bool:
+    if _password_hash():
+        return verify_password_hash(password, _password_hash())
+    plain = _plain_password()
+    return bool(plain) and hmac.compare_digest(password.encode(), plain.encode())
+
+
+def totp_status() -> dict:
+    """{"enabled", "source": "env" | "web" | None, "prompt"}. `prompt`: ask once after sign-in whether to enrol."""
+    state = _totp_state()
+    source = "env" if _env_totp_secret() else "web" if state.get("secret") else None
+    return {
+        "enabled": source is not None,
+        "source": source,
+        "prompt": source is None and not state.get("dismissed"),
+    }
+
+
+def totp_dismiss() -> None:
+    """Do not ask again whether to enrol (it stays available in Settings)."""
+    with _totp_lock:
+        state = dict(_totp_state())
+        state["dismissed"] = True
+        _write_totp_state(state)
+
+
+def totp_begin(sid: str, account: str) -> dict:
+    """Start an enrolment: a fresh secret that only becomes active after a valid code. Returns what the app needs."""
+    from urllib.parse import quote
+
+    if _env_totp_secret():
+        raise ValueError(
+            _("이중 인증이 서버 설정(.env)으로 관리되고 있어 여기서 바꿀 수 없습니다.")
+        )
+    secret = base64.b32encode(secrets.token_bytes(20)).decode().rstrip("=")
+    with _totp_lock:
+        now = time.time()
+        for key in [
+            k for k, v in _totp_pending.items() if now - v["at"] > TOTP_PENDING_SECONDS
+        ]:
+            del _totp_pending[key]
+        _totp_pending[sid] = {"secret": secret, "at": now, "tries": 0}
+    label = quote(f"UnivDash:{account or 'admin'}")
+    uri = f"otpauth://totp/{label}?secret={secret}&issuer=UnivDash&digits=6&period=30"
+    return {
+        "secret": " ".join(secret[i : i + 4] for i in range(0, len(secret), 4)),
+        "uri": uri,
+        "qr": _qr_svg(uri),
+    }
+
+
+def _qr_svg(text: str) -> str:
+    """The otpauth link as an inline SVG QR code (drawn on the server; no external service sees the secret)."""
+    try:
+        import io
+
+        import segno
+
+        buffer = io.BytesIO()
+        segno.make(text, error="m").save(
+            buffer, kind="svg", scale=5, border=2, xmldecl=False, svgns=True, nl=False
+        )
+        return buffer.getvalue().decode("utf-8")
+    except Exception:  # noqa: BLE001 — the secret can still be typed by hand
+        logger.debug("QR code could not be drawn", exc_info=True)
+        return ""
+
+
+def totp_enable(sid: str, code: str) -> None:
+    """Activate the pending secret once the authenticator app shows a matching code."""
+    with _totp_lock:
+        pending = _totp_pending.get(sid)
+        if not pending or time.time() - pending["at"] > TOTP_PENDING_SECONDS:
+            _totp_pending.pop(sid, None)
+            raise ValueError(
+                _("등록 시간이 지났습니다. 처음부터 다시 진행해 주십시오.")
+            )
+        pending["tries"] += 1
+        if pending["tries"] > TOTP_MAX_ATTEMPTS:
+            del _totp_pending[sid]
+            raise ValueError(
+                _("코드를 너무 많이 틀렸습니다. 처음부터 다시 진행해 주십시오.")
+            )
+        code = (code or "").strip().replace(" ", "")
+        current = int(time.time() // 30)
+        valid = (
+            len(code) == 6
+            and code.isdigit()
+            and any(
+                hmac.compare_digest(totp_code(pending["secret"], counter), code)
+                for counter in (current - 1, current, current + 1)
+            )
+        )
+        if not valid:
+            raise ValueError(
+                _(
+                    "코드가 맞지 않습니다. 인증 앱에 표시된 6자리 숫자를 입력해 주십시오."
+                )
+            )
+        state = dict(_totp_state())
+        state.update(secret=pending["secret"], enabled_at=time.time())
+        state.pop("dismissed", None)
+        _write_totp_state(state)
+        del _totp_pending[sid]
+        totp_guard.last_counter = (
+            current  # the code just used cannot be replayed at sign-in
+        )
+
+
+def totp_disable(password: str, code: str) -> None:
+    """Turn two-factor off. Needs the password and a current code, so a stolen session alone cannot do it."""
+    if _env_totp_secret():
+        raise ValueError(
+            _("이중 인증이 서버 설정(.env)으로 관리되고 있어 여기서 바꿀 수 없습니다.")
+        )
+    secret = str(_totp_state().get("secret") or "")
+    if not secret:
+        raise ValueError(_("이중 인증이 켜져 있지 않습니다."))
+    if not check_password(password) or not totp_guard.verify(secret, code):
+        raise ValueError(_("비밀번호 또는 인증 코드가 맞지 않습니다."))
+    with _totp_lock:
+        state = dict(_totp_state())
+        state.pop("secret", None)
+        state.pop("enabled_at", None)
+        state["dismissed"] = (
+            True  # they chose to turn it off: do not nag at the next sign-in
+        )
+        _write_totp_state(state)
 
 
 def hash_password(password: str, iterations: int = PBKDF2_ITERATIONS) -> str:

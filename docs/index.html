@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>UnivDash — run Claude Code, Codex and Gemini from your phone</title>
+<title>UnivDash — run Claude Code, Codex and Gemini from any browser</title>
 <meta name="description" content="A self-hosted web dashboard for coding agents in tmux. See which agent is working or waiting, read the whole conversation, answer from your phone. Usage limits, accounts, Git, server and an OpenAI-compatible API in one place.">
-<meta property="og:title" content="UnivDash — run your coding agents from your phone">
+<meta property="og:title" content="UnivDash — run your coding agents from any browser, desktop or phone">
 <meta property="og:description" content="Self-hosted dashboard for Claude Code, Codex and Gemini running in tmux.">
 <meta property="og:image" content="https://yojun313.github.io/UnivDash/assets/screens/desktop-workspace.png">
 <meta property="og:type" content="website">
@@ -34,7 +34,7 @@
   header { position: sticky; top: 0; z-index: 10; backdrop-filter: blur(12px); background: color-mix(in srgb, var(--bg) 82%, transparent); border-bottom: 1px solid var(--line); }
   .nav { display: flex; align-items: center; gap: 20px; height: 60px; }
   .brand { font-weight: 800; font-size: 20px; text-decoration: none; letter-spacing: -.01em; }
-  .nav nav { margin-left: auto; display: flex; gap: 22px; font-size: 14px; color: var(--muted); }
+  .nav nav { margin-left: auto; display: flex; align-items: center; gap: 22px; font-size: 14px; color: var(--muted); }
   .nav nav a { text-decoration: none; }
   .nav nav a:hover { color: var(--text); }
   .btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 12px; font-weight: 700; font-size: 14px; text-decoration: none; border: 1px solid var(--line); background: var(--card); cursor: pointer; color: var(--text); }
@@ -125,7 +125,7 @@
     <div class="wrap">
       <span class="eyebrow"><span class="dot"></span> Self-hosted · open source · no database, no CDN</span>
       <h1>Your coding agents, <span class="grad">from any screen</span></h1>
-      <p class="lead">UnivDash turns the tmux sessions on your server into a dashboard you open in a browser. See which agent is working and which one is waiting for you, read the whole conversation, and answer from your phone.</p>
+      <p class="lead">UnivDash turns the tmux sessions on your server into a dashboard you open in a browser. See which agent is working and which one is waiting for you, read the whole conversation, and answer from your desk, a tablet, or the phone in your pocket.</p>
       <div class="agents">
         <span class="chip claude">Claude Code</span>
         <span class="chip codex">Codex</span>
@@ -153,14 +153,14 @@
       <div class="grid">
         <div class="card"><div class="icon">🟢</div><h3>Know who needs you</h3><p>Every tmux window in one list with its agent and state: working, waiting for your answer, or idle. Unread replies are marked, and your phone gets a notification when an agent finishes or asks.</p></div>
         <div class="card"><div class="icon">💬</div><h3>The whole conversation</h3><p>The chat view reads the agent's own session log, so you can scroll back to the first prompt. Tool calls fold away, file edits show as diffs, and search finds any prompt or answer.</p></div>
-        <div class="card"><div class="icon">📱</div><h3>Built for the phone</h3><p>Installable to the home screen. A composer that keeps the keyboard open, a key bar for Esc, Shift+Tab and arrows, photo and file attachments, and one-tap answers to permission prompts.</p></div>
+        <div class="card"><div class="icon">🖥️</div><h3>A real desktop workspace</h3><p>Tabs for windows and files, split views, tabs popped out into their own window, a file tree beside the chat, drag and drop, and keyboard shortcuts you can remap.</p></div>
+        <div class="card"><div class="icon">📱</div><h3>And a real phone app</h3><p>The same pages turn into a touch layout: tab bar, bottom sheets, a key bar for Esc, Shift+Tab and arrows, photo attachments. Installs to the home screen with push notifications.</p></div>
         <div class="card"><div class="icon">📊</div><h3>Limits and usage</h3><p>Remaining session and weekly limits for every account, next to the window you are in. Token statistics by day, hour, model and project.</p></div>
         <div class="card"><div class="icon">👥</div><h3>Several accounts</h3><p>Save more than one login per agent and switch in two taps. Windows come back in the same conversation. Codex can switch automatically when a limit runs out.</p></div>
         <div class="card"><div class="icon">🔌</div><h3>OpenAI-compatible API</h3><p>Expose your subscriptions as <code>/v1/chat/completions</code> for your own scripts. Each request runs inside a locked-down container with no network except the model provider.</p></div>
-        <div class="card"><div class="icon">🌿</div><h3>Git without a laptop</h3><p>Diffs, staging, commit and push, branches, merges, stashes and scheduled pulls. Commit messages can be drafted by a model you choose.</p></div>
-        <div class="card"><div class="icon">🖥️</div><h3>Server and files</h3><p>CPU, GPU, memory and disk at a glance, PM2 processes with logs, nginx domains with certificates, and a file explorer that opens code, Markdown, PDF and Office documents.</p></div>
-        <div class="card"><div class="icon">🔗</div><h3>Share, read-only</h3><p>Show a live terminal or a whole agent conversation to someone else with a link and an access code. Secrets are masked and nothing can be typed.</p></div>
-      </div>
+        <div class="card"><div class="icon">🌿</div><h3>Git built in</h3><p>Diffs, staging, commit and push, branches, merges, stashes and scheduled pulls. Commit messages can be drafted by a model you choose.</p></div>
+        <div class="card"><div class="icon">🖥️</div><h3>Server and files</h3><p>CPU, GPU, memory and disk at a glance, PM2 processes with logs, nginx domains with certificates, and a file explorer that opens code, Markdown, PDF and Office documents. Read-only share links with an access code for a file, a terminal or a whole conversation.</p></div>
+              </div>
     </div>
   </section>
 
@@ -201,8 +201,8 @@
   <section class="alt">
     <div class="wrap">
       <div class="center">
-        <h2>Made for the small screen</h2>
-        <p class="sub">The phone layout is not a shrunken desktop. It has its own tab bar, bottom sheets and long-press menus.</p>
+        <h2>One app, every screen</h2>
+        <p class="sub">Start a task at your desk and answer the agent from the sofa. The desktop is a full workspace; the phone layout is not a shrunken copy of it, with its own tab bar, bottom sheets and long-press menus. Layout and settings are shared across devices.</p>
       </div>
       <div class="phones">
         <figure><div class="phone"><img src="assets/screens/mobile-list.png" alt="Window list on a phone" loading="lazy"></div><figcaption>Every window and its state</figcaption></figure>
@@ -230,8 +230,8 @@
       <p class="sub">The installer checks what you have, downloads UnivDash into <code>~/UnivDash</code>, asks for a login, and starts it. It never uses sudo.</p>
       <div class="steps">
         <div class="card step"><h3>Install</h3><p>One command on the machine where your agents run.</p><pre>curl -fsSL https://raw.githubusercontent.com/yojun313/UnivDash/main/install.sh | sh</pre></div>
-        <div class="card step"><h3>Log in</h3><p>Open the address it prints and sign in with the login you chose. A strong password is generated if you press Enter.</p><pre>http://127.0.0.1:8000</pre></div>
-        <div class="card step"><h3>Open it on your phone</h3><p>Put it behind HTTPS (Tailscale, Cloudflare Tunnel, nginx or Caddy) and add it to your home screen.</p><pre>~/UnivDash/univdash status</pre></div>
+        <div class="card step"><h3>Log in</h3><p>Open the address it prints and sign in. The dashboard then offers two-factor authentication: scan a QR code with your authenticator app.</p><pre>http://127.0.0.1:8000</pre></div>
+        <div class="card step"><h3>Open it anywhere</h3><p>Put it behind HTTPS (Tailscale, Cloudflare Tunnel, nginx or Caddy) to reach it from another computer, a tablet or a phone.</p><pre>~/UnivDash/univdash status</pre></div>
       </div>
       <p class="note" style="margin-top:22px">Want to look around first? <code>uv run python tools/demo/demo.py up</code> starts a demo with made-up projects and no real accounts.</p>
     </div>
@@ -241,7 +241,7 @@
     <div class="wrap faq">
       <h2>Questions</h2>
       <details><summary>Do my prompts or code leave my server?</summary><p>No. UnivDash runs on your machine and talks only to your browser. It loads no external scripts or fonts, has no telemetry, and stores its settings as files in your home folder. The agents themselves talk to their providers exactly as they do without UnivDash.</p></details>
-      <details><summary>Is it safe to expose?</summary><p>Treat it like shell access, because it can type into your terminals. It ships with a strict content security policy, same-origin checks on every write, server-side sessions, rate-limited login and optional two-factor codes. Put it behind HTTPS, and prefer a private network such as Tailscale.</p></details>
+      <details><summary>Is it safe to expose?</summary><p>Treat it like shell access, because it can type into your terminals. It ships with a strict content security policy, same-origin checks on every write, server-side sessions, rate-limited login and two-factor codes you can set up from the browser in a minute. Put it behind HTTPS, and prefer a private network such as Tailscale.</p></details>
       <details><summary>Does it replace tmux or my agent CLI?</summary><p>No. It sits on top of them. Your sessions keep running in tmux, and you can attach from a terminal at any time. UnivDash never needs to be the thing that started a window.</p></details>
       <details><summary>Which agents are supported?</summary><p>Claude Code, Codex and Gemini through the Antigravity CLI. Any other program in a tmux window still shows up as a terminal you can read and type into.</p></details>
       <details><summary>Which languages does the interface speak?</summary><p>English and Korean. Switch in Settings › Display.</p></details>

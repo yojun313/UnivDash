@@ -69,19 +69,23 @@ def ask(stream, question: str, default: str) -> str:
 
 
 def ask_password(stream) -> tuple[str, bool]:
-    """(password, generated). Enter generates a strong passphrase."""
+    """(password, generated). Enter generates a strong passphrase; a typed one is asked for twice."""
     del stream  # getpass opens the terminal itself (works when the installer is piped)
     while True:
         try:
             password = getpass.getpass(
                 f"Password (at least {MIN_PASSWORD} characters, Enter = generate one): "
             )
+            if not password:
+                return generate_password(), True
+            if len(password) < MIN_PASSWORD:
+                print(f"  Too short: use {MIN_PASSWORD} characters or more.")
+                continue
+            again = getpass.getpass("Type the password again to confirm: ")
         except (EOFError, KeyboardInterrupt):
             raise SystemExit("\nSetup cancelled.") from None
-        if not password:
-            return generate_password(), True
-        if len(password) < MIN_PASSWORD:
-            print(f"  Too short: use {MIN_PASSWORD} characters or more.")
+        if again != password:
+            print("  The two passwords do not match. Try again.")
             continue
         return password, False
 
@@ -225,6 +229,12 @@ def main(argv: list[str] | None = None) -> int:
         print(
             "  behind HTTPS (Tailscale, Cloudflare Tunnel, nginx or Caddy) and set SESSION_HTTPS_ONLY=true."
         )
+    print(
+        "\n  Tip: after your first sign-in the dashboard offers to set up two-factor authentication"
+    )
+    print(
+        "  (a QR code for your authenticator app). You can also do it later in Settings › Signed-in devices."
+    )
     print("\n  Start it with:  ./univdash start\n")
     return 0
 

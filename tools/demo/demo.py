@@ -845,6 +845,8 @@ def build() -> None:
     for session, *_rest, folder in WINDOWS:
         if folder:
             folders.setdefault(folder, []).append(f"{session}:0")
+    # the demo is not asked to set up two-factor authentication (keeps the screenshots clean)
+    (DATA / "totp.json").write_text(json.dumps({"dismissed": True}), encoding="utf-8")
     (DATA / "preferences.json").write_text(
         json.dumps(
             {
