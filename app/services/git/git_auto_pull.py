@@ -181,8 +181,11 @@ def _pull(path: Path) -> dict:
             )
         )
 
+    # Auto-stash must stay off here (a scheduled pull never touches local changes). The switch is given as a
+    # config value, not as `--no-autostash`: Git older than 2.27 does not know that option and fails with
+    # "unknown option `no-autostash'", while an unknown config key is simply ignored.
     merged = GitService._run(
-        path, "merge", "--ff-only", "--no-autostash", "@{upstream}"
+        path, "-c", "merge.autoStash=false", "merge", "--ff-only", "@{upstream}"
     )
     if merged.returncode != 0:
         output = _error_text(merged)
