@@ -1165,8 +1165,11 @@
     const result = await runGit('ruff_format');
     const box = $('gitRuffResult');
     if (!result) return;
-    box.textContent = result.summary || result.output.split('\n').slice(-2).join(' · ');
-    box.className = `mt-1.5 rounded-lg bg-black/25 px-2.5 py-1.5 font-mono text-[11px] ${result.success ? 'text-emerald-300' : 'text-red-300'}`;
+    // On a real failure show ruff's own message, not just its last line. A syntax error in a file is only a warning.
+    box.textContent = result.success
+      ? [result.summary, result.warning].filter(Boolean).join(' · ') || result.output.split('\n').slice(-2).join(' · ')
+      : result.output.split('\n').filter((line) => line.trim()).slice(0, 4).join('\n');
+    box.className = `mt-1.5 rounded-lg bg-black/25 px-2.5 py-1.5 font-mono text-[11px] whitespace-pre-wrap ${!result.success ? 'text-red-300' : result.warning ? 'text-amber-300' : 'text-emerald-300'}`;
   });
   // ruff format · AI commit · push: the server runs it to the end in a separate process.
   // You can look at another repository or leave the page without waiting; when it finishes a notice shows on any UnivDash page (common.js gitWorkflows).

@@ -306,5 +306,6 @@
  "uv 를 찾을 수 없습니다.": "uv was not found.",
  "이미 uv sync 가 실행 중입니다.": "uv sync is already running.",
  "프로세스를 찾을 수 없습니다.": "Process not found.",
- "ruff 를 찾을 수 없습니다. UnivDash 폴더에서 uv sync 를 다시 실행하십시오.": "ruff was not found. Run uv sync again in the UnivDash folder."
+ "ruff 를 찾을 수 없습니다. UnivDash 폴더에서 uv sync 를 다시 실행하십시오.": "ruff was not found. Run uv sync again in the UnivDash folder.",
+ "문법 오류로 건너뛴 파일 {count}개: {files}": "Skipped {count} file(s) with a syntax error: {files}"
 }

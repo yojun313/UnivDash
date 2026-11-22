@@ -970,8 +970,37 @@ class GitService:
             if str(root).startswith(str(Path.home()))
             else str(root)
         )
+        # A file ruff cannot parse (a syntax error) makes it exit with 2 even though every other file was
+        # formatted. That file is simply left as it is, so this is a warning, not a failed run: otherwise one
+        # half-written file would block formatting and the commit flow for the whole repository.
+        skipped = sorted(
+            {
+                *re.findall(r"^\s*--> (.+?):\d+:\d+\s*$", output, re.MULTILINE),
+                *re.findall(
+                    r"^error: Failed to parse (.+?):\d+:\d+:", output, re.MULTILINE
+                ),
+            }
+        )
+        other_errors = [
+            line
+            for line in output.splitlines()
+            if line.startswith("error:") and "Failed to parse" not in line
+        ]
+        syntax_only = bool(
+            result.returncode == 2 and skipped and summary and not other_errors
+        )
+        warning = ""
+        if syntax_only:
+            shown = ", ".join(skipped[:3]) + (" …" if len(skipped) > 3 else "")
+            warning = _(
+                "문법 오류로 건너뛴 파일 {count}개: {files}",
+                count=len(skipped),
+                files=shown,
+            )
         return {
-            "success": result.returncode == 0,
+            "success": result.returncode == 0 or syntax_only,
+            "warning": warning,
+            "skipped": skipped if syntax_only else [],
             "command": f"cd {where} && ruff format .",
             "output": output or _("(출력 없음)"),
             "return_code": result.returncode,

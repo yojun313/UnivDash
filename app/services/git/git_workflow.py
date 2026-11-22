@@ -206,6 +206,10 @@ def _run(job_id: str) -> None:
         formatted = GitService.ruff_format(repository_id)
         lines = (formatted.get("output") or "").splitlines()
         job["ruff"] = formatted.get("summary") or (lines[-1] if lines else "")
+        if formatted.get(
+            "warning"
+        ):  # files with a syntax error were left untouched: carry on
+            job["ruff"] = f"{job['ruff']} · {formatted['warning']}"
         if not formatted.get("success"):
             return fail(_("ruff format 이 실패했습니다."), formatted.get("output", ""))
 
