@@ -67,7 +67,62 @@ def _plain_password() -> str:
 
 
 def _password_hash() -> str:
-    return os.getenv("ADMIN_PASS_HASH", "").strip()
+    # a password changed in Settings is stored in the data folder and takes precedence over .env
+    return (
+        str(_credential_state().get("pass_hash") or "")
+        or os.getenv("ADMIN_PASS_HASH", "").strip()
+    )
+
+
+_credential_cache: tuple[int, dict] = (-1, {})
+
+
+def _credential_file() -> Path:
+    return data_dir() / "credentials.json"
+
+
+def _credential_state() -> dict:
+    global _credential_cache
+    try:
+        stamp = _credential_file().stat().st_mtime_ns
+    except OSError:
+        return {}
+    if _credential_cache[0] == stamp:
+        return _credential_cache[1]
+    try:
+        data = json.loads(_credential_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    _credential_cache = (stamp, data if isinstance(data, dict) else {})
+    return _credential_cache[1]
+
+
+def change_password(current: str, new: str, code: str = "") -> None:
+    """Change the sign-in password from Settings. Needs the current password (and a code when two-factor is on).
+
+    Every session becomes invalid (the password is part of the session fingerprint); the caller re-issues
+    one for the browser that made the change.
+    """
+    global _credential_cache
+    if not check_password(current):
+        raise ValueError(_("현재 비밀번호가 맞지 않습니다."))
+    secret = _totp_secret()
+    if secret and not totp_guard.verify(secret, code):
+        raise ValueError(_("인증 코드가 맞지 않습니다."))
+    if len(new) < 12:
+        raise ValueError(_("새 비밀번호는 12자 이상이어야 합니다."))
+    if new.lower() in WEAK_PASSWORDS:
+        raise ValueError(_("너무 흔한 비밀번호입니다. 다른 값을 사용하십시오."))
+    if hmac.compare_digest(new.encode(), current.encode()):
+        raise ValueError(_("새 비밀번호가 현재 비밀번호와 같습니다."))
+    path = _credential_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump({"pass_hash": hash_password(new), "changed_at": time.time()}, handle)
+    os.replace(tmp, path)
+    _credential_cache = (-1, {})
 
 
 def _env_totp_secret() -> str:

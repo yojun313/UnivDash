@@ -48,7 +48,7 @@
     { id: 'monitor', icon: 'fa-gauge-high', label: t('사이드바'), desc: t('Overview · 서버 상태 (CPU · GPU …)') },
     { id: 'keys', icon: 'fa-keyboard', label: t('단축키'), desc: t('키 바꾸기 · 설정 내보내기 / 불러오기') },
     { id: 'upload', icon: 'fa-cloud-arrow-up', label: t('업로드 · 파일'), desc: t('최대 크기 · 보관 · 뷰어'), server: true },
-    { id: 'devices', icon: 'fa-laptop', label: t('로그인 기기'), desc: t('로그아웃 · 로그인된 세션 관리'), server: true },
+    { id: 'devices', icon: 'fa-shield-halved', label: t('로그인 · 보안'), desc: t('패스키 · 이중 인증 · 비밀번호 · 로그인 기기'), server: true },
   ];
   const TAB_KEY = 'univdash-settings-tab';
   let tab = raw.get(TAB_KEY, 'display');
@@ -119,7 +119,97 @@
     try { twoFactor = await window.UnivDashTwoFactor.status(); } catch (error) { twoFactor = null; }
     if (overlay && !overlay.hidden && tab === 'devices') render();
   }
-  const devicesSection = () => logoutRow() + twoFactorRow() + deviceList();
+  // Passkeys (passkey.js talks to the browser). null: loading · [{ id, name, created, last_used, here, synced }]
+  let passkeyList = null;
+  const passkeyRows = () => {
+    const can = window.UnivDashPasskey?.supported();
+    const rows = (passkeyList || []).map((key) => `
+      <div class="ud-set-row ud-dev-row">
+        <i class="fas fa-fingerprint ud-dev-icon"></i>
+        <div class="ud-set-text">
+          <p class="ud-set-title">${esc(key.name)}${key.synced ? `<span class="ud-set-badge">${t('동기화됨')}</span>` : ''}${key.here ? '' : `<span class="ud-set-badge">${t('다른 주소용')}</span>`}</p>
+          <p class="ud-set-desc">${t('등록 {when}', { when: stamp(key.created) })} · ${key.last_used ? t('최근 사용 {when}', { when: ago(key.last_used) }) : t('아직 사용 안 함')}</p>
+        </div>
+        <button type="button" class="ud-set-btn" data-passkey-rename="${esc(key.id)}" data-name="${esc(key.name)}" title="${t('이름 바꾸기')}"><i class="fas fa-pen"></i></button>
+        <button type="button" class="ud-set-btn ud-dev-out" data-passkey-remove="${esc(key.id)}" data-name="${esc(key.name)}"><i class="fas fa-trash"></i> ${t('삭제')}</button>
+      </div>`).join('');
+    return `
+    <div class="ud-set-row">
+      <div class="ud-set-text"><p class="ud-set-title">${t('패스키')}<span class="ud-set-badge${passkeyList?.length ? ' local' : ''}">${!passkeyList ? t('확인하는 중…') : t('{count}개 등록됨', { count: passkeyList.length })}</span></p>
+        <p class="ud-set-desc">${can ? t('비밀번호와 이중 인증 코드 없이, 기기의 지문 · 얼굴 인식 · PIN 으로 로그인합니다. 휴대폰의 패스키로 다른 컴퓨터에서 QR 코드를 스캔해 로그인할 수도 있습니다.') : t('이 브라우저는 패스키를 지원하지 않거나, HTTPS 주소가 아닙니다.')}</p></div>
+      ${can ? `<button type="button" class="ud-set-btn" data-passkey-add><i class="fas fa-plus"></i> ${t('패스키 추가')}</button>` : ''}
+    </div>${rows}`;
+  };
+  async function loadPasskeys() {
+    try { passkeyList = (await U().api('/api/auth/passkeys')).passkeys; } catch (error) { passkeyList = []; }
+    if (overlay && !overlay.hidden && tab === 'devices') render();
+  }
+  // Adding a passkey asks for the password first, so a borrowed session cannot leave itself a way back in.
+  function addPasskey() {
+    window.UnivDashUI.formSheet({
+      title: t('패스키 추가'),
+      subtitle: t('비밀번호를 확인한 뒤, 이 기기(또는 휴대폰 · 보안 키)에 패스키를 만듭니다.'),
+      fields: [
+        { name: 'name', label: t('이름 (구분용)'), value: defaultPasskeyName(), maxlength: 40 },
+        { name: 'password', label: t('비밀번호'), type: 'password', maxlength: 256, autocomplete: 'current-password' },
+      ],
+      submitLabel: t('계속'),
+      async onSubmit(values) {
+        await window.UnivDashPasskey.register(values.password || '', (values.name || '').trim());
+        U().toast(t('패스키를 등록했습니다. 다음부터 로그인 화면에서 「패스키로 로그인」을 누르면 됩니다.'), 'success');
+        loadPasskeys();
+      },
+    });
+  }
+  const defaultPasskeyName = () => deviceName(navigator.userAgent).label;
+  function renamePasskey(button) {
+    window.UnivDashUI.formSheet({
+      title: t('패스키 이름 바꾸기'),
+      fields: [{ name: 'name', label: t('이름 (구분용)'), value: button.dataset.name || '', maxlength: 40 }],
+      submitLabel: t('저장'),
+      async onSubmit(values) {
+        await U().api(`/api/auth/passkeys/${encodeURIComponent(button.dataset.passkeyRename)}`, { method: 'PATCH', body: { name: (values.name || '').trim() || button.dataset.name } });
+        loadPasskeys();
+      },
+    });
+  }
+  async function removePasskey(button) {
+    const ok = await window.UnivDashUI.confirmSheet({
+      title: t('패스키 삭제'),
+      message: t('{name} 패스키를 삭제합니다. 이 패스키로는 더 이상 로그인할 수 없습니다. 기기에 저장된 패스키 자체는 기기의 암호 설정에서 따로 지워야 합니다.', { name: button.dataset.name || '' }),
+      confirmLabel: t('삭제'), danger: true,
+    });
+    if (!ok) return;
+    try { await U().api(`/api/auth/passkeys/${encodeURIComponent(button.dataset.passkeyRemove)}`, { method: 'DELETE' }); U().toast(t('패스키를 삭제했습니다.'), 'success'); }
+    catch (error) { U().toast(error.message, 'error'); }
+    loadPasskeys();
+  }
+  // Password: changed here, stored as a hash on the server. Other devices are signed out.
+  const passwordRow = () => `
+    <div class="ud-set-row">
+      <div class="ud-set-text"><p class="ud-set-title">${t('비밀번호')}</p><p class="ud-set-desc">${t('로그인 비밀번호를 바꿉니다. 바꾸면 다른 기기는 모두 로그아웃됩니다.')}</p></div>
+      <button type="button" class="ud-set-btn" data-password-change><i class="fas fa-key"></i> ${t('비밀번호 변경')}</button>
+    </div>`;
+  function changePassword() {
+    window.UnivDashUI.formSheet({
+      title: t('비밀번호 변경'),
+      subtitle: t('12자 이상으로 정하십시오. 바꾸면 이 브라우저는 로그인 상태를 유지하고, 다른 기기는 모두 로그아웃됩니다.'),
+      fields: [
+        { name: 'current', label: t('현재 비밀번호'), type: 'password', maxlength: 256, autocomplete: 'current-password' },
+        { name: 'next', label: t('새 비밀번호'), type: 'password', maxlength: 256, autocomplete: 'new-password' },
+        { name: 'again', label: t('새 비밀번호 확인'), type: 'password', maxlength: 256, autocomplete: 'new-password' },
+        ...(twoFactor?.enabled ? [{ name: 'code', label: t('인증 코드'), maxlength: 7, placeholder: '000000' }] : []),
+      ],
+      submitLabel: t('변경'),
+      async onSubmit(values) {
+        if ((values.next || '') !== (values.again || '')) throw new Error(t('새 비밀번호 두 개가 서로 다릅니다.'));
+        await U().api('/api/auth/password', { method: 'POST', body: { current: values.current || '', new: values.next || '', code: String(values.code || '').replace(/\s/g, '') } });
+        U().toast(t('비밀번호를 변경했습니다.'), 'success');
+        loadDevices();
+      },
+    });
+  }
+  const devicesSection = () => passkeyRows() + twoFactorRow() + passwordRow() + logoutRow() + deviceList();
   function deviceList() {
     if (!devices) return `<p class="ud-set-note"><i class="fas fa-circle-notch fa-spin"></i> ${t('로그인된 기기를 불러오는 중…')}</p>`;
     if (devices.error) return `<p class="ud-set-note">${esc(devices.error)}</p><button type="button" class="ud-set-btn" data-devices-reload><i class="fas fa-rotate"></i> ${t('다시 불러오기')}</button>`;
@@ -505,7 +595,7 @@
     if (!TABS.some((item) => item.id === id)) return;
     tab = id;
     raw.set(TAB_KEY, id);
-    if (id === 'devices') { loadDevices(); loadTwoFactor(); }
+    if (id === 'devices') { loadDevices(); loadTwoFactor(); loadPasskeys(); }
     render();
     overlay.querySelector('.ud-set-tabs .on')?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
   }
@@ -544,6 +634,12 @@
     if (tabBtn) { selectTab(tabBtn.dataset.tab); return; }
     if (tab === 'keys' && event.target.closest('.ud-set-body') && onKeysClick(event)) return;
     if (event.target.closest('[data-two-factor]')) { window.UnivDashTwoFactor.open(loadTwoFactor); return; }
+    if (event.target.closest('[data-passkey-add]')) { addPasskey(); return; }
+    const pkRename = event.target.closest('[data-passkey-rename]');
+    if (pkRename) { renamePasskey(pkRename); return; }
+    const pkRemove = event.target.closest('[data-passkey-remove]');
+    if (pkRemove) { removePasskey(pkRemove); return; }
+    if (event.target.closest('[data-password-change]')) { changePassword(); return; }
     const bye = event.target.closest('[data-logout]');
     if (bye) { logout(bye.dataset.logout === '/logout-all'); return; }
     const out = event.target.closest('[data-device-out], [data-devices-others]');
@@ -696,7 +792,7 @@
       U().toast(error.message, 'error');
     }
     if (!overlay.hidden) render();
-    if (tab === 'devices') { loadDevices(); loadTwoFactor(); }
+    if (tab === 'devices') { loadDevices(); loadTwoFactor(); loadPasskeys(); }
   }
   function close() {
     if (!overlay || overlay.hidden) return;

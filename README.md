@@ -74,7 +74,14 @@ uv run python tools/demo/demo.py down
 The demo runs in its own folder with its own tmux socket, made-up projects, conversations and usage, and stand-in agents that only draw a screen. It reads no real account and calls no provider. The screenshots on this page come from it (`tools/demo/capture.py`).
 </details>
 
-After your first sign-in the dashboard offers to set up **two-factor authentication**: scan a QR code with an authenticator app and confirm one code. You can turn it on or off later in Settings › Signed-in devices.
+After your first sign-in the dashboard offers to set up **two-factor authentication**: scan a QR code with an authenticator app and confirm one code.
+
+Everything about signing in is managed in **Settings › Sign-in & security**:
+
+- **Passkeys**: sign in with your device's fingerprint, face or PIN, with no password and no two-factor code. A passkey on your phone can sign in another computer by scanning the QR code the browser shows. Needs HTTPS (or `localhost`).
+- **Two-factor authentication**: turn it on or off.
+- **Password**: change it (stored as a hash; other devices are signed out).
+- **Signed-in devices**: see every session and sign any of them out.
 
 ### Use it from other devices
 
@@ -160,7 +167,7 @@ Settings live in `.env` in the project folder. `tools/setup.py` writes the first
 | Key | Description |
 |---|---|
 | `ADMIN_USER` | Login name |
-| `ADMIN_PASS_HASH` / `ADMIN_PASS` | Password as a PBKDF2 hash (`python tools/security.py hash-password`), or in plain text (12+ characters) |
+| `ADMIN_PASS_HASH` / `ADMIN_PASS` | Password as a PBKDF2 hash (`python tools/security.py hash-password`), or in plain text (12+ characters). A password changed later in Settings is stored in the data folder and takes precedence |
 | `SECRET_KEY` | Session secret, 32+ characters |
 | `HOST`, `PORT` | Bind address (default `127.0.0.1`) and port (default `8000`) |
 | `ADMIN_TOTP_SECRET` | Two-factor login set in `.env` (`python tools/security.py totp`). Optional: two-factor can also be enrolled in the browser, in which case leave this empty |
@@ -180,7 +187,7 @@ Settings live in `.env` in the project folder. `tools/setup.py` writes the first
 
 UnivDash can type into your terminals, so treat access to it like shell access.
 
-- **Login**: PBKDF2 password hash, optional TOTP enrolled in the browser or in `.env` (codes cannot be reused; turning it off needs the password and a code), per-IP and global rate limits, audit log.
+- **Login**: PBKDF2 password hash, optional TOTP enrolled in the browser or in `.env` (codes cannot be reused; turning it off needs the password and a code), passkeys (WebAuthn with user verification required; only public keys are stored, challenges are single-use and kept server-side, adding one needs the password), per-IP and global rate limits, audit log.
 - **Sessions**: random IDs stored server-side as hashes; sign out everywhere; idle and absolute expiry; changing the password ends every session.
 - **Browser**: no external CDN, strict CSP (`script-src 'self'`), same-origin `Origin` required for every write and WebSocket, `SameSite=Strict` cookies, no `/docs` or OpenAPI endpoints.
 - **Commands**: tmux, PM2, Git and Docker are run without a shell, on IDs that exist, with allow-lists. Uploads are authenticated before the body is read.

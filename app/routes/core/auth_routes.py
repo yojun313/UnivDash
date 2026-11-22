@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.assets import install as install_assets
 from app.i18n import N_, _
 from app.security import LoginRateLimiter, client_key
-from app.services.core import auth_service
+from app.services.core import auth_service, passkeys
 from app.services.core.auth_service import AuthService, config_problem, sessions
 
 router = APIRouter()
@@ -30,6 +30,7 @@ def _login_page(
             "error": error,
             "setup_problem": config_problem(),
             "totp": AuthService.totp_enabled(),
+            "passkey": passkeys.any_registered(),
         },
         status_code=status_code,
         headers=headers,
@@ -224,4 +225,171 @@ async def totp_disable(
 @router.post("/api/auth/totp/dismiss", dependencies=[Depends(AuthService.require_user)])
 async def totp_dismiss():
     auth_service.totp_dismiss()
+    return {"ok": True}
+
+
+# ── Passkeys (WebAuthn) ───────────────────────────────────────────────────────
+# Signing in with a passkey needs neither the password nor a two-factor code: the device itself checks the
+# person (biometrics / PIN) before it answers. Adding one needs the password, so a borrowed session cannot
+# quietly leave itself a way back in.
+
+
+def _site(request: Request) -> tuple[str, str]:
+    return passkeys.site(request.headers.get("origin"), request.headers.get("host"))
+
+
+class PasskeyStart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    password: str = Field(min_length=1, max_length=256)
+
+
+class PasskeyCredential(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    credential: dict
+    name: str = Field(default="", max_length=40)
+
+
+class PasskeyName(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=40)
+
+
+class PasswordChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    current: str = Field(min_length=1, max_length=256)
+    new: str = Field(min_length=1, max_length=256)
+    code: str = Field(default="", max_length=12)
+
+
+@router.get("/api/auth/passkeys", dependencies=[Depends(AuthService.require_user)])
+async def passkey_list(request: Request):
+    host = (request.headers.get("host") or "").split(":")[0].strip("[]").lower()
+    return {"passkeys": passkeys.public_list(host or None)}
+
+
+@router.post("/api/auth/passkeys/options")
+async def passkey_register_options(
+    body: PasskeyStart, request: Request, user: str = Depends(AuthService.require_user)
+):
+    client = client_key(request)
+    if login_limiter.retry_after(client):
+        raise HTTPException(status_code=429, detail=_(ERROR_MESSAGE))
+    if not auth_service.check_password(body.password):
+        login_limiter.record_failure(client)
+        raise HTTPException(status_code=403, detail=_("비밀번호가 맞지 않습니다."))
+    try:
+        rp_id, _origin = _site(request)
+        return passkeys.register_options(request.session, rp_id, user)
+    except passkeys.PasskeyError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.post("/api/auth/passkeys")
+async def passkey_register(
+    body: PasskeyCredential,
+    request: Request,
+    user: str = Depends(AuthService.require_user),
+):
+    try:
+        rp_id, origin = _site(request)
+        saved = passkeys.register_verify(
+            request.session, rp_id, origin, body.credential, body.name
+        )
+    except passkeys.PasskeyError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    logger.info("passkey added · %s · client=%s", user, client_key(request))
+    return saved
+
+
+@router.patch(
+    "/api/auth/passkeys/{passkey_id}", dependencies=[Depends(AuthService.require_user)]
+)
+async def passkey_rename(
+    body: PasskeyName,
+    passkey_id: str = Path(pattern=r"^[A-Za-z0-9_-]{16}$"),
+):
+    try:
+        passkeys.rename(passkey_id, body.name)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error.args[0])) from error
+    return {"ok": True}
+
+
+@router.delete("/api/auth/passkeys/{passkey_id}")
+async def passkey_remove(
+    request: Request,
+    passkey_id: str = Path(pattern=r"^[A-Za-z0-9_-]{16}$"),
+    user: str = Depends(AuthService.require_user),
+):
+    try:
+        passkeys.remove(passkey_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error.args[0])) from error
+    logger.info("passkey removed · %s · client=%s", user, client_key(request))
+    return {"ok": True}
+
+
+@router.post("/api/auth/passkey/login/options")
+async def passkey_login_options(request: Request):
+    """Public: the challenge for a passkey sign-in. It reveals nothing about which passkeys exist."""
+    if login_limiter.retry_after(client_key(request)):
+        raise HTTPException(status_code=429, detail=_(ERROR_MESSAGE))
+    try:
+        rp_id, _origin = _site(request)
+        return passkeys.login_options(request.session, rp_id)
+    except passkeys.PasskeyError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+class PasskeyLogin(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    credential: dict
+
+
+@router.post("/api/auth/passkey/login")
+async def passkey_login(body: PasskeyLogin, request: Request):
+    client = client_key(request)
+    retry_after = login_limiter.retry_after(client)
+    if retry_after or config_problem():
+        raise HTTPException(
+            status_code=429 if retry_after else 403, detail=_(ERROR_MESSAGE)
+        )
+    try:
+        rp_id, origin = _site(request)
+        used = passkeys.login_verify(request.session, rp_id, origin, body.credential)
+    except passkeys.PasskeyError as error:
+        login_limiter.record_failure(client)
+        logger.warning(
+            "passkey sign-in failed · client=%s · ua=%s", client, _agent(request)
+        )
+        raise HTTPException(status_code=401, detail=str(error)) from error
+    login_limiter.reset(client)
+    AuthService.start_session(request, auth_service._username())
+    logger.info(
+        "sign-in succeeded (passkey: %s) · client=%s · ua=%s",
+        used,
+        client,
+        _agent(request),
+    )
+    return {"ok": True, "redirect": "/"}
+
+
+@router.post("/api/auth/password")
+async def password_change(
+    body: PasswordChange,
+    request: Request,
+    user: str = Depends(AuthService.require_user),
+):
+    client = client_key(request)
+    retry_after = login_limiter.retry_after(client)
+    if retry_after:
+        raise HTTPException(status_code=429, detail=_(ERROR_MESSAGE))
+    try:
+        auth_service.change_password(body.current, body.new, body.code)
+    except ValueError as error:
+        login_limiter.record_failure(client)
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    # every session is invalid now: keep this browser signed in, the others sign in again with the new password
+    AuthService.start_session(request, user)
+    logger.info("password changed · %s · client=%s", user, client)
     return {"ok": True}

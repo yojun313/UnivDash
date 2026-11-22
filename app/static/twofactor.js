@@ -94,7 +94,7 @@
       actions: [
         { icon: 'fa-shield-halved', label: t('지금 등록'), desc: t('인증 앱으로 QR 코드를 스캔합니다 (1분 정도)'), onClick: () => enroll() },
         { icon: 'fa-clock', label: t('나중에'), desc: t('다음 로그인 때 다시 묻습니다'), onClick: () => {} },
-        { icon: 'fa-ban', label: t('다시 묻지 않기'), desc: t('설정 › 로그인 기기에서 언제든 등록할 수 있습니다'), onClick: () => { U().api('/api/auth/totp/dismiss', { method: 'POST' }).catch(() => {}); } },
+        { icon: 'fa-ban', label: t('다시 묻지 않기'), desc: t('설정 › 로그인 · 보안에서 언제든 등록할 수 있습니다'), onClick: () => { U().api('/api/auth/totp/dismiss', { method: 'POST' }).catch(() => {}); } },
       ],
     });
   }

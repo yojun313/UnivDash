@@ -75,6 +75,18 @@
                 {{ t("로그인") }}
             </button>
         </form>
+        {% if passkey %}
+        {# Passkey sign-in: no password or two-factor code. A passkey on a phone works here too (the browser shows a QR code). #}
+        <div data-passkey-box class="mt-5">
+            <div class="flex items-center gap-3 text-[11px] text-white/35"><span class="h-px flex-1 bg-white/10"></span>{{ t("또는") }}<span class="h-px flex-1 bg-white/10"></span></div>
+            <button type="button" id="passkeyLogin" class="mt-4 w-full py-2.5 rounded-xl font-bold text-sm border border-white/15 bg-white/5 text-white/85 hover:bg-white/10 transition">
+                <i class="fas fa-fingerprint mr-1.5"></i>{{ t("패스키로 로그인") }}
+            </button>
+            <p class="mt-2 text-center text-[11px] text-white/40">{{ t("이 기기의 패스키를 쓰거나, 휴대폰으로 QR 코드를 스캔해 로그인합니다.") }}</p>
+            <p id="passkeyNote" class="mt-2 text-center text-xs font-medium text-red-300" role="alert" hidden></p>
+        </div>
+        <script src="{{ asset('passkey.js') }}" defer></script>
+        {% endif %}
     </main>
 </body>
 </html>
