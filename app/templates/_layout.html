@@ -66,23 +66,19 @@
         </div>
         <div class="sb-spacer flex-1 hidden"></div>
 
-        <!-- 서버 상태: 로그아웃 바로 위에 붙여 아래에서부터 쌓는다 (sysmon.js) -->
+        <!-- 서버 상태: 아래 버튼 줄 바로 위에 붙여 아래에서부터 쌓는다 (sysmon.js) -->
         <section id="sysMon" class="sysmon px-4 pb-3" aria-label="서버 상태" hidden></section>
         <div class="sb-bottom p-3 border-t border-white/10 space-y-1 safe-bottom">
             <div class="sb-conn flex items-center gap-2 px-3 py-1" title="실시간 연결 상태">
                 <span class="conn-dot h-2 w-2 flex-shrink-0 rounded-full bg-amber-400"></span>
                 <p class="conn-label sb-label text-[11px] text-white/50 truncate">연결 중...</p>
             </div>
-            <form action="/logout" method="post" class="sb-account flex items-center gap-1">
-                <button type="submit" class="sb-logout flex-1 min-w-0 flex items-center px-3 py-2 text-red-300 hover:bg-red-500/10 rounded-xl transition text-sm" title="로그아웃">
-                    <i class="fas fa-sign-out-alt w-6 text-center"></i>
-                    <span class="sb-label ml-2">Logout</span>
-                </button>
-                <button type="submit" formaction="/logout-all" class="logout-all sb-label px-2 py-2 text-[10px] font-bold text-white/40 hover:text-red-300 hover:bg-red-500/10 rounded-xl transition" title="모든 기기에서 로그아웃">전체</button>
+            <!-- 로그아웃은 설정 창 › 로그인 기기 안에 있다 (settings.js) -->
+            <div class="sb-account flex items-center gap-1">
                 <button type="button" data-theme-settings class="sb-icon" title="테마 설정" aria-label="테마 설정"><i class="fas fa-palette text-sm"></i></button>
                 <button type="button" data-app-settings class="sb-icon" title="설정" aria-label="설정"><i class="fas fa-gear text-sm"></i></button>
-                <button id="sidebarCollapseBtn" type="button" class="sb-icon hidden md:flex" title="사이드바 접기 / 펼치기" aria-label="사이드바 접기"><i class="fas fa-angles-left text-sm"></i></button>
-            </form>
+                <button id="sidebarCollapseBtn" type="button" class="sb-icon sb-collapse hidden md:flex" title="사이드바 접기 / 펼치기" aria-label="사이드바 접기"><i class="fas fa-angles-left text-sm"></i></button>
+            </div>
         </div>
     </aside>
 
@@ -104,7 +100,7 @@
 
         {% block content %}{% endblock %}
 
-        <!-- 휴대폰: 앱처럼 하단 탭바로 이동 (사이드바는 ☰ 로 열어 통계 · 로그아웃) -->
+        <!-- 휴대폰: 앱처럼 하단 탭바로 이동 (사이드바는 ☰ 로 열어 통계 · 설정) -->
         <nav class="tabbar md:hidden" aria-label="하단 메뉴">
             {% for key, href, icon, label in nav_items %}
             <a href="{{ href }}" data-nav-key="{{ key }}" class="tab-item {{ 'active' if active_page == key else '' }}" {% if active_page == key %}aria-current="page"{% endif %}>

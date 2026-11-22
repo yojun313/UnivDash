@@ -306,7 +306,7 @@ def _apply_worker(seq: int) -> None:
                     if _apply["seq"] == seq:
                         _apply.update(
                             state="error",
-                            error=str(error) or "적용하지 못했어요.",
+                            error=str(error) or "적용하지 못했습니다.",
                             waiting=[],
                         )
                 return
@@ -319,7 +319,7 @@ def _apply_worker(seq: int) -> None:
         if _apply["seq"] == seq:
             _apply.update(
                 state="error",
-                error="Codex 작업이 끝나지 않아 적용하지 못했어요. 나중에 '모든 Codex 창에 적용'을 눌러 주세요.",
+                error="Codex 작업이 끝나지 않아 적용하지 못했습니다. 나중에 '모든 Codex 창에 적용'을 눌러 주십시오.",
             )
 
 
@@ -403,7 +403,7 @@ def switch(account_id: str, update: bool = True) -> dict:
         info = _info(record["auth"])
         if not info or _account_id(info["email"]) != account_id:
             raise AccountError(
-                "저장된 로그인 정보가 올바르지 않아요. 계정을 다시 추가해 주세요."
+                "저장된 로그인 정보가 올바르지 않습니다. 계정을 다시 추가해 주십시오."
             )
         active = sync_current()  # 지금 계정의 최신 토큰을 먼저 저장
         if active == account_id:
@@ -423,7 +423,7 @@ def remove(account_id: str) -> None:
         path = _profile_path(account_id)
         if account_id == sync_current():
             raise AccountError(
-                "지금 쓰고 있는 계정은 지울 수 없어요. 다른 계정으로 바꾼 뒤 지워 주세요."
+                "지금 쓰고 있는 계정은 지울 수 없습니다. 다른 계정으로 바꾼 뒤 지워 주십시오."
             )
         if not path.exists():
             raise KeyError("없는 계정입니다.")
@@ -469,7 +469,7 @@ _logins: dict[str, _Login] = {}
 def _codex_bin() -> str:
     found = find_command("codex")
     if not found:
-        raise AccountError("codex 명령을 찾지 못했어요.")
+        raise AccountError("codex 명령을 찾지 못했습니다.")
     return found
 
 
@@ -521,7 +521,7 @@ def _run_login(login: _Login) -> None:
         else:
             login.state = "error"
             tail = " / ".join(login.output[-3:])
-            login.error = f"로그인이 끝나지 않았어요. {tail}".strip()[:400]
+            login.error = f"로그인이 끝나지 않았습니다. {tail}".strip()[:400]
     except Exception as error:  # noqa: BLE001 — 스레드 안: 상태로 알린다
         login.state = "error"
         login.error = str(error)[:300]
@@ -534,7 +534,7 @@ def _stop(login: _Login, reason: str) -> None:
         return
     login.state = "cancelled" if reason == "cancel" else "error"
     if reason == "timeout":
-        login.error = "시간이 지나 코드가 만료됐어요. 다시 시도해 주세요."
+        login.error = "시간이 지나 코드가 만료됐습니다. 다시 시도해 주십시오."
     proc = login.proc
     if proc and proc.poll() is None:
         try:
@@ -557,14 +557,16 @@ def start_login() -> dict:
         time.sleep(0.1)
     if login.state == "starting":
         _stop(login, "cancel")
-        raise AccountError("로그인 코드를 받지 못했어요. 잠시 뒤 다시 시도해 주세요.")
+        raise AccountError(
+            "로그인 코드를 받지 못했습니다. 잠시 뒤 다시 시도해 주십시오."
+        )
     return login.public()
 
 
 def login_status(login_id: str) -> dict:
     login = _logins.get(login_id)
     if not login:
-        raise KeyError("로그인 요청을 찾지 못했어요.")
+        raise KeyError("로그인 요청을 찾지 못했습니다.")
     return login.public()
 
 
@@ -572,3 +574,36 @@ def cancel_login(login_id: str) -> None:
     login = _logins.get(login_id)
     if login:
         _stop(login, "cancel")
+
+
+# ── 로그아웃: 지금 로그인을 지우고, 보관해 둔 그 계정 정보도 지운다 ─────────────────────
+
+
+def logout() -> dict:
+    """공식 `codex logout` 으로 로그아웃하고, 대시보드에 저장한 그 계정의 로그인 정보 · 백업을 지운다."""
+    with _lock:
+        auth = _read_json(live_file())
+        info = _info(auth) if auth else None
+        if not auth:
+            raise AccountError("로그인된 계정이 없습니다.")
+        active = _account_id(info["email"]) if info else None
+    try:
+        subprocess.run(
+            [_codex_bin(), "logout"],
+            env=_child_env(codex_home()),
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            timeout=60,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise AccountError("로그아웃 명령을 실행하지 못했습니다.") from error
+    with _lock:
+        if _read_json(live_file()):
+            raise AccountError("로그아웃하지 못했습니다. 터미널에서 확인해 주십시오.")
+        if active:
+            _profile_path(active).unlink(missing_ok=True)
+        for old in (_store() / "backups").glob("*.json"):
+            old.unlink(missing_ok=True)
+        _invalidate_usage_cache()
+    return {"email": info["email"] if info else None}

@@ -1,4 +1,4 @@
-"""에이전트 계정 관리 API (Codex · Claude Code): 목록 · 전환 · 삭제 · 로그인으로 추가.
+"""에이전트 계정 관리 API (Codex · Claude Code · Gemini): 목록 · 전환 · 삭제 · 로그인으로 추가.
 
 토큰은 서버 밖으로 내보내지 않는다 — 응답에는 메일 · 요금제 · 상태만.
 """
@@ -14,6 +14,7 @@ from app.services import (
     claude_login,
     codex_accounts,
     codex_auto_switch,
+    gemini_accounts,
 )
 from app.services.ai_usage_service import AIUsageService
 from app.services.auth_service import AuthService
@@ -28,7 +29,14 @@ def _raise(error: Exception):
         raise HTTPException(
             status_code=404, detail=str(error.args[0] if error.args else "없음")
         ) from error
-    if isinstance(error, (codex_accounts.AccountError, claude_accounts.AccountError)):
+    if isinstance(
+        error,
+        (
+            codex_accounts.AccountError,
+            claude_accounts.AccountError,
+            gemini_accounts.AccountError,
+        ),
+    ):
         raise HTTPException(status_code=409, detail=str(error)) from error
     logger.warning("계정 처리 실패: %s", error)
     raise HTTPException(
@@ -136,13 +144,13 @@ class ClaudeCodeRequest(BaseModel):
 def _claude_error(error: Exception):
     if isinstance(error, KeyError):
         raise HTTPException(
-            status_code=404, detail="로그인 요청을 찾지 못했어요."
+            status_code=404, detail="로그인 요청을 찾지 못했습니다."
         ) from error
     if isinstance(error, claude_login.LoginError):
         raise HTTPException(status_code=409, detail=str(error)) from error
     logger.warning("Claude 로그인 처리 실패: %s", type(error).__name__)
     raise HTTPException(
-        status_code=500, detail="로그인을 진행하지 못했어요."
+        status_code=500, detail="로그인을 진행하지 못했습니다."
     ) from error
 
 
@@ -215,3 +223,85 @@ async def claude_login_code(login_id: str, body: ClaudeCodeRequest):
 async def claude_login_cancel(login_id: str):
     claude_login.cancel(login_id)
     return {"ok": True}
+
+
+# ── Gemini (Antigravity CLI) 계정 여러 개 ──
+
+
+@router.get("/api/accounts/gemini", dependencies=api_auth)
+async def gemini_list():
+    try:
+        return await asyncio.to_thread(gemini_accounts.list_accounts)
+    except (OSError, ValueError) as error:
+        _raise(error)
+
+
+@router.post("/api/accounts/gemini/switch", dependencies=api_auth)
+async def gemini_switch(body: SwitchRequest):
+    try:
+        result = await asyncio.to_thread(gemini_accounts.switch, body.id)
+    except (KeyError, OSError, ValueError, gemini_accounts.AccountError) as error:
+        _raise(error)
+    logger.info("Gemini 계정 바꾸기 · changed=%s", result.get("changed"))
+    return result
+
+
+@router.delete("/api/accounts/gemini/{account_id}", dependencies=api_auth)
+async def gemini_remove(account_id: str):
+    try:
+        await asyncio.to_thread(gemini_accounts.remove, account_id)
+    except (KeyError, OSError, gemini_accounts.AccountError) as error:
+        _raise(error)
+    return {"ok": True}
+
+
+@router.post("/api/accounts/gemini/add", dependencies=api_auth)
+async def gemini_add_start():
+    try:
+        result = await asyncio.to_thread(gemini_accounts.start_login)
+    except (OSError, gemini_accounts.AccountError) as error:
+        _raise(error)
+    logger.info("Gemini 계정 추가 로그인 시작")
+    return result
+
+
+@router.get("/api/accounts/gemini/login/{login_id}", dependencies=api_auth)
+async def gemini_login_status(login_id: str):
+    try:
+        return gemini_accounts.login_status(login_id)
+    except KeyError as error:
+        _raise(error)
+
+
+@router.post("/api/accounts/gemini/login/{login_id}/code", dependencies=api_auth)
+async def gemini_login_code(login_id: str, body: ClaudeCodeRequest):
+    try:
+        return await asyncio.to_thread(gemini_accounts.submit_code, login_id, body.code)
+    except (KeyError, OSError, gemini_accounts.AccountError) as error:
+        _raise(error)
+
+
+@router.delete("/api/accounts/gemini/login/{login_id}", dependencies=api_auth)
+async def gemini_login_cancel(login_id: str):
+    gemini_accounts.cancel_login(login_id)
+    return {"ok": True}
+
+
+# ── 로그아웃: 지금 로그인을 지우고 저장해 둔 그 계정 정보도 지운다 ──
+
+
+@router.post("/api/accounts/{provider}/logout", dependencies=api_auth)
+async def account_logout(provider: str):
+    module = {
+        "claude": claude_accounts,
+        "codex": codex_accounts,
+        "gemini": gemini_accounts,
+    }.get(provider)
+    if module is None:
+        raise HTTPException(status_code=404, detail="없는 제공자입니다.")
+    try:
+        result = await asyncio.to_thread(module.logout)
+    except (KeyError, OSError, ValueError, module.AccountError) as error:
+        _raise(error)
+    logger.info("%s 계정 로그아웃 · 저장 정보 삭제", provider)
+    return {"ok": True, **result}

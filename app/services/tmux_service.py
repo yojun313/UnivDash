@@ -30,7 +30,16 @@ SESSION_ID = re.compile(r"^\$\d{1,6}$")
 
 MAX_TEXT = 20000
 MAX_HISTORY = 5000
-AGENTS = {"claude", "codex"}
+AGENTS = {"claude", "codex", "gemini"}
+# 에이전트 → 실행 파일 이름 (tmux 의 pane_current_command 로 보이는 이름). Gemini 는 Antigravity CLI(agy) 다.
+AGENT_BIN = {"claude": "claude", "codex": "codex", "gemini": "agy"}
+_BIN_AGENT = {binary: agent for agent, binary in AGENT_BIN.items()}
+
+
+def agent_of(command: str | None) -> str | None:
+    """pane 에서 도는 명령 이름 → 에이전트 이름 (에이전트가 아니면 None)."""
+    return _BIN_AGENT.get(command or "")
+
 
 # 모바일 키 툴바와 직접 입력 모드에서 보낼 수 있는 tmux 키 이름 (send-keys 인자 그대로)
 NAMED_KEYS = {
@@ -102,6 +111,12 @@ _WAITING_TEXT = re.compile(
     r"^\s*[❯›]\s*1\.\s|press enter to continue|enter to confirm|to confirm or|esc to dismiss|esc to go back|enter select|enter default|esc back|enter to set as default|use this session only|enter continue|\(y/n\)|\[y/n\]",
     re.IGNORECASE | re.MULTILINE,
 )
+# Antigravity CLI: 선택 · 권한 · 폴더 신뢰 창은 "> 1. Yes, run command" 와 "↑/↓ Navigate · enter Confirm" 안내를 보인다
+_GEMINI_WAITING = re.compile(
+    r"^\s*>\s*\d\.\s+\S|↑/↓ navigate", re.IGNORECASE | re.MULTILINE
+)
+# 작업 줄: "⣽  Generating..." · "⢿  Running command..." (입력창 바로 위)
+_GEMINI_SPINNER = re.compile(r"^\s*[\u2800-\u28ff]\s+\S")
 # Claude Code 는 작업 중 터미널 제목 앞에 점자 스피너를, 쉬는 중에는 ✳ 를 붙인다.
 _SPINNER_TITLE = re.compile(r"^[\u2800-\u28ff]")
 _TITLE_PREFIX = re.compile(r"^[\u2800-\u28ff✳]\s*")
@@ -216,7 +231,8 @@ def _input_box(rows: list[str], agent: str | None) -> tuple[int, int] | None:
     선택 · 권한 창이 뜨면 입력창이 사라진다. 그래서 입력창이 보이면 대화 글에 어떤 글자가 있어도
     응답을 기다리는 상태가 아니다.
     """
-    if agent == "claude":
+    if agent in {"claude", "gemini"}:
+        # Antigravity CLI 도 Claude Code 처럼 가로줄 두 개 사이에 "> " 입력줄을 둔다
         seps = [i for i, line in enumerate(rows) if _SEPARATOR.match(line)]
         if len(seps) < 2:
             return None
@@ -257,6 +273,8 @@ def detect_status(window: Window, tail: str) -> str:
         # 입력창이 없다: 선택 · 권한 · 확인 창
         if _WAITING_TEXT.search(recent) or any(_CURSOR_OPTION.match(r) for r in rows):
             return "waiting"
+        if window.agent == "gemini" and _GEMINI_WAITING.search(recent):
+            return "waiting"
         if _BUSY_TEXT.search(recent):
             return "busy"
     else:
@@ -266,6 +284,15 @@ def detect_status(window: Window, tail: str) -> str:
         below = "\n".join(rows[bottom + 1 :])
         if window.agent == "claude" and any(_CLAUDE_SPINNER.match(r) for r in above):
             return "busy"
+        if window.agent == "gemini":
+            # 슬래시 명령 목록도 "esc to cancel" 을 보이므로 (목록에는 Navigate 안내가 함께 있다) 작업 줄을 먼저 본다
+            if any(_GEMINI_SPINNER.match(r) for r in above[-4:]):
+                return "busy"
+            return (
+                "busy"
+                if _BUSY_TEXT.search(below) and "navigate" not in below.lower()
+                else "idle"
+            )
         if _BUSY_TEXT.search(below):
             return "busy"
         # Codex 작업 줄 "• Working (5s • esc to interrupt)" 은 입력줄 바로 위에 있다
@@ -363,8 +390,8 @@ def list_windows(with_status: bool = True) -> list[Window]:
     for window in result:
         window.starting = any(p.id in starting for p in window.panes)
         active = next((p for p in window.panes if p.active), window.panes[0])
-        agent_pane = next((p for p in window.panes if p.command in AGENTS), None)
-        window.agent = agent_pane.command if agent_pane else None
+        agent_pane = next((p for p in window.panes if agent_of(p.command)), None)
+        window.agent = agent_of(agent_pane.command) if agent_pane else None
         if codex_restarting and window.agent == "codex":
             window.starting = True
         window.title = _clean_title((agent_pane or active).title)
@@ -543,7 +570,7 @@ def send_prompt(
     """
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     if len(text) > MAX_TEXT:
-        raise ValueError(f"프롬프트는 {MAX_TEXT}자 이하로 보내주세요.")
+        raise ValueError(f"프롬프트는 {MAX_TEXT}자 이하로 보내주십시오.")
     for path in attachments:
         _paste(pane_id, path)
         time.sleep(0.2)
@@ -693,4 +720,24 @@ def codex_footer_model(pane_id: str) -> str | None:
         match = _CODEX_FOOTER.match(line)
         if match:
             return " ".join(part for part in match.groups() if part)[:60]
+    return None
+
+
+# Antigravity CLI 화면 맨 아래 오른쪽: "Gemini 3.8 Flash · low" (모델 · 추론 강도)
+_GEMINI_FOOTER = re.compile(
+    r"(?:^|\s{2,})((?:Gemini|Claude|GPT)[\w .\-()]{1,40}?)\s·\s(low|medium|high)\s*$",
+    re.IGNORECASE,
+)
+
+
+def gemini_footer_model(pane_id: str) -> str | None:
+    try:
+        text = _run(["capture-pane", "-p", "-t", pane_id])
+    except TmuxError:
+        return None
+    lines = [line for line in text.split("\n") if line.strip()][-4:]
+    for line in reversed(lines):
+        match = _GEMINI_FOOTER.search(line.rstrip())
+        if match:
+            return f"{match.group(1).strip()} {match.group(2).lower()}"[:60]
     return None

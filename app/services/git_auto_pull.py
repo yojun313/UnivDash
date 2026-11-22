@@ -134,20 +134,20 @@ def _failed(message: str) -> dict:
 
 
 def _error_text(result: subprocess.CompletedProcess[str]) -> str:
-    return (result.stderr or result.stdout).strip() or "Git 명령이 실패했어요."
+    return (result.stderr or result.stdout).strip() or "Git 명령이 실패했습니다."
 
 
 def _pull(path: Path) -> dict:
     operation = GitService._operation(path)
     if operation:
-        return _failed(f"{operation} 작업이 진행 중이라 건너뛰었어요.")
+        return _failed(f"{operation} 작업이 진행 중이라 건너뛰었습니다.")
     if not GitService._text(path, "symbolic-ref", "--quiet", "--short", "HEAD"):
-        return _failed("브랜치에 있지 않아(detached HEAD) 건너뛰었어요.")
+        return _failed("브랜치에 있지 않아(detached HEAD) 건너뛰었습니다.")
     upstream = GitService._text(
         path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"
     )
     if not upstream:
-        return _failed("이 브랜치에 upstream 이 없어 받을 곳을 모르겠어요.")
+        return _failed("이 브랜치에 upstream 이 없어 받을 곳을 알 수 없습니다.")
 
     fetched = GitService._run(path, "fetch")
     if fetched.returncode != 0:
@@ -161,10 +161,10 @@ def _pull(path: Path) -> dict:
     ahead, behind = (int(part) for part in counted.stdout.split())
     if not behind:
         extra = f" (보낼 커밋 {ahead}개 있음)" if ahead else ""
-        return {"ok": True, "message": f"이미 최신이에요.{extra}"}
+        return {"ok": True, "message": f"이미 최신입니다.{extra}"}
     if ahead:
         return _failed(
-            f"로컬 커밋 {ahead}개와 원격 커밋 {behind}개가 갈라져 있어 건너뛰었어요. 직접 Pull 해 주세요."
+            f"로컬 커밋 {ahead}개와 원격 커밋 {behind}개가 갈라져 있어 건너뛰었습니다. 직접 Pull 해 주십시오."
         )
 
     merged = GitService._run(
@@ -174,10 +174,10 @@ def _pull(path: Path) -> dict:
         output = _error_text(merged)
         if "overwritten by merge" in output:
             return _failed(
-                "로컬 변경과 겹치는 파일이 있어 건너뛰었어요. 변경을 커밋하거나 스태시해 주세요."
+                "로컬 변경과 겹치는 파일이 있어 건너뛰었습니다. 변경을 커밋하거나 스태시해 주십시오."
             )
         return _failed(output)
-    return {"ok": True, "message": f"커밋 {behind}개를 받았어요.", "commits": behind}
+    return {"ok": True, "message": f"커밋 {behind}개를 받았습니다.", "commits": behind}
 
 
 def pull(repository_id: str) -> dict | None:
@@ -198,9 +198,9 @@ def _run_one(repository_id: str) -> None:
     try:
         result = pull(repository_id)
     except KeyError:
-        result = _failed("저장소를 찾지 못했어요.")
+        result = _failed("저장소를 찾지 못했습니다.")
     except subprocess.TimeoutExpired:
-        result = _failed("시간 안에 끝나지 않아 중단했어요.")
+        result = _failed("시간 안에 끝나지 않아 중단했습니다.")
     except (OSError, RuntimeError, ValueError) as error:
         result = _failed(str(error))
     if result is None:

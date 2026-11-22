@@ -52,12 +52,12 @@ async def write_settings(
         value = await asyncio.to_thread(settings_service.update, changes)
     except (ValidationError, ValueError) as error:
         raise HTTPException(
-            status_code=400, detail="설정 값이 범위를 벗어났어요."
+            status_code=400, detail="설정 값이 범위를 벗어났습니다."
         ) from error
     except OSError as error:
         logger.warning("설정 저장 실패: %s", error)
         raise HTTPException(
-            status_code=500, detail="설정을 저장하지 못했어요."
+            status_code=500, detail="설정을 저장하지 못했습니다."
         ) from error
     logger.info("설정 변경 · %s · %s", user, changes)
     return _payload(value)

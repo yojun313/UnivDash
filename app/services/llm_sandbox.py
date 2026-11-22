@@ -34,7 +34,18 @@ logger = logging.getLogger(__name__)
 IMAGE = os.getenv("UNIVDASH_LLM_IMAGE", "ubuntu:latest")
 LABEL = "univdash-llm"
 PROXY_PORT = 3128
-ALLOWED_HOSTS = frozenset({"api.anthropic.com", "chatgpt.com", "api.openai.com"})
+ALLOWED_HOSTS = frozenset(
+    {
+        "api.anthropic.com",
+        "chatgpt.com",
+        "api.openai.com",
+        # Gemini (Antigravity CLI) 의 모델 API. 로그인 갱신 주소(oauth2.googleapis.com)는 열지 않는다
+        "daily-cloudcode-pa.googleapis.com",
+        "cloudcode-pa.googleapis.com",
+        # Antigravity CLI 가 시작할 때 계정 확인(oauth2/v2/userinfo)을 여기로 한다 — 막으면 실행되지 않는다
+        "www.googleapis.com",
+    }
+)
 MAX_TUNNELS = 64
 CONTAINER_UID = "65534:65534"
 
@@ -116,7 +127,7 @@ def problem() -> str | None:
     docker = docker_bin()
     reason = None
     if not docker:
-        reason = "Docker 가 설치되어 있지 않아요."
+        reason = "Docker 가 설치되어 있지 않습니다."
     else:
         try:
             done = subprocess.run(
@@ -128,12 +139,12 @@ def problem() -> str | None:
             if done.returncode != 0:
                 detail = done.stderr.decode("utf-8", "replace").lower()
                 reason = (
-                    f"격리용 이미지({IMAGE})가 없어요. 서버에서 docker pull {IMAGE} 를 한 번 해 주세요."
+                    f"격리용 이미지({IMAGE})가 없습니다. 서버에서 docker pull {IMAGE} 를 한 번 실행해 주십시오."
                     if "no such image" in detail
-                    else "Docker 를 쓸 수 없어요 (데몬이 꺼져 있거나 권한이 없어요)."
+                    else "Docker 를 쓸 수 없습니다 (데몬이 꺼져 있거나 권한이 없습니다)."
                 )
         except (OSError, subprocess.TimeoutExpired):
-            reason = "Docker 가 응답하지 않아요."
+            reason = "Docker 가 응답하지 않습니다."
     _ready_cache = (now, reason)
     return reason
 
@@ -251,7 +262,7 @@ def binaries() -> dict[str, str]:
     from app.paths import find_command
 
     found = {}
-    for name in ("claude", "codex"):
+    for name in ("claude", "codex", "agy"):
         path = find_command(name)
         if path:
             found[name] = os.path.realpath(path)

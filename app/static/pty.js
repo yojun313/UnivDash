@@ -68,7 +68,7 @@
           handlers.onExit?.(message.code);
         } else if (message.t === 'gone') {
           gone = true;
-          term.write('\r\n\x1b[2m[이 Terminal 은 더 이상 없습니다 — 서버가 다시 시작되었을 수 있어요]\x1b[0m\r\n');
+          term.write('\r\n\x1b[2m[이 Terminal 은 더 이상 없습니다 — 서버가 다시 시작되었을 수 있습니다]\x1b[0m\r\n');
           handlers.onGone?.();
         }
       };

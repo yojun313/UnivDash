@@ -202,7 +202,7 @@ async def office_pdf(path: str) -> Path:
             produced = work / "input.pdf"
             if not produced.exists():
                 raise FsError(
-                    "이 문서를 변환하지 못했습니다 (지원하지 않는 형식일 수 있어요)."
+                    "이 문서를 변환하지 못했습니다 (지원하지 않는 형식일 수 있습니다)."
                 )
             os.replace(produced, target)
         finally:
@@ -313,7 +313,7 @@ def archive_list(path: str) -> dict:
             "truncated": False,
         }
     raise FsError(
-        "이 압축 형식(7z · rar 등)은 목록을 볼 수 없습니다. 다운로드해서 여세요."
+        "이 압축 형식(7z · rar 등)은 목록을 볼 수 없습니다. 다운로드해서 여십시오."
     )
 
 

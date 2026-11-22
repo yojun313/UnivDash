@@ -239,13 +239,13 @@
     async function refresh(reset = false) {
       if (bar.hidden) return;
       const mine = ++request, state = getState(), query = input.value;
-      if (!state.entry) { clearHighlights(); matches = []; status('파일을 열어 주세요'); return; }
+      if (!state.entry) { clearHighlights(); matches = []; status('파일을 열어 주십시오'); return; }
       const key = `${state.entry.path}\0${!!state.editor}\0${state.pdf?.version || ''}\0${query}\0${caseSensitive}${wholeWord}${useRegex}`;
       reset ||= key !== signature; signature = key;
       const old = matches[index];
       let hasText = true;
       clearHighlights(); matches = []; pdfCache = null;
-      if (!query) { index = -1; status('검색어를 입력하세요'); return; }
+      if (!query) { index = -1; status('검색어를 입력하십시오'); return; }
       try {
         if (state.pdf) {
           status('검색 중…');
@@ -359,7 +359,7 @@
     button.addEventListener('click', () => controller.open());
     input.addEventListener('input', () => {
       request++; signature = ''; clearHighlights(); matches = []; index = -1;
-      status(input.value ? '검색 중…' : '검색어를 입력하세요'); schedule();
+      status(input.value ? '검색 중…' : '검색어를 입력하십시오'); schedule();
     });
     input.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && !event.isComposing && (event.ctrlKey || event.metaKey) && event.altKey) { event.preventDefault(); replaceAll(); return; }

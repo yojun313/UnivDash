@@ -491,7 +491,7 @@ def cmd_add(domain, email, port, path):
         _test_config()
         _emit("[3/4] nginx reload")
         _reload()
-        _emit("[4/4] SSL 인증서 발급 (시간이 걸릴 수 있어요)")
+        _emit("[4/4] SSL 인증서 발급 (시간이 걸릴 수 있습니다)")
         _certbot_issue(domain, email)
     except HelperError:
         _emit("실패해서 새 설정을 지웁니다.")
@@ -546,7 +546,7 @@ def cmd_rename(old_domain, new_domain, email):
         _emit("[3/5] 설정 검사 · nginx reload")
         _test_config()
         _reload()
-        _emit(f"[4/5] SSL 인증서 발급: {new_domain} (DNS 가 이 서버를 가리켜야 해요)")
+        _emit(f"[4/5] SSL 인증서 발급: {new_domain} (DNS 가 이 서버를 가리켜야 합니다)")
         _certbot_issue(new_domain, email)
     except HelperError:
         _emit(f"실패해서 원래 설정으로 되돌립니다: {old_domain}")
@@ -626,7 +626,7 @@ def _read_new_passphrase():
                 "새 변경 비밀번호에 쓸 수 없는 글자가 있습니다."
             ) from error
     if not value:
-        raise HelperError("새 변경 비밀번호를 입력해 주세요.")
+        raise HelperError("새 변경 비밀번호를 입력해 주십시오.")
     if any(ord(character) < 32 for character in value):
         raise HelperError("새 변경 비밀번호에 쓸 수 없는 글자가 있습니다.")
     try:
@@ -695,7 +695,7 @@ def _passphrase_matches(passphrase):
         )
     except (OSError, ValueError) as error:
         raise HelperError(
-            "변경 비밀번호가 설정되어 있지 않습니다. 설치 스크립트를 다시 실행해 주세요."
+            "변경 비밀번호가 설정되어 있지 않습니다. 설치 스크립트를 다시 실행해 주십시오."
         ) from error
     return hmac.compare_digest(derived.hex(), stored)
 
@@ -707,7 +707,7 @@ def _authorize():
     count, until = _load_failures()
     if until > time.time():
         raise HelperError(
-            "변경 비밀번호를 여러 번 틀려 잠겼습니다. 15분 뒤 다시 해 주세요.",
+            "변경 비밀번호를 여러 번 틀려 잠겼습니다. 15분 뒤 다시 해 주십시오.",
             EXIT_PASSPHRASE,
         )
     if _passphrase_matches(_read_passphrase()):
@@ -741,7 +741,7 @@ def run(argv, on_authorized=None):
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
-            _emit("실패: 다른 도메인 작업이 진행 중입니다. 잠시 뒤 다시 해 주세요.")
+            _emit("실패: 다른 도메인 작업이 진행 중입니다. 잠시 뒤 다시 해 주십시오.")
             return EXIT_FAILED
         try:
             spec[0](*argv[1:])

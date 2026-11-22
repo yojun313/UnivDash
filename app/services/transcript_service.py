@@ -19,6 +19,7 @@ import secrets
 import threading
 import time
 from collections import OrderedDict
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -64,7 +65,7 @@ _INJECTED_PREFIXES = (
 _CODEX_INTERNAL = re.compile(
     r"<codex_internal_context\b[^>]*>.*?(?:</codex_internal_context>|\Z)", re.DOTALL
 )
-COMPACTED = "대화가 길어 압축(compact)됐어요"
+COMPACTED = "대화가 길어 압축(compact)됐습니다"
 # 대시보드의 '대화 넘기기'로 새 에이전트에 보낸 첫 지시 (agent_restart._handoff_prompt)
 _HANDOFF_PREFIX = "이 작업은 다른 에이전트("
 # Claude Code 가 붙여넣은 글을 <pasted_content id="N"> … </pasted_content id="N"> 로 감싼다 (내용만 남긴다)
@@ -92,12 +93,17 @@ def _clip(text: str, limit: int) -> str:
 # ── pane → 로그 파일 ────────────────────────────────────────────────────────
 
 
+# 에이전트 → 실행 파일 이름 (tmux_service.AGENT_BIN 과 같다. 서로 import 하지 않으려고 따로 둔다)
+_AGENT_BIN = {"gemini": "agy"}
+
+
 def _agent_process(pane_pid: int, agent: str) -> psutil.Process | None:
     try:
         root = psutil.Process(pane_pid)
+        binary = _AGENT_BIN.get(agent, agent)
         for proc in [root, *root.children(recursive=True)]:
             try:
-                if proc.name() == agent:
+                if proc.name() == binary:
                     return proc
             except psutil.Error:
                 continue
@@ -272,13 +278,123 @@ def _codex_log(proc: psutil.Process, cwd: str) -> Path | None:
     return None
 
 
+# ── Gemini (Antigravity CLI · agy) ──
+# 대화마다 ~/.gemini/antigravity-cli/brain/<대화 ID>/.system_generated/logs/transcript_full.jsonl 에 한 단계씩 적힌다.
+_GEMINI_LOG = (".system_generated", "logs", "transcript_full.jsonl")
+_GEMINI_OPEN = re.compile(
+    r"/(?:presence|conversations)/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(?:lock|db)$"
+)
+
+
+def gemini_root() -> Path:
+    return _data_root("GEMINI_DATA_DIR", ".gemini/antigravity-cli")
+
+
+def gemini_log_path(conversation_id: str) -> Path | None:
+    """대화 ID → 기록 파일 (아직 없으면 None)."""
+    if not _RESUME_ID.match(conversation_id or ""):
+        return None
+    root = gemini_root()
+    path = root.joinpath("brain", conversation_id, *_GEMINI_LOG)
+    return path if path.is_file() and _inside(path, root) else None
+
+
+_gemini_summary_cache: tuple[int, dict[str, dict]] = (0, {})
+
+
+def gemini_summaries() -> dict[str, dict]:
+    """대화 ID → {"title", "cwd", "parent"} (Antigravity CLI 의 conversation_summaries.db, 읽기 전용)."""
+    global _gemini_summary_cache
+    path = gemini_root() / "conversation_summaries.db"
+    try:
+        wal = path.with_name(path.name + "-wal")
+        version = path.stat().st_mtime_ns + (
+            wal.stat().st_mtime_ns if wal.exists() else 0
+        )
+    except OSError:
+        return {}
+    if _gemini_summary_cache[0] == version:
+        return _gemini_summary_cache[1]
+    import sqlite3
+    from urllib.parse import unquote, urlsplit
+
+    found: dict[str, dict] = {}
+    try:
+        with closing(
+            sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=1.0)
+        ) as db:
+            rows = db.execute(
+                "select conversation_id, title, workspace_uris, parent_conversation_id"
+                " from conversation_summaries"
+            ).fetchall()
+    except sqlite3.Error:
+        return _gemini_summary_cache[1]
+    for conversation, title, uris, parent in rows:
+        cwd = None
+        try:
+            first = (json.loads(uris) or [None])[0] if uris else None
+        except (ValueError, TypeError, IndexError):
+            first = None
+        if isinstance(first, str) and first.startswith("file://"):
+            cwd = unquote(urlsplit(first).path) or None
+        found[str(conversation)] = {
+            "title": str(title or "")[:200],
+            "cwd": cwd,
+            "parent": str(parent or ""),
+        }
+    _gemini_summary_cache = (version, found)
+    return found
+
+
+def _gemini_log(proc: psutil.Process) -> Path | None:
+    # 프로세스가 지금 대화의 잠금 파일(presence/<ID>.lock) · DB(conversations/<ID>.db)를 열고 있다 (/clear 로 바뀐 대화도 맞다)
+    try:
+        for handle in proc.open_files():
+            match = _GEMINI_OPEN.search(handle.path)
+            if match:
+                found = gemini_log_path(match.group(1))
+                if found:
+                    return found
+    except psutil.Error:
+        pass
+    # 아직 첫 프롬프트 전: `agy --conversation <ID>` 로 켰으면 그 대화
+    try:
+        argv = proc.cmdline()
+    except psutil.Error:
+        return None
+    for index, arg in enumerate(argv):
+        value = (
+            arg.split("=", 1)[1]
+            if arg.startswith("--conversation=")
+            else argv[index + 1]
+            if arg == "--conversation" and index + 1 < len(argv)
+            else ""
+        )
+        if value:
+            return gemini_log_path(value)
+    return None
+
+
 def find_log(pane_pid: int, agent: str | None, cwd: str) -> Path | None:
-    if agent not in {"claude", "codex"}:
+    if agent not in {"claude", "codex", "gemini"}:
         return None
     proc = _agent_process(pane_pid, agent)
     if proc is None:
         return None
+    if agent == "gemini":
+        return _gemini_log(proc)
     return _claude_log(proc) if agent == "claude" else _codex_log(proc, cwd)
+
+
+def conversation_id(log: Path | None) -> str:
+    """기록 파일 → 대화(세션) ID. Claude · Codex 는 파일 이름에, Gemini 는 폴더 이름에 있다."""
+    ids = _ANY_ID.findall(str(log)) if log else []
+    return ids[-1] if ids else ""
+
+
+_ANY_ID = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE
+)
 
 
 _AGENT_KEY = re.compile(r"^(?:[A-Za-z0-9_-]{1,64}|(?:/[A-Za-z0-9_.-]{1,64}){1,8})$")
@@ -472,7 +588,7 @@ def _user_text(text: str) -> tuple[str, str] | None:
         return None
     if stripped.startswith(_HANDOFF_PREFIX) and "나눈 대화 전체가" in stripped:
         agent = stripped[len(_HANDOFF_PREFIX) :].split(")", 1)[0]
-        return "system", f"{agent} 에서 넘겨받은 대화 기록을 읽고 이어 가요"
+        return "system", f"{agent} 에서 넘겨받은 대화 기록을 읽고 이어 갑니다"
     if stripped.startswith("[Request interrupted"):
         return "system", "사용자가 중단함"
     return "user", stripped
@@ -832,6 +948,8 @@ class _Log:
         self.awaiting: float | None = None
         # Claude: 턴이 끝났는가 (system turn_duration · 중단). 프롬프트 · 도구가 새로 오면 다시 진행 중.
         self.claude_done = True
+        # Gemini: 도구 결과는 호출 ID 없이 호출 순서대로 따로 적힌다 → 아직 결과를 못 받은 호출
+        self.gemini_pending: list[str] = []
 
     def _add(self, kind: str, text: str = "", ts: str = "", **extra) -> dict:
         item = {
@@ -1122,6 +1240,47 @@ class _Log:
         }:
             self._result(p.get("call_id", ""), p.get("output"))
 
+    def _gemini(self, d: dict) -> None:
+        """Antigravity CLI 의 transcript_full.jsonl 한 줄 (단계 하나)."""
+        kind, ts = d.get("type"), str(d.get("created_at") or "")
+        content = d.get("content") if isinstance(d.get("content"), str) else ""
+        if kind == "USER_INPUT":
+            match = _GEMINI_REQUEST.search(content)
+            text = (match.group(1) if match else _GEMINI_META.sub("", content)).strip()
+            self.gemini_pending.clear()
+            if text:
+                self._user(text, ts)
+        elif kind == "PLANNER_RESPONSE":
+            thinking = d.get("thinking")
+            if isinstance(thinking, str) and thinking.strip() and not content.strip():
+                self._add("assistant", thinking.strip(), ts)
+            if content.strip():
+                self._add("assistant", content.strip(), ts)
+            calls = [c for c in d.get("tool_calls") or [] if isinstance(c, dict)]
+            for number, call in enumerate(calls):
+                call_id = f"g{d.get('step_index')}-{number}"
+                name = str(call.get("name") or "tool")
+                args = call.get("args") if isinstance(call.get("args"), dict) else {}
+                self._tool(call_id, name, _gemini_args(args), ts)
+                diffs = _gemini_diffs(name, args)
+                if diffs:
+                    self.by_call[call_id]["diffs"] = diffs
+                self.gemini_pending.append(call_id)
+            if not calls:
+                self.claude_done = True  # 도구 없이 답만 했으면 턴이 끝났다
+        elif kind == "GENERIC":
+            if self.gemini_pending:
+                output = _GEMINI_STAMP.sub("", content).strip()
+                failed = _GEMINI_EXIT.search(output)
+                self._result(
+                    self.gemini_pending.pop(0),
+                    output,
+                    bool(failed and failed.group(1) != "0"),
+                )
+        elif isinstance(kind, str) and "ERROR" in kind and content.strip():
+            self._add("system", _clip(content.strip(), MAX_SUMMARY), ts)
+            self.claude_done = True
+
     def _agent_message(self, p: dict, ts: str) -> None:
         """Codex 서브에이전트가 부모에게 보낸 메시지. 평문(최종 보고 등)만 보인다."""
         text = "".join(
@@ -1147,6 +1306,11 @@ class _Log:
 
     def refresh(self) -> None:
         size = self.path.stat().st_size
+        if self.agent == "gemini" and size != self.offset:
+            # 대화 제목은 Antigravity CLI 가 따로(요약 DB) 적어 둔다
+            info = gemini_summaries().get(self.path.parents[2].name)
+            if info and info["title"]:
+                self.title = info["title"]
         if size < self.offset:  # 파일이 새로 쓰였으면 처음부터
             self.__init__(self.path, self.agent)
         if size == self.offset:
@@ -1164,7 +1328,85 @@ class _Log:
             except ValueError:
                 continue
             if isinstance(record, dict):
-                (self._claude if self.agent == "claude" else self._codex)(record)
+                if self.agent == "gemini":
+                    self._gemini(record)
+                else:
+                    (self._claude if self.agent == "claude" else self._codex)(record)
+
+
+_GEMINI_REQUEST = re.compile(r"<USER_REQUEST>\n?(.*?)\n?</USER_REQUEST>", re.DOTALL)
+_GEMINI_META = re.compile(
+    r"<(ADDITIONAL_METADATA|USER_SETTINGS_CHANGE|EPHEMERAL_MESSAGE)>.*?</\1>", re.DOTALL
+)
+# 도구 결과 앞에 붙는 시각 줄
+_GEMINI_STAMP = re.compile(r"^(?:(?:Created|Completed) At: [^\n]*\n)+")
+_GEMINI_EXIT = re.compile(r"exited with code (-?\d+)")
+# Antigravity 도구 인자 이름(CommandLine · Path …) → 요약 · 통계가 아는 이름
+_GEMINI_KEYS = {
+    "CommandLine": "command",
+    "Path": "file_path",
+    "TargetFile": "file_path",
+    "AbsolutePath": "file_path",
+    "File": "file_path",
+    "DirectoryPath": "path",
+    "SearchPath": "path",
+    "Query": "query",
+    "Pattern": "pattern",
+    "Url": "url",
+    "Prompt": "prompt",
+}
+
+
+def _gemini_args(args: dict) -> dict:
+    out: dict = {}
+    for key, value in args.items():
+        out.setdefault(_GEMINI_KEYS.get(key, key), value)
+    if "command" not in out and isinstance(args.get("toolSummary"), str):
+        out.setdefault("description", args["toolSummary"])
+    return out
+
+
+def _gemini_diffs(name: str, args: dict) -> list[dict]:
+    """파일을 쓰거나 고치는 도구(write_file · edit_file …)의 코드 변경."""
+    path = next(
+        (
+            args[k]
+            for k in ("Path", "TargetFile", "AbsolutePath", "File")
+            if args.get(k)
+        ),
+        None,
+    )
+    if not path:
+        return []
+    budget = _DiffBudget()
+    diffs: list[dict | None] = []
+    content = next(
+        (args[k] for k in ("Content", "CodeContent") if isinstance(args.get(k), str)),
+        None,
+    )
+    if isinstance(args.get("Target"), str) and isinstance(args.get("Replacement"), str):
+        diffs.append(_diff_strings(path, args["Target"], args["Replacement"], budget))
+    elif isinstance(args.get("ReplacementChunks"), list):
+        merged = _diff_file(path)
+        for chunk in args["ReplacementChunks"]:
+            if isinstance(chunk, dict):
+                one = _diff_strings(
+                    path,
+                    chunk.get("TargetContent") or chunk.get("Target"),
+                    chunk.get("ReplacementContent") or chunk.get("Replacement"),
+                    budget,
+                )
+                if one:
+                    merged["hunks"] += one["hunks"]
+                    merged["add"] += one["add"]
+                    merged["del"] += one["del"]
+        diffs.append(merged if merged["hunks"] else None)
+    elif content is not None and "write" in name.lower():
+        diffs.append(_diff_created(path, content, budget))
+    found = [d for d in diffs if d]
+    if found and budget.cut:
+        found[-1]["cut"] = True
+    return found
 
 
 def _epoch(ts: str) -> float | None:
@@ -1587,6 +1829,13 @@ def model_status(path: Path, agent: str | None) -> dict:
         except ValueError:
             continue
         if not isinstance(record, dict):
+            continue
+        if agent == "gemini":
+            if record.get("type") == "PLANNER_RESPONSE" and isinstance(
+                record.get("model"), str
+            ):
+                result["model"] = record["model"]
+                return result
             continue
         if agent == "codex":
             payload = (

@@ -52,12 +52,19 @@ class AIUsageService:
             accounts_version = (data_dir() / "codex-accounts").stat().st_mtime_ns
         except OSError:
             accounts_version = 0
+        from app.services import gemini_service
+
+        try:
+            gemini_version = gemini_service.token_path().stat().st_mtime_ns
+        except OSError:
+            gemini_version = 0
         cache_key = (
             days,
             str(claude_root),
             str(codex_root),
             auth_version,
             accounts_version,
+            gemini_version,
         )
 
         with cls._cache_lock:
@@ -121,12 +128,23 @@ class AIUsageService:
             logging.getLogger(__name__).exception("저장된 Claude 계정 한도 조회 실패")
             saved_claude = []
         claude["active"] = True if saved_claude else None
+        gemini = cls._collect_gemini(cutoff, dates, now)
+        gemini["account"] = accounts.get("gemini")
+        try:
+            from app.services import gemini_accounts
+
+            saved_gemini = gemini_accounts.saved_limits(now)
+        except Exception:  # 저장된 계정 한도는 없어도 페이지는 보여 준다
+            logging.getLogger(__name__).exception("저장된 Gemini 계정 한도 조회 실패")
+            saved_gemini = []
+        gemini["active"] = True if saved_gemini else None
         result = {
             "generated_at": now.isoformat(),
             "window_days": days,
-            "providers": [claude, *codex_summaries],
+            "providers": [claude, *codex_summaries, gemini],
             # 지금 로그인되지 않은 Claude 계정: 한도만 (로컬 기록은 계정을 구분하지 않는다)
             "claude_accounts": saved_claude,
+            "gemini_accounts": saved_gemini,
         }
 
         with cls._cache_lock:
@@ -184,9 +202,17 @@ class AIUsageService:
                 if found:
                     codex = cls._codex_limits(found[1], found[0], now)
                     break
+        from app.services import gemini_service
+
+        try:
+            gemini = gemini_service.limits(now)
+        except Exception:  # Gemini 한도를 못 받아도 나머지는 보여 준다
+            logging.getLogger(__name__).exception("Gemini 한도 조회 실패")
+            gemini = None
         result = {
             "claude": claude,
             "codex": codex,
+            "gemini": gemini,
             "accounts": cls.accounts(),
             "generated_at": now.isoformat(),
         }
@@ -205,10 +231,85 @@ class AIUsageService:
         Claude Code: ~/.claude.json 의 oauthAccount.emailAddress
         Codex: ~/.codex/auth.json 의 id_token(JWT) 안 email — 표시용이라 서명은 확인하지 않는다.
         """
+        from app.services import gemini_service
+
+        try:
+            gemini = gemini_service.account_email()
+        except Exception:  # 메일을 몰라도 나머지는 보여 준다
+            gemini = None
         return {
             "claude": cls._claude_account(cls._data_root("CLAUDE_DATA_DIR", ".claude")),
             "codex": cls._codex_account(cls._data_root("CODEX_DATA_DIR", ".codex")),
+            "gemini": gemini,
         }
+
+    @classmethod
+    def _collect_gemini(
+        cls, cutoff: datetime, dates: list[Any], now: datetime
+    ) -> dict[str, Any]:
+        """Gemini (Antigravity CLI): 대화 기록의 답변 단계마다 적힌 토큰 수를 모은다."""
+        from app.services import gemini_service
+
+        root = gemini_service.root()
+        files = gemini_service.recent_logs(cutoff, cls._max_files_per_provider)
+        summary = cls._empty_summary(
+            provider_id="gemini",
+            name="Gemini",
+            accent="#4285f4",
+            command="agy",
+            auth_files=[gemini_service.token_path(root)],
+            env_keys=[],
+            files=files,
+            dates=dates,
+        )
+        stats = _Stats()
+        for path in files:
+            fallback_time = cls._mtime(path)
+            session = path.parents[2].name  # brain/<대화 ID>/.system_generated/logs/…
+            cwd = gemini_service.workspace(session)
+            for record in cls._read_jsonl(path):
+                if record.get("type") != "PLANNER_RESPONSE":
+                    continue
+                # input_tokens 는 캐시에서 읽은 것을 뺀 값이다
+                input_tokens = cls._as_int(record.get("input_tokens"))
+                output_tokens = cls._as_int(record.get("output_tokens"))
+                cache_read = cls._as_int(record.get("cache_read_tokens"))
+                reasoning = cls._as_int(record.get("thinking_tokens"))
+                total_tokens = input_tokens + output_tokens + cache_read
+                if total_tokens <= 0:
+                    continue
+                timestamp = cls._parse_timestamp(
+                    record.get("created_at"), fallback_time
+                )
+                if not cls._add_usage(
+                    summary,
+                    timestamp,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cache_read=cache_read,
+                    cache_write=0,
+                    total_tokens=total_tokens,
+                    reasoning_tokens=reasoning,
+                ):
+                    continue
+                stats.add(
+                    model=record.get("model"),
+                    project=Path(cwd).name if cwd else None,
+                    session=session,
+                    tokens=total_tokens,
+                )
+        stats.apply(summary, cls._top_items)
+        prompt_tokens = summary["input_tokens"] + summary["cache_read_tokens"]
+        summary["cache_hit_rate"] = (
+            summary["cache_read_tokens"] / prompt_tokens if prompt_tokens else None
+        )
+        try:
+            summary["limits"] = gemini_service.limits(now)
+        except Exception:
+            logging.getLogger(__name__).exception("Gemini 한도 조회 실패")
+            summary["limits"] = None
+        summary["logged_in"] = gemini_service.logged_in()
+        return cls._finalize_summary(summary, now)
 
     @classmethod
     def _claude_account(cls, root: Path) -> str | None:

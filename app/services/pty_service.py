@@ -113,7 +113,7 @@ def create(cwd: str | None, cols: int = 100, rows: int = 30) -> Terminal:
     alive = [t for t in _terminals.values() if t.alive]
     if len(alive) >= MAX_TERMINALS:
         raise ValueError(
-            f"터미널은 한 번에 {MAX_TERMINALS}개까지 열 수 있습니다. 안 쓰는 탭을 닫아 주세요."
+            f"터미널은 한 번에 {MAX_TERMINALS}개까지 열 수 있습니다. 안 쓰는 탭을 닫아 주십시오."
         )
     directory = Path(os.path.expanduser(cwd or "~"))
     if not directory.is_dir():

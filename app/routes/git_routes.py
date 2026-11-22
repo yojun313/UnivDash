@@ -225,7 +225,7 @@ async def run_git_action(
     if await asyncio.to_thread(git_workflow.running_for, repository_id):
         raise HTTPException(
             status_code=409,
-            detail="이 저장소에서 자동 커밋 흐름(ruff · AI 커밋 · 푸시)이 실행 중이에요. 끝난 뒤 다시 해 주세요.",
+            detail="이 저장소에서 자동 커밋 흐름(ruff · AI 커밋 · 푸시)이 실행 중입니다. 끝난 뒤 다시 해 주십시오.",
         )
     if action == "ruff_format":
         try:

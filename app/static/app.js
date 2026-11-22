@@ -137,12 +137,6 @@
     if (mdQuery.matches) $('#sidebarCollapseBtn')?.click();
     else setSidebarOpen(sidebarMenuButton.getAttribute('aria-expanded') !== 'true');
   });
-  document.querySelector('.logout-all')?.addEventListener('click', async (event) => {
-    event.preventDefault();
-    const button = event.currentTarget;
-    const ok = await confirmSheet({ title: '모든 기기에서 로그아웃', message: '이 기기를 포함해 로그인된 모든 브라우저 · 홈 화면 앱의 세션을 끊습니다.', confirmLabel: '모두 로그아웃', danger: true });
-    if (ok) button.form.requestSubmit(button);
-  });
   sidebarOverlay.addEventListener('click', () => setSidebarOpen(false));
   $$('.sidebar-link').forEach((link) => link.addEventListener('click', () => { if (!mdQuery.matches) setSidebarOpen(false); }));
 
@@ -163,7 +157,7 @@
       try {
         const saved = await api('PUT', '/api/navigation-order', { order });
         if (state.prefs) state.prefs.nav_order = saved.order;
-        toast('메뉴 순서를 모든 기기에 저장했어요.', 'ok');
+        toast('메뉴 순서를 모든 기기에 저장했습니다.', 'ok');
       } catch (error) {
         savedNavOrder.forEach((key) => {
           const item = primaryNav.querySelector(`[data-nav-key="${CSS.escape(key)}"]`);
@@ -174,7 +168,7 @@
           const item = tabbar.querySelector(`[data-nav-key="${CSS.escape(key)}"]`);
           if (item) tabbar.appendChild(item);
         });
-        toast(`메뉴 순서를 저장하지 못했어요: ${error.message}`, 'error');
+        toast(`메뉴 순서를 저장하지 못했습니다:${error.message}`, 'error');
       }
     };
     primaryNav.addEventListener('click', (event) => {
@@ -253,11 +247,14 @@
   function actionSheet({ title, subtitle, actions }) {
     const items = actions.map((action, index) => {
       if (action === 'sep') return '<div class="sheet-sep"></div>';
-      return `<button type="button" class="sheet-action ${action.danger ? 'danger' : ''} ${action.current ? 'current' : ''}" data-index="${index}">
+      const row = `<button type="button" class="sheet-action ${action.danger ? 'danger' : ''} ${action.current ? 'current' : ''}" data-index="${index}">
           <i class="fas ${action.icon || 'fa-circle'} lead"></i><span class="min-w-0 ${action.desc ? 'flex-1' : 'truncate'}">${action.desc
             ? `<span class="block truncate">${escapeHtml(action.label)}</span><span class="block text-[11px] font-medium opacity-55 mt-0.5">${escapeHtml(action.desc)}</span>`
             : escapeHtml(action.label)}</span>
           ${action.sub ? `<span class="sub">${escapeHtml(action.sub)}</span>` : ''}</button>`;
+      // side: 줄 오른쪽에 따로 붙는 버튼 (예: 계정마다 로그아웃) — { icon, label, onClick }
+      if (!action.side) return row;
+      return `<div class="sheet-row">${row}<button type="button" class="sheet-side" data-side="${index}" title="${escapeHtml(action.side.label)}" aria-label="${escapeHtml(`${action.label} ${action.side.label}`)}"><i class="fas ${action.side.icon || 'fa-xmark'}"></i><span>${escapeHtml(action.side.label)}</span></button></div>`;
     }).join('');
     openSheet(`${sheetHead(title, subtitle)}<div class="sheet-actions">${items}</div>
       <div class="sheet-buttons"><button type="button" class="sheet-cancel" data-close>닫기</button></div>`, (body) => {
@@ -267,6 +264,13 @@
           const action = actions[Number(button.dataset.index)];
           closeSheet();
           action.onClick?.();
+        });
+      });
+      body.querySelectorAll('.sheet-side').forEach((button) => {
+        button.addEventListener('click', () => {
+          const action = actions[Number(button.dataset.side)];
+          closeSheet();
+          action.side?.onClick?.();
         });
       });
     });
@@ -540,7 +544,7 @@
       },
       onSubmit(values) {
         const name = values.name.trim();
-        if (!name) throw new Error('폴더 이름을 입력하세요.');
+        if (!name) throw new Error('폴더 이름을 입력하십시오.');
         if (folder) {
           folder.name = name;
           folder.color = color;
@@ -559,7 +563,7 @@
     const siblings = state.windows.filter((o) => o.session === w.session).length;
     formSheet({
       title: '이름 변경',
-      subtitle: `tmux 세션 이름을 바꿉니다${siblings > 1 ? ` (이 세션의 창 ${siblings}개 모두 적용)` : ''}. 공백 · : · . 은 쓸 수 없어요.`,
+      subtitle: `tmux 세션 이름을 바꿉니다${siblings > 1 ? ` (이 세션의 창 ${siblings}개 모두 적용)` : ''}. 공백 · : · . 은 쓸 수 없습니다.`,
       fields: [{ name: 'name', label: 'tmux 세션 이름', value: w.session, placeholder: w.session, maxlength: 50 }],
       submitLabel: '변경',
       onMount(body) {
@@ -586,11 +590,11 @@
     const busy = siblings.filter((o) => o.agent && (o.status === 'busy' || o.status === 'waiting'));
     formSheet({
       title: '작업 폴더 바꾸기',
-      subtitle: `${w.session} 세션을 다른 폴더로 옮겨요. 지금 폴더: ${w.path}`,
+      subtitle: `${w.session} 세션을 다른 폴더로 옮깁니다. 지금 폴더: ${w.path}`,
       fields: [{ name: 'path', label: '새 작업 폴더', value: w.path, placeholder: '~/project', maxlength: 1024 }],
       extraHtml: `${folderPickerHtml()}
-        <p class="text-[12px] opacity-70 leading-relaxed">${agents ? `Claude · Codex ${agents}개는 잠깐 꺼졌다가 새 폴더에서 <b>같은 대화</b>로 다시 켜져요 (입력창에 써 둔 글은 사라질 수 있어요). ` : ''}셸만 있는 창은 새 폴더로 이동만 하고, 서버처럼 다른 프로그램이 돌고 있는 창은 그대로 둬요. 파일은 옮기지 않아요.</p>
-        ${busy.length ? `<p class="text-[12px] text-amber-500"><i class="fas fa-triangle-exclamation mr-1"></i>${escapeHtml(busy.map(displayName).join(', '))} 이(가) 작업 중이거나 응답을 기다려서 지금은 옮길 수 없어요.</p>` : ''}`,
+        <p class="text-[12px] opacity-70 leading-relaxed">${agents ? `Claude · Codex · Gemini ${agents}개는 잠깐 꺼졌다가 새 폴더에서 <b>같은 대화</b>로 다시 켜집니다 (입력창에 써 둔 글은 사라질 수 있습니다). ` : ''}셸만 있는 창은 새 폴더로 이동만 하고, 서버처럼 다른 프로그램이 돌고 있는 창은 그대로 둡니다. 파일은 옮기지 않습니다.</p>
+        ${busy.length ? `<p class="text-[12px] text-amber-500"><i class="fas fa-triangle-exclamation mr-1"></i>${escapeHtml(busy.map(displayName).join(', '))} 이(가) 작업 중이거나 응답을 기다려서 지금은 옮길 수 없습니다.</p>` : ''}`,
       submitLabel: '옮기기',
       onMount(body) {
         const path = body.querySelector('input[name="path"]');
@@ -618,7 +622,7 @@
   function noteForm(w) {
     formSheet({
       title: '설명 변경',
-      subtitle: `${displayName(w)} 아래에 보일 설명이에요. 비워 두면 에이전트가 붙인 작업 제목${w.title ? ` ("${w.title}")` : ''}을 그대로 보여 줘요.`,
+      subtitle: `${displayName(w)} 아래에 보일 설명입니다. 비워 두면 에이전트가 붙인 작업 제목${w.title ? ` ("${w.title}")` : ''}을 그대로 보여 줍니다.`,
       fields: [{ name: 'note', label: '설명', value: state.prefs.notes?.[w.key] || '', placeholder: w.title || '예: hw2 풀이 중', maxlength: 120 }],
       submitLabel: '저장',
       onMount(body) {
@@ -630,7 +634,7 @@
         state.prefs.notes = { ...(state.prefs.notes || {}) };
         if (note) state.prefs.notes[w.key] = note; else delete state.prefs.notes[w.key];
         commitPrefs();
-        toast(note ? '설명을 바꿨어요.' : '자동 설명으로 되돌렸어요.', 'ok');
+        toast(note ? '설명을 바꿨습니다.' : '자동 설명으로 되돌렸습니다.', 'ok');
       },
     });
   }
@@ -703,32 +707,46 @@
   // ── 에이전트 바꾸기 (Claude ↔ Codex) · 셸만 있는 창에서 켜기 ──
   // 서버가 지금 에이전트를 Ctrl+C 로 끄고 같은 셸에서 다른 에이전트를 켠다.
   // '대화 넘기기'를 고르면 지금 대화 기록을 파일로 만들어 새 에이전트가 첫 지시로 읽고 이어 간다.
-  const AGENT_NAMES = { claude: 'Claude', codex: 'Codex' };
+  const AGENT_NAMES = { claude: 'Claude', codex: 'Codex', gemini: 'Gemini' };
+  const AGENT_IDS = Object.keys(AGENT_NAMES);
+  // 에이전트 → tmux 에 보이는 실행 파일 이름 (Gemini 는 Antigravity CLI · agy)
+  const AGENT_BINS = { claude: 'claude', codex: 'codex', gemini: 'agy' };
+  const isAgent = (agent) => AGENT_IDS.includes(agent);
   const CARRY_KEY = 'univdash-agent-carry';
-  const agentPaneOf = (w) => (w.panes.find((p) => w.agent && p.command === w.agent) || w.panes.find((p) => p.active) || w.panes[0])?.id;
+  const agentPaneOf = (w) => (w.panes.find((p) => w.agent && p.command === (AGENT_BINS[w.agent] || w.agent)) || w.panes.find((p) => p.active) || w.panes[0])?.id;
+  const otherAgents = (agent) => AGENT_IDS.filter((id) => id !== agent);
   function agentSwitchActions(w) {
     if (w.status === 'dead') return [];
     if (!w.agent) {
       if (w.status !== 'shell') return [];
-      return ['claude', 'codex'].map((to) => ({ icon: 'fa-robot', label: `${AGENT_NAMES[to]} 켜기`, desc: '이 창의 셸에서 새 대화로 시작', onClick: () => switchAgent(w, to) }));
+      return AGENT_IDS.map((to) => ({ icon: 'fa-robot', label: `${AGENT_NAMES[to]} 켜기`, desc: '이 창의 셸에서 새 대화로 시작', onClick: () => switchAgent(w, to) }));
     }
-    const to = w.agent === 'codex' ? 'claude' : 'codex';
-    return [{ icon: 'fa-shuffle', label: `${AGENT_NAMES[to]}로 바꾸기`, desc: `${AGENT_NAMES[w.agent] || w.agent} 를 끄고 ${AGENT_NAMES[to]} 켜기 (지금 대화를 넘겨줄 수도 있어요)`, onClick: () => switchAgent(w, to) }];
+    return [{ icon: 'fa-shuffle', label: '다른 에이전트로 바꾸기', desc: `${AGENT_NAMES[w.agent] || w.agent} 를 끄고 ${otherAgents(w.agent).map((id) => AGENT_NAMES[id]).join(' · ')} 중 하나를 켭니다`, onClick: () => pickAgentSwitch(w) }];
+  }
+  // 바꿀 에이전트를 여러 선택지 중에서 고른다
+  function pickAgentSwitch(w) {
+    if (!w?.agent) return;
+    const from = AGENT_NAMES[w.agent] || w.agent;
+    actionSheet({
+      title: '에이전트 바꾸기',
+      subtitle: `${displayName(w)} 창의 ${from} 를 끄고 켤 에이전트를 선택하십시오.`,
+      actions: otherAgents(w.agent).map((to) => ({ icon: 'fa-robot', label: AGENT_NAMES[to], desc: `${from} 를 끄고 ${AGENT_NAMES[to]} 를 켭니다 (지금 대화를 넘겨줄 수 있습니다)`, onClick: () => switchAgent(w, to) })),
+    });
   }
   async function switchAgent(w, to) {
     const from = w.agent ? (AGENT_NAMES[w.agent] || w.agent) : null;
-    if (w.status === 'busy') { toast(`${from} 가 작업 중이에요. 끝난 뒤에 바꿀 수 있어요.`, 'warn'); return; }
+    if (w.status === 'busy') { toast(`${from} 가 작업 중입니다. 끝난 뒤에 바꿀 수 있습니다.`, 'warn'); return; }
     // 대화 넘기기: 마지막으로 고른 값을 기억한다
     const check = from ? {
       label: `지금 ${from} 대화를 ${AGENT_NAMES[to]} 에게 넘기기`,
-      desc: `지금까지의 대화 전체를 기록으로 만들어 ${AGENT_NAMES[to]} 가 새 대화에서 읽고 이어 가요.`,
+      desc: `지금까지의 대화 전체를 기록으로 만들어 ${AGENT_NAMES[to]} 가 새 대화에서 읽고 이어 갑니다.`,
       checked: false,
     } : null;
     if (from) {
       try { check.checked = localStorage.getItem(CARRY_KEY) === '1'; } catch (e) { /* 저장 불가 */ }
       const ok = await confirmSheet({
         title: `${AGENT_NAMES[to]}로 바꾸기`,
-        message: `${displayName(w)} 창의 ${from} 를 끄고 ${AGENT_NAMES[to]} 를 켭니다.\n넘기지 않으면 이 창에서 ${AGENT_NAMES[to]} 로 하던 대화를(없으면 이 폴더의 최근 대화를) 이어서 켜요. 지금 ${from} 대화도 기억해 두어, 다시 ${from} 로 바꾸면 이어집니다.`,
+        message: `${displayName(w)} 창의 ${from} 를 끄고 ${AGENT_NAMES[to]} 를 켭니다.\n넘기지 않으면 이 창에서 ${AGENT_NAMES[to]} 로 하던 대화를(없으면 이 폴더의 최근 대화를) 이어서 켭니다. 지금 ${from} 대화도 기억해 두어, 다시 ${from} 로 바꾸면 이어집니다.`,
         confirmLabel: '바꾸기',
         check,
       });
@@ -741,7 +759,7 @@
       toast(`${AGENT_NAMES[to]} 를 켜는 중…`, 'info', null, 2000);
       const result = await api('POST', '/api/agent/switch', { pane, to, carry });
       const how = { window: '이 창에서 하던 대화를 이어서', folder: '이 폴더의 최근 대화를 이어서', new: '새 대화로', carried: `${from} 대화를 넘겨받은 새 대화로` }[result.resumed] || '';
-      toast(`${displayName(w)} · ${AGENT_NAMES[to]} 로 바꿨어요 (${how} 켰어요).${result.resumed === 'new' ? ' 켜지면 모델 선택이 채팅 아래에 떠요.' : ''}`, 'ok', null, 5000);
+      toast(`${displayName(w)} · ${AGENT_NAMES[to]} 로 바꿨습니다 (${how} 켰습니다).${result.resumed === 'new' && to !== 'gemini' ? ' 켜지면 모델 선택이 채팅 아래에 표시됩니다.' : ''}`, 'ok', null, 5000);
       window.dispatchEvent(new CustomEvent('univdash:agent-switched', { detail: { pane, to } }));
     } catch (error) { toast(error.message, 'error'); }
   }
@@ -797,11 +815,11 @@
       : minutes >= 60 ? `${Math.floor(minutes / 60)}시간 ${minutes % 60}분 남음` : `${minutes}분 남음`;
   }
   async function copyLink(link) {
-    try { await navigator.clipboard.writeText(link); toast('공유 링크를 복사했어요.', 'ok', null, 1500); } catch (e) { toast('복사하지 못했어요. 링크를 길게 눌러 복사하세요.', 'error'); }
+    try { await navigator.clipboard.writeText(link); toast('공유 링크를 복사했습니다.', 'ok', null, 1500); } catch (e) { toast('복사하지 못했습니다. 링크를 길게 눌러 복사하십시오.', 'error'); }
   }
   function viewShareForm(w) {
     const pane = agentPaneOf(w);
-    if (!pane) { toast('공유할 화면을 찾지 못했어요.', 'error'); return; }
+    if (!pane) { toast('공유할 화면을 찾지 못했습니다.', 'error'); return; }
     const opts = (list, value) => list.map(([v, label]) => `<option value="${v}"${v === value ? ' selected' : ''}>${label}</option>`).join('');
     formSheet({
       title: '읽기 전용으로 화면 공유', subtitle: `${displayName(w)} · ${w.session}:${w.index}`, submitLabel: '링크 만들기',
@@ -809,9 +827,9 @@
       extraHtml: `<label>볼 수 있는 시간<select name="minutes">${opts(VIEW_TIMES, 60)}</select></label>
         ${w.agent ? `<label>보여 줄 것<select name="chat"><option value="1" selected>채팅 + 터미널 (대화 기록 전체)</option><option value="0">터미널만</option></select></label>` : ''}
         <label>터미널에 보여 줄 범위<select name="history">${opts(VIEW_HISTORY, 0)}</select></label>
-        ${w.agent ? `<p class="text-[11px] opacity-60 leading-5"><i class="fas fa-comments mr-1"></i>채팅을 함께 공유하면 이 창의 ${w.agent === 'codex' ? 'Codex' : 'Claude'} 대화 기록을 <b>처음부터 전부</b> 볼 수 있어요 (프롬프트 · 답변 · 실행한 명령과 결과 · 코드 수정 내용 포함). 첨부한 그림은 보내지 않아요.</p>` : ''}
-        <p class="text-[11px] opacity-60 leading-5"><i class="fas fa-key mr-1"></i>링크와 함께 <b>접근 코드</b>가 만들어져요. 코드를 받은 사람만 볼 수 있어요 (화면 공유는 코드가 항상 필요해요).</p>
-        <p class="text-[11px] opacity-60 leading-5"><i class="fas fa-shield-halved mr-1"></i>링크와 코드를 받은 사람은 로그인 없이 이 창의 화면을 <b>보기만</b> 할 수 있어요. 입력 · 키 · 창 크기 바꾸기는 아예 할 수 없고, 다른 창이나 파일도 볼 수 없어요. 화면에 찍힌 API 키 · 토큰 같은 값은 가려서 보내지만 모든 비밀을 알아보지는 못하니, 비밀이 화면에 나오지 않게 조심하세요. 창을 닫거나 시간이 지나면 링크가 끊겨요.</p>`,
+        ${w.agent ? `<p class="text-[11px] opacity-60 leading-5"><i class="fas fa-comments mr-1"></i>채팅을 함께 공유하면 이 창의 ${AGENT_NAMES[w.agent] || 'Claude'} 대화 기록을 <b>처음부터 전부</b> 볼 수 있습니다 (프롬프트 · 답변 · 실행한 명령과 결과 · 코드 수정 내용 포함). 첨부한 그림은 보내지 않습니다.</p>` : ''}
+        <p class="text-[11px] opacity-60 leading-5"><i class="fas fa-key mr-1"></i>링크와 함께 <b>접근 코드</b>가 만들어집니다. 코드를 받은 사람만 볼 수 있습니다 (화면 공유는 코드가 항상 필요합니다).</p>
+        <p class="text-[11px] opacity-60 leading-5"><i class="fas fa-shield-halved mr-1"></i>링크와 코드를 받은 사람은 로그인 없이 이 창의 화면을 <b>보기만</b> 할 수 있습니다. 입력 · 키 · 창 크기 바꾸기는 아예 할 수 없고, 다른 창이나 파일도 볼 수 없습니다. 화면에 찍힌 API 키 · 토큰 같은 값은 가려서 보내지만 모든 비밀을 알아보지는 못하니, 비밀이 화면에 나오지 않게 조심하십시오. 창을 닫거나 시간이 지나면 링크가 끊깁니다.</p>`,
       async onSubmit(values) {
         const result = await api('POST', '/api/view-shares', {
           pane, title: String(values.title || '').trim(), minutes: Number(values.minutes) || 60, history: Number(values.history) || 0,
@@ -825,13 +843,13 @@
   function viewShareResult({ url, code, share }) {
     const link = `${location.origin}${url}`;
     infoSheet({
-      title: '화면 공유 링크를 만들었어요', subtitle: share.title,
+      title: '화면 공유 링크를 만들었습니다', subtitle: share.title,
       bodyHtml: `<div class="share-box">${accessCodeHtml(code)}
         <div class="share-link mt-3"><input readonly value="${escapeHtml(link)}" aria-label="공유 링크" spellcheck="false">
           <button type="button" class="btn-glow" data-copy><i class="fas fa-copy mr-1"></i>링크 복사</button>
           ${navigator.share ? '<button type="button" class="sheet-cancel" data-send><i class="fas fa-share-nodes mr-1"></i>보내기</button>' : ''}</div>
-        <p class="text-[12px] opacity-75 leading-5 mt-3">${escapeHtml(viewWhen(share.expires))}까지 볼 수 있어요 · ${escapeHtml(VIEW_HISTORY.find(([v]) => v === share.history)?.[1] || '')}</p>
-        <p class="text-[11px] opacity-60 leading-5 mt-1"><i class="fas fa-triangle-exclamation mr-1"></i>링크와 코드는 지금만 보여요. 링크만으로는 열리지 않고 코드가 꼭 있어야 해요. 코드는 링크와 다른 방법(직접 말하기 · 다른 메신저)으로 볼 사람에게만 전달하세요. 창 메뉴 › 공유 중인 화면 관리에서 언제든 끊을 수 있어요.</p></div>`,
+        <p class="text-[12px] opacity-75 leading-5 mt-3">${escapeHtml(viewWhen(share.expires))}까지 볼 수 있습니다 ·${escapeHtml(VIEW_HISTORY.find(([v]) => v === share.history)?.[1] || '')}</p>
+        <p class="text-[11px] opacity-60 leading-5 mt-1"><i class="fas fa-triangle-exclamation mr-1"></i>링크와 코드는 지금만 표시됩니다. 링크만으로는 열리지 않고 코드가 꼭 있어야 합니다. 코드는 링크와 다른 방법(직접 말하기 · 다른 메신저)으로 볼 사람에게만 전달하십시오. 창 메뉴 › 공유 중인 화면 관리에서 언제든 끊을 수 있습니다.</p></div>`,
       onMount(body) {
         const input = body.querySelector('.share-link input');
         input.addEventListener('focus', () => input.select());
@@ -844,13 +862,13 @@
   }
   // 접근 코드 상자 (화면 공유 · 파일 공유 공용) — explorer.js 도 window.UnivDashAccessCode 로 쓴다
   function accessCodeHtml(code) {
-    return `<div class="access-code"><div class="ac-label"><i class="fas fa-key mr-1"></i>접근 코드 <span>· 볼 사람에게 직접 전달하세요</span></div>
+    return `<div class="access-code"><div class="ac-label"><i class="fas fa-key mr-1"></i>접근 코드 <span>· 볼 사람에게 직접 전달하십시오</span></div>
         <div class="ac-row"><code class="ac-value">${escapeHtml(code)}</code>
         <button type="button" class="sheet-cancel" data-copy-code><i class="fas fa-copy mr-1"></i>코드 복사</button></div></div>`;
   }
   function mountAccessCode(body, code) {
     body.querySelector('[data-copy-code]')?.addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(code); toast('접근 코드를 복사했어요.', 'ok', null, 1500); } catch (e) { toast('복사하지 못했어요. 코드를 직접 적어 전달하세요.', 'error'); }
+      try { await navigator.clipboard.writeText(code); toast('접근 코드를 복사했습니다.', 'ok', null, 1500); } catch (e) { toast('복사하지 못했습니다. 코드를 직접 적어 전달하십시오.', 'error'); }
     });
   }
   window.UnivDashAccessCode = { html: accessCodeHtml, mount: mountAccessCode };
@@ -870,10 +888,10 @@
           <button type="button" class="sheet-danger" data-revoke>끊기</button></li>`;
     }).join('');
     infoSheet({
-      title: '공유 중인 화면', subtitle: list.length ? `${list.length}개 · 시간이 지나면 저절로 끊겨요` : '',
+      title: '공유 중인 화면', subtitle: list.length ? `${list.length}개 · 시간이 지나면 저절로 끊깁니다` : '',
       bodyHtml: `<div class="share-box">${list.length ? `<ul class="share-list">${rows}</ul>
           <div class="sheet-buttons" style="padding:12px 0 0"><button type="button" class="sheet-danger" data-revoke-all>모두 끊기</button></div>`
-        : '<p class="opacity-70 text-sm">공유 중인 화면이 없어요. 창 메뉴 › 읽기 전용으로 화면 공유에서 만들 수 있어요.</p>'}</div>`,
+        : '<p class="opacity-70 text-sm">공유 중인 화면이 없습니다. 창 메뉴 › 읽기 전용으로 화면 공유에서 만들 수 있습니다.</p>'}</div>`,
       onMount(body) {
         body.querySelectorAll('[data-revoke]').forEach((button) => button.addEventListener('click', async () => {
           const row = button.closest('[data-view-share]');
@@ -881,7 +899,7 @@
           try {
             await api('DELETE', `/api/view-shares/${encodeURIComponent(row.dataset.viewShare)}`);
             row.remove();
-            toast('공유를 끊었어요. 이제 볼 수 없어요.', 'ok');
+            toast('공유를 끊었습니다. 이제 볼 수 없습니다.', 'ok');
           } catch (error) { button.disabled = false; toast(error.message, 'error'); }
         }));
         const all = body.querySelector('[data-revoke-all]');
@@ -890,7 +908,7 @@
           try {
             const { revoked } = await api('DELETE', '/api/view-shares');
             closeSheet();
-            toast(`화면 공유 ${revoked}개를 모두 끊었어요.`, 'ok');
+            toast(`화면 공유 ${revoked}개를 모두 끊었습니다.`, 'ok');
           } catch (error) { all.disabled = false; toast(error.message, 'error'); }
         });
       },
@@ -944,8 +962,8 @@
         if (mine !== searchSeq) return;
         const parentOf = (p) => tilde(p.replace(/\/[^/]+$/, '')) || '/';
         listEl.innerHTML = data.results.length
-          ? data.results.map((e) => folderRow(e, parentOf(e.path))).join('') + (data.truncated ? '<div class="fp-note">결과가 많아 일부만 보여요. 더 자세히 입력해 보세요.</div>' : '')
-          : `<div class="fp-note">'${escapeHtml(query)}' 폴더를 찾지 못했어요.</div>`;
+          ? data.results.map((e) => folderRow(e, parentOf(e.path))).join('') + (data.truncated ? '<div class="fp-note">결과가 많아 일부만 표시됩니다. 더 자세히 입력해 보십시오.</div>' : '')
+          : `<div class="fp-note">'${escapeHtml(query)}' 폴더를 찾지 못했습니다.</div>`;
       } catch (error) {
         if (mine === searchSeq) listEl.innerHTML = `<div class="fp-note error">${escapeHtml(error.message)}</div>`;
       }
@@ -1042,7 +1060,9 @@
 
   function newSessionForm(startPath) {
     // Codex 는 권한을 "Full access"(샌드박스 없음 · 승인 안 물음)로 켠다
-    const presets = { claude: 'claude --dangerously-skip-permissions', codex: 'codex --sandbox danger-full-access --ask-for-approval never', shell: '', custom: '' };
+    // Gemini 는 Antigravity CLI(agy)를 권한 확인 없이 켠다
+    const presets = { claude: 'claude --dangerously-skip-permissions', codex: 'codex --sandbox danger-full-access --ask-for-approval never', gemini: 'agy --dangerously-skip-permissions', shell: '', custom: '' };
+    const permNote = (p) => ({ claude: 'Claude 는 권한 확인 없이 켭니다 (Bypass permissions)', codex: 'Codex 는 권한 Full access 로 켭니다 (샌드박스 없음 · 승인 묻지 않음)', gemini: 'Gemini 는 Antigravity CLI 를 권한 확인 없이 켭니다' }[p] || '');
     let preset = store.get('new-session-preset', 'claude');
     if (!(preset in presets)) preset = 'claude';
     formSheet({
@@ -1055,9 +1075,9 @@
       extraHtml: `${folderPickerHtml()}
         ${sessionGroupHtml()}
         <label>시작 명령<div class="seg" role="radiogroup">
-          ${['claude', 'codex', 'shell', 'custom'].map((p) => `<button type="button" data-preset="${p}" class="${p === preset ? 'on' : ''}">${{ claude: 'Claude', codex: 'Codex', shell: '셸만', custom: '직접' }[p]}</button>`).join('')}
+          ${['claude', 'codex', 'gemini', 'shell', 'custom'].map((p) => `<button type="button" data-preset="${p}" class="${p === preset ? 'on' : ''}">${{ claude: 'Claude', codex: 'Codex', gemini: 'Gemini', shell: '셸만', custom: '직접' }[p]}</button>`).join('')}
         </div></label>
-        <p data-codex-note class="text-[11px] opacity-60 -mt-1 ${preset === 'codex' || preset === 'claude' ? '' : 'hidden'}"><i class="fas fa-unlock mr-1"></i><span data-perm-text>${preset === 'claude' ? 'Claude 는 권한 확인 없이 켭니다 (Bypass permissions)' : 'Codex 는 권한 Full access 로 켭니다 (샌드박스 없음 · 승인 묻지 않음)'}</span></p>
+        <p data-codex-note class="text-[11px] opacity-60 -mt-1 ${isAgent(preset) ? '' : 'hidden'}"><i class="fas fa-unlock mr-1"></i><span data-perm-text>${permNote(preset)}</span></p>
         <label data-fork class="hidden">이어받을 대화 (선택)<select name="fork"></select></label>
         <p data-fork-note class="text-[11px] opacity-60 -mt-1 hidden"><i class="fas fa-code-branch mr-1"></i><span data-fork-text></span></p>
         <label data-custom class="${preset === 'custom' ? '' : 'hidden'}">명령어<input name="command" maxlength="500" placeholder="예: claude --continue" autocomplete="off" autocapitalize="off" spellcheck="false"></label>`,
@@ -1080,22 +1100,23 @@
         const forkSelect = forkField.querySelector('select');
         const forkNote = body.querySelector('[data-fork-note]');
         const forkSources = () => state.windows
-          .filter((w) => (w.agent === 'claude' || w.agent === 'codex') && agentPaneOf(w))
+          .filter((w) => isAgent(w.agent) && agentPaneOf(w))
           .sort((a, b) => (b.agent === preset) - (a.agent === preset) || (b.activity || 0) - (a.activity || 0));
         const renderForkNote = () => {
           const source = state.windows.find((w) => agentPaneOf(w) === forkSelect.value);
           forkNote.classList.toggle('hidden', !source);
           if (!source) return;
-          body.querySelector('[data-fork-text]').textContent = source.agent === preset
-            ? '고른 창의 지금까지 대화를 복사해 시작해요. 원래 창은 그대로 돌아가요.'
-            : `고른 ${AGENT_NAMES[source.agent]} 창의 대화 기록을 파일로 넘겨, 새 ${AGENT_NAMES[preset]} 가 읽고 맥락을 정리한 뒤 다음 지시를 기다려요. 원래 창은 그대로 돌아가요.`;
+          // Gemini 는 대화를 복제해 켜는 기능이 없어 같은 Gemini 끼리도 기록을 넘겨준다
+          body.querySelector('[data-fork-text]').textContent = source.agent === preset && preset !== 'gemini'
+            ? '선택한 창의 지금까지 대화를 복사해 시작합니다. 원래 창은 그대로 유지됩니다.'
+            : `선택한 ${AGENT_NAMES[source.agent]} 창의 대화 기록을 파일로 넘겨, 새 ${AGENT_NAMES[preset]} 가 읽고 맥락을 정리한 뒤 다음 지시를 기다립니다. 원래 창은 그대로 유지됩니다.`;
         };
         const renderForkSources = () => {
           const sources = forkSources();
           const picked = forkSelect.value;
           forkSelect.innerHTML = `<option value="">새 대화로 시작</option>${sources.map((w) => `<option value="${escapeHtml(agentPaneOf(w))}">${escapeHtml(`${w.agent === preset ? '' : `[${AGENT_NAMES[w.agent]}] `}${displayName(w)} (${w.session}:${w.index})`)}</option>`).join('')}`;
           if (sources.some((w) => agentPaneOf(w) === picked)) forkSelect.value = picked;
-          forkField.classList.toggle('hidden', !sources.length || (preset !== 'claude' && preset !== 'codex'));
+          forkField.classList.toggle('hidden', !sources.length || !isAgent(preset));
           renderForkNote();
         };
         renderForkSources();
@@ -1105,14 +1126,14 @@
           preset = button.dataset.preset;
           body.querySelectorAll('[data-preset]').forEach((b) => b.classList.toggle('on', b === button));
           body.querySelector('[data-custom]').classList.toggle('hidden', preset !== 'custom');
-          body.querySelector('[data-codex-note]').classList.toggle('hidden', preset !== 'codex' && preset !== 'claude');
-          body.querySelector('[data-perm-text]').textContent = preset === 'claude' ? 'Claude 는 권한 확인 없이 켭니다 (Bypass permissions)' : 'Codex 는 권한 Full access 로 켭니다 (샌드박스 없음 · 승인 묻지 않음)';
+          body.querySelector('[data-codex-note]').classList.toggle('hidden', !isAgent(preset));
+          body.querySelector('[data-perm-text]').textContent = permNote(preset);
           renderForkSources();
         }));
       },
       async onSubmit(values) {
         const command = preset === 'custom' ? (values.command || '') : presets[preset];
-        const forkPane = (preset === 'claude' || preset === 'codex') ? (values.fork || '') : '';
+        const forkPane = isAgent(preset) ? (values.fork || '') : '';
         const result = await api('POST', '/api/sessions', { name: values.name.trim(), path: values.path.trim() || '~', command, ...(forkPane ? { fork_pane: forkPane, fork_agent: preset } : {}) });
         store.set('new-session-path', values.path.trim() || '~');
         const used = values.path.trim() || '~';
@@ -1133,7 +1154,7 @@
     actionSheet({
       title: '새로 열기',
       actions: [
-        { icon: 'fa-layer-group', label: 'tmux 세션', desc: 'Claude Code · Codex 등을 띄워 두고 휴대폰에서도 이어서 쓰기', onClick: () => newSessionForm() },
+        { icon: 'fa-layer-group', label: 'tmux 세션', desc: 'Claude Code · Codex · Gemini 등을 띄워 두고 휴대폰에서도 이어서 쓰기', onClick: () => newSessionForm() },
         { icon: 'fa-terminal', label: 'Terminal', desc: '셸 하나를 탭으로 바로 열기 (탭을 닫으면 끝남)', onClick: () => { if (window.UnivDashWs?.newTerminal) window.UnivDashWs.newTerminal(); else location.href = '/?newterm=1'; } },
         'sep',
         { icon: 'fa-clock-rotate-left', label: '이전 세션 복구', desc: '저장된 시점을 골라 지금 없는 세션을 다시 열기 (에이전트는 이전 대화로)', onClick: () => openRestore() },
@@ -1147,30 +1168,30 @@
   async function openRestore() {
     let data;
     try { data = await api('GET', '/api/tmux/snapshots'); } catch (error) { toast(error.message, 'error'); return; }
-    if (data.job?.running) { toast('지금 세션을 복구하는 중이에요. 잠시만 기다려 주세요.', 'info'); return; }
-    if (!data.snapshots.length) { toast('아직 저장된 세션 기록이 없어요.', 'info'); return; }
+    if (data.job?.running) { toast('지금 세션을 복구하는 중입니다. 잠시만 기다려 주십시오.', 'info'); return; }
+    if (!data.snapshots.length) { toast('아직 저장된 세션 기록이 없습니다.', 'info'); return; }
     actionSheet({
       title: '이전 세션 복구',
-      subtitle: '시점을 고르면 그때 있었고 지금은 없는 세션만 다시 만들어요. 에이전트는 이전 대화로 이어서 켜져요.',
+      subtitle: '시점을 선택하면 그때 있었고 지금은 없는 세션만 다시 만듭니다. 에이전트는 이전 대화로 이어서 켜집니다.',
       actions: data.snapshots.slice(0, 20).map((row) => ({
         icon: row.missing.length ? 'fa-clock-rotate-left' : 'fa-circle-check',
         label: `${restoreTime(row.at)} · 세션 ${row.count}개`,
-        desc: row.missing.length ? `없는 세션 ${row.missing.length}개: ${nameList(row.missing)}` : '이 시점의 세션은 모두 열려 있어요',
+        desc: row.missing.length ? `없는 세션 ${row.missing.length}개: ${nameList(row.missing)}` : '이 시점의 세션은 모두 열려 있습니다',
         onClick: () => confirmRestore(row),
       })),
     });
   }
   async function confirmRestore(row) {
-    if (!row.missing.length) { toast('이 시점의 세션은 모두 열려 있어요.', 'info'); return; }
+    if (!row.missing.length) { toast('이 시점의 세션은 모두 열려 있습니다.', 'info'); return; }
     const ok = await confirmSheet({
       title: `세션 ${row.missing.length}개 복구`,
-      message: `${restoreTime(row.at)} 기록에서 ${nameList(row.missing, 12)}을(를) 다시 만들어요.${row.missing_agents ? ` 에이전트 ${row.missing_agents}개는 이전 대화로 이어서 켜져요.` : ''} 지금 열려 있는 세션은 건드리지 않아요.`,
+      message: `${restoreTime(row.at)} 기록에서 ${nameList(row.missing, 12)}을(를) 다시 만듭니다.${row.missing_agents ? ` 에이전트 ${row.missing_agents}개는 이전 대화로 이어서 켜집니다.` : ''} 지금 열려 있는 세션은 건드리지 않습니다.`,
       confirmLabel: '복구',
     });
     if (!ok) return;
     try {
       const result = await api('POST', '/api/tmux/snapshots/restore', { id: row.id, sessions: row.missing });
-      toast(`세션 ${result.started.length}개를 복구하고 있어요. 에이전트는 차례로 켜져요.`, 'ok', null, 6000);
+      toast(`세션 ${result.started.length}개를 복구하고 있습니다. 에이전트는 차례로 켜집니다.`, 'ok', null, 6000);
       store.set('restore-dismissed', row.id);
       window.dispatchEvent(new CustomEvent('univdash:restore'));
     } catch (error) {
@@ -1272,7 +1293,7 @@
 
     function send(message, { ack = false } = {}) {
       if (!ws || ws.readyState !== WebSocket.OPEN) {
-        if (ack) return Promise.reject(new Error('서버와 연결되어 있지 않습니다. 잠시 후 다시 시도하세요.'));
+        if (ack) return Promise.reject(new Error('서버와 연결되어 있지 않습니다. 잠시 후 다시 시도하십시오.'));
         return Promise.resolve();
       }
       if (!ack) { ws.send(JSON.stringify(message)); return Promise.resolve(); }
@@ -1852,10 +1873,10 @@
     function restoreBannerHtml() {
       const alert = restoreCheck.alert;
       if (!alert) return '';
-      if (alert.restoring) return '<div class="restore-banner busy"><i class="fas fa-circle-notch fa-spin"></i><div><b>세션을 복구하는 중이에요</b><span>에이전트는 차례로 켜져요.</span></div></div>';
+      if (alert.restoring) return '<div class="restore-banner busy"><i class="fas fa-circle-notch fa-spin"></i><div><b>세션을 복구하는 중입니다</b><span>에이전트는 차례로 켜집니다.</span></div></div>';
       if (store.get('restore-dismissed', '') === alert.id) return '';
       return `<div class="restore-banner"><i class="fas fa-triangle-exclamation"></i>
-          <div><b>세션 ${alert.missing.length}개가 사라졌어요</b><span>${escapeHtml(nameList(alert.missing, 4))} · ${escapeHtml(restoreTime(alert.at))} 기록으로 복구할 수 있어요.</span></div>
+          <div><b>세션 ${alert.missing.length}개가 사라졌습니다</b><span>${escapeHtml(nameList(alert.missing, 4))} · ${escapeHtml(restoreTime(alert.at))} 기록으로 복구할 수 있습니다.</span></div>
           <button type="button" data-restore-open>복구</button>
           <button type="button" class="restore-x" data-restore-dismiss="${escapeHtml(alert.id)}" aria-label="닫기"><i class="fas fa-xmark"></i></button></div>`;
     }
@@ -1904,7 +1925,7 @@
       const current = sortMode();
       actionSheet({
         title: '정렬 기준',
-        subtitle: '폴더 안에서 정렬됩니다. 휴대폰·PC 에 같이 적용돼요.',
+        subtitle: '폴더 안에서 정렬됩니다. 휴대폰·PC 에 같이 적용됩니다.',
         actions: Object.entries(SORTS).map(([id, sort]) => ({
           icon: sort.icon, label: sort.label, desc: sort.desc, sub: id === current ? '✓' : '', current: id === current,
           onClick: () => { state.prefs.sort = id; commitPrefs(); },
@@ -2041,11 +2062,11 @@
       const agent = w && agentOf(w);
       modelBtn.classList.toggle('hidden', !agent);
       $('#agentUpdateBtn')?.classList.toggle('hidden', !agent);
-      $('#codexAccountBtn')?.classList.toggle('hidden', agent !== 'codex' && agent !== 'claude');
+      $('#codexAccountBtn')?.classList.toggle('hidden', !isAgent(agent));
       const switchBtn = $('#agentSwitchBtn');
       if (switchBtn) {
         switchBtn.classList.toggle('hidden', !agent);
-        if (agent) switchBtn.textContent = `${AGENT_NAMES[agent === 'codex' ? 'claude' : 'codex']}로 바꾸기`;
+        if (agent) switchBtn.textContent = '에이전트 바꾸기';
       }
       if (!agent) return;
       $('#modelLabel').textContent = prettyModel(modelState.model);
@@ -2078,9 +2099,9 @@
     // 업데이트 버튼: 에이전트를 종료 → (업데이트) → 같은 대화로 다시 켠다 (서버가 Ctrl+C 와 셸 명령으로 처리)
     function restartAgent({ pane, agent, busy, window: win }) {
       if (!pane || !agent) return;
-      const name = agent === 'codex' ? 'Codex' : 'Claude Code';
+      const name = { codex: 'Codex', gemini: 'Gemini' }[agent] || 'Claude Code';
       const run = async (update) => {
-        if (busy) { toast(`${name} 가 작업 중이에요. 끝난 뒤에 다시 눌러 주세요.`, 'warn'); return; }
+        if (busy) { toast(`${name} 가 작업 중입니다. 끝난 뒤에 다시 눌러 주십시오.`, 'warn'); return; }
         toast(update ? `${name} 업데이트 후 같은 대화로 다시 켜는 중…` : `${name} 를 같은 대화로 다시 켜는 중…`, 'info');
         try {
           const result = await api('POST', '/api/agent/restart', { pane, update });
@@ -2089,12 +2110,12 @@
       };
       actionSheet({
         title: `${name} 업데이트`,
-        subtitle: '지금 창의 에이전트를 끄고, 같은 대화를 이어서 다시 켭니다 (/resume). 입력창에 쓰던 글은 사라져요.',
+        subtitle: '지금 창의 에이전트를 끄고, 같은 대화를 이어서 다시 켭니다 (/resume). 입력창에 쓰던 글은 사라집니다.',
         actions: [
-          { icon: 'fa-arrow-rotate-right', label: '업데이트하고 다시 켜기', desc: `${agent} update 후 같은 대화로`, onClick: () => run(true) },
+          { icon: 'fa-arrow-rotate-right', label: '업데이트하고 다시 켜기', desc: `${AGENT_BINS[agent] || agent} update 후 같은 대화로`, onClick: () => run(true) },
           { icon: 'fa-power-off', label: '다시 켜기만', desc: '업데이트 없이 같은 대화로 재시작', onClick: () => run(false) },
           'sep',
-          { icon: 'fa-layer-group', label: '모든 에이전트 창 업데이트', desc: 'Claude · Codex 모두 업데이트 후 창마다 같은 대화로 다시 켜기', onClick: () => updateAllAgents() },
+          { icon: 'fa-layer-group', label: '모든 에이전트 창 업데이트', desc: 'Claude · Codex · Gemini 모두 업데이트 후 창마다 같은 대화로 다시 켜기', onClick: () => updateAllAgents() },
           ...(win ? ['sep', ...agentSwitchActions(win)] : []),
         ],
       });
@@ -2102,21 +2123,21 @@
     // 모든 에이전트 창: 서버가 claude update · codex update 후, 쉬고 있는 창만 같은 대화로 다시 켠다.
     // 에이전트가 돌아가고 있는 창(작업 중 · 답을 기다리는 중)은 빼고 건드리지 않는다.
     async function updateAllAgents() {
-      const agents = state.windows.filter((w) => w.agent === 'claude' || w.agent === 'codex');
+      const agents = state.windows.filter((w) => isAgent(w.agent));
       const idle = agents.filter((w) => w.status === 'idle');
       const count = (agent) => idle.filter((w) => w.agent === agent).length;
       const running = agents.length - idle.length;
       const confirmed = await confirmSheet({
         title: '모든 에이전트 창 업데이트',
-        message: `Claude Code · Codex 를 최신 버전으로 업데이트하고, 쉬고 있는 창(Claude ${count('claude')}개 · Codex ${count('codex')}개)을 잠깐 껐다가 같은 대화로 다시 켭니다. 입력창에 쓰던 글은 사라져요.`
-          + (running ? ` 에이전트가 돌아가고 있는 창 ${running}개는 빼고 그대로 둬요.` : ''),
+        message: `Claude Code · Codex · Gemini 를 최신 버전으로 업데이트하고, 쉬고 있는 창(${AGENT_IDS.map((id) => `${AGENT_NAMES[id]} ${count(id)}개`).join(' · ')})을 잠깐 껐다가 같은 대화로 다시 켭니다. 입력창에 쓰던 글은 사라집니다.`
+          + (running ? ` 에이전트가 돌아가고 있는 창 ${running}개는 제외하고 그대로 둡니다.` : ''),
         confirmLabel: '모두 업데이트',
       });
       if (!confirmed) return;
       let first;
-      try { first = await api('POST', '/api/agent/update-all', { claude: true, codex: true }); }
+      try { first = await api('POST', '/api/agent/update-all', { claude: true, codex: true, gemini: true }); }
       catch (error) { toast(error.message, 'error'); return; }
-      toast('Claude Code · Codex 를 업데이트하고 다시 켜는 중…', 'info', null, 6000);
+      toast('Claude Code · Codex · Gemini 를 업데이트하고 다시 켜는 중…', 'info', null, 6000);
       followUpdateAll(first);
     }
     function followUpdateAll(first) {
@@ -2127,12 +2148,12 @@
           setTimeout(() => api('GET', '/api/agent/update-all').then(step, () => setTimeout(() => step(status), 4000)), 2000);
           return;
         }
-        if (status.state === 'error') { toast(status.error || '업데이트하지 못했어요.', 'error', null, 9000); return; }
+        if (status.state === 'error') { toast(status.error || '업데이트하지 못했습니다.', 'error', null, 9000); return; }
         const parts = [];
         let warn = false;
         const running = [];
         const failed = [];
-        for (const [name, r] of [['Claude', status.claude], ['Codex', status.codex]]) {
+        for (const [name, r] of [['Claude', status.claude], ['Codex', status.codex], ['Gemini', status.gemini]]) {
           if (!r) continue;
           parts.push(`${name} 창 ${r.restarted.length}개 다시 켬`);
           if (r.updated === false) { parts.push(`${name} 업데이트 실패 (기존 버전으로 켬)`); warn = true; }
@@ -2146,8 +2167,9 @@
       step(first);
     }
     // 슬래시 명령 보내기: Codex 는 붙여넣기 직후의 Enter 를 줄바꿈으로 받으므로 글자로 치고 잠시 뒤 Enter
+    // Gemini(Antigravity CLI)도 글자를 친 뒤 뜨는 자동 완성 목록에서 Enter 로 고른다
     async function sendSlash(pane, agent, text, sendFn) {
-      if (agent === 'codex') {
+      if (agent === 'codex' || agent === 'gemini') {
         await sendFn({ t: 'text', pane, text });
         await new Promise((resolve) => setTimeout(resolve, 450));
         await sendFn({ t: 'keys', pane, keys: ['Enter'] });
@@ -2159,18 +2181,42 @@
       const w = currentWindow();
       const agent = w && agentOf(w);
       if (!state.paneId || !agent) return;
-      if (w.status === 'busy') { toast('지금 작업 중이에요. 끝난 뒤에 모델을 바꿀 수 있어요.', 'warn'); return; }
+      if (w.status === 'busy') { toast('지금 작업 중입니다. 끝난 뒤에 모델을 바꿀 수 있습니다.', 'warn'); return; }
+      const before = modelState.model;
+      const watch = () => watchModelChange(() => refreshModel(true), () => modelState.model !== before);
+      if (agent === 'gemini') { pickGeminiModel(state.paneId, (message) => socket.send(message, { ack: true }), watch); return; }
       try {
         await sendSlash(state.paneId, agent, '/model', (message) => socket.send(message, { ack: true }));
-        const before = modelState.model;
-        watchModelChange(() => refreshModel(true), () => modelState.model !== before);
-        if (modeFor(w) === 'log') toast('모델 목록이 채팅 아래 카드에 떠요.', 'info', null, 2500);
+        watch();
+        if (modeFor(w) === 'log') toast('모델 목록이 채팅 아래 카드에 표시됩니다.', 'info', null, 2500);
       } catch (error) { toast(error.message, 'error'); }
+    }
+    // Gemini(Antigravity CLI)의 모델 선택 창은 번호가 없어 카드로 옮길 수 없다 → 목록을 받아 와 고르면 "/model <이름>" 을 보낸다
+    async function pickGeminiModel(pane, sendFn, onSent) {
+      let data;
+      try { data = await api('GET', '/api/agent/models?agent=gemini'); }
+      catch (error) { toast(error.message, 'error'); return; }
+      if (!data.models?.length) { toast('모델 목록을 받지 못했습니다. 잠시 뒤 다시 시도해 주십시오.', 'warn'); return; }
+      actionSheet({
+        title: 'Gemini 모델 선택',
+        subtitle: 'Antigravity CLI 에서 사용할 수 있는 모델입니다.',
+        actions: data.models.map((model) => ({
+          icon: 'fa-microchip', label: model.name || model.id, desc: model.id,
+          onClick: async () => {
+            try {
+              await sendSlash(pane, 'gemini', `/model ${model.id}`, sendFn);
+              toast(`${model.name || model.id} 모델로 바꾸는 중입니다.`, 'info', null, 2500);
+              onSent?.();
+            } catch (error) { toast(error.message, 'error'); }
+          },
+        })),
+      });
     }
     modelBtn.addEventListener('pointerdown', (event) => event.preventDefault());
     async function openCodexAccounts() {
       const agent = agentOf(currentWindow());
       if (agent === 'claude') { openClaudeAccounts(); return; }
+      if (agent === 'gemini') { openGeminiAccounts(); return; }
       if (agent !== 'codex') return;
       let data;
       try { data = await api('GET', '/api/accounts/codex'); }
@@ -2193,15 +2239,49 @@
     async function switchCodexAccount(account) {
       const confirmed = await confirmSheet({
         title: 'Codex 계정 변경',
-        message: `${account.email} 계정으로 바꿀까요? 모든 Codex 창을 잠깐 종료하고 Codex 를 최신으로 업데이트한 뒤, 같은 대화를 이어서 다시 켭니다. 작업 중인 창이 있으면 모두 끝난 뒤 자동으로 해요.`,
+        message: `${account.email} 계정으로 바꾸시겠습니까? 모든 Codex 창을 잠깐 종료하고 Codex 를 최신으로 업데이트한 뒤, 같은 대화를 이어서 다시 켭니다. 작업 중인 창이 있으면 모두 끝난 뒤 자동으로 합니다.`,
         confirmLabel: '계정 변경',
       });
       if (!confirmed) return;
       try {
         const result = await api('POST', '/api/accounts/codex/switch', { id: account.id });
-        toast(`Codex 계정을 ${result.email}로 변경했어요.`, 'ok');
+        toast(`Codex 계정을 ${result.email}로 변경했습니다.`, 'ok');
         codexAccountChanged(result.limits);
         if (result.applied) window.UnivDash.followCodexApply(result.applied);
+      } catch (error) { toast(error.message, 'error'); }
+    }
+    // Gemini (Antigravity CLI): 로그인 파일을 바꿔 끼우고, 쉬고 있는 Gemini 창을 같은 대화로 다시 켠다
+    async function openGeminiAccounts() {
+      let data;
+      try { data = await api('GET', '/api/accounts/gemini'); }
+      catch (error) { toast(error.message, 'error'); return; }
+      actionSheet({
+        title: 'Gemini 계정 변경',
+        subtitle: '다른 계정을 선택하면 쉬고 있는 Gemini 창이 같은 대화로 다시 켜집니다.',
+        actions: [
+          ...data.accounts.map((account) => ({
+            icon: 'fa-user', label: account.email || '이름 없는 계정',
+            current: account.active, sub: account.active ? '사용 중' : '',
+            desc: account.plan ? `${account.plan} 요금제` : '',
+            onClick: () => { if (!account.active) switchGeminiAccount(account); },
+          })),
+          ...(data.accounts.length ? ['sep'] : []),
+          { icon: 'fa-plus', label: '계정 추가 · 관리', desc: 'AI 사용량 페이지에서 다른 계정 로그인', onClick: () => { location.href = '/ai-usage'; } },
+        ],
+      });
+    }
+    async function switchGeminiAccount(account) {
+      const confirmed = await confirmSheet({
+        title: 'Gemini 계정 변경',
+        message: `${account.email || '선택한'} 계정으로 바꾸시겠습니까? 쉬고 있는 Gemini 창은 잠깐 껐다가 같은 대화로 다시 켭니다. 작업 중인 창은 그대로 두므로, 끝난 뒤 직접 다시 켜야 새 계정이 적용됩니다.`,
+        confirmLabel: '계정 변경',
+      });
+      if (!confirmed) return;
+      try {
+        const result = await api('POST', '/api/accounts/gemini/switch', { id: account.id });
+        const skipped = result.windows?.skipped?.length || 0;
+        toast(result.changed ? `Gemini 계정을 ${result.email || '선택한 계정'}(으)로 변경했습니다.${skipped ? ` 다시 켜지 못한 창 ${skipped}개는 직접 다시 켜 주십시오.` : ''}` : '이미 그 계정입니다.', skipped ? 'warn' : 'ok', null, 6000);
+        codexAccountChanged();
       } catch (error) { toast(error.message, 'error'); }
     }
     // Claude Code: 로그인 파일만 바꿔 끼운다 — 실행 중인 창은 파일이 바뀐 것을 알아채고 새 계정으로 이어진다
@@ -2227,21 +2307,18 @@
     async function switchClaudeAccount(account) {
       const confirmed = await confirmSheet({
         title: 'Claude Code 계정 변경',
-        message: `${account.email} 계정으로 바꿀까요? 실행 중인 Claude Code 창은 끄지 않고, 다음 요청부터 새 계정을 써요.`,
+        message: `${account.email} 계정으로 바꾸시겠습니까? 실행 중인 Claude Code 창은 끄지 않고, 다음 요청부터 새 계정을 씁니다.`,
         confirmLabel: '계정 변경',
       });
       if (!confirmed) return;
       try {
         const result = await api('POST', '/api/accounts/claude/switch', { id: account.id });
-        toast(result.changed ? `Claude Code 계정을 ${result.email}로 변경했어요.` : '이미 그 계정이에요.', 'ok');
+        toast(result.changed ? `Claude Code 계정을 ${result.email}로 변경했습니다.` : '이미 그 계정입니다.', 'ok');
         codexAccountChanged();
       } catch (error) { toast(error.message, 'error'); }
     }
     $('#codexAccountBtn')?.addEventListener('click', openCodexAccounts);
-    $('#agentSwitchBtn')?.addEventListener('click', () => {
-      const w = currentWindow();
-      if (w?.agent) switchAgent(w, w.agent === 'codex' ? 'claude' : 'codex');
-    });
+    $('#agentSwitchBtn')?.addEventListener('click', () => pickAgentSwitch(currentWindow()));
     $('#agentUpdateBtn')?.addEventListener('click', () => {
       const w = currentWindow();
       restartAgent({ pane: state.paneId, agent: agentOf(w), busy: w?.status === 'busy', window: w });
@@ -2277,8 +2354,12 @@
     }
     // 남은 사용량 게이지 HTML (메인 · 분할 화면 공용). 없으면 ''
     function usageMarkup(agent) {
-      const provider = agent && limits?.[agent === 'codex' ? 'codex' : 'claude'];
-      const windows = provider?.windows || [];
+      const key = isAgent(agent) ? agent : 'claude';
+      const provider = agent && limits?.[key];
+      const all = provider?.windows || [];
+      // Gemini 는 한도가 묶음별(Gemini 모델 / Claude · GPT 모델)로 온다 → 게이지에는 Gemini 묶음만 보인다
+      const own = key === 'gemini' ? all.filter((x) => / · Gemini$/.test(x.label || '')) : [];
+      const windows = own.length ? own : all;
       const session = windows.find((x) => x.window_minutes && x.window_minutes <= 360);
       const weekly = windows.find((x) => /weekly_all|seven_day$|codex-secondary/.test(x.id)) || windows.find((x) => x.window_minutes >= 10080);
       const gauges = [['세션', session], ['주간', weekly]].filter(([, x]) => x);
@@ -2296,13 +2377,13 @@
         const time = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
         return `${day} ${time}`;
       };
-      const account = limits?.accounts?.[agent === 'codex' ? 'codex' : 'claude'] || '';
-      const name = `${agent === 'codex' ? 'Codex' : 'Claude'}${provider.plan ? ` · ${escapeHtml(provider.plan)}` : ''}`;
+      const account = limits?.accounts?.[key] || '';
+      const name = `${AGENT_NAMES[key]}${provider.plan ? ` · ${escapeHtml(provider.plan)}` : ''}`;
       // 넓은 화면: 요금제 아래에 로그인한 계정 메일 / 좁은 화면(요금제 칸이 숨음): 그래프를 누르면 알림으로
       return `<span class="um-provider"><span>${name}</span>${account ? `<span class="um-account">${escapeHtml(account)}</span>` : ''}</span>`
-        + `<span class="um-who hidden" data-account="${escapeHtml(account)}" data-provider="${escapeHtml(agent === 'codex' ? 'Codex' : 'Claude')}"></span>` + gauges.map(([name, x]) => {
+        + `<span class="um-who hidden" data-account="${escapeHtml(account)}" data-provider="${escapeHtml(AGENT_NAMES[key])}"></span>` + gauges.map(([name, x]) => {
         // 이 계정에는 5시간 한도가 없다 (Anthropic 이 값을 주지 않음) → 막대 대신 '제한 없음'
-        if (x.unlimited) return `<div class="um ok" title="이 계정은 지금 5시간(세션) 한도가 적용되지 않아요. 주간 한도만 있어요."><span class="um-label">${name}</span><span class="um-val">제한 없음</span></div>`;
+        if (x.unlimited) return `<div class="um ok" title="이 계정은 지금 5시간(세션) 한도가 적용되지 않습니다. 주간 한도만 있습니다."><span class="um-label">${name}</span><span class="um-val">제한 없음</span></div>`;
         const left = Math.round(x.remaining_percent);
         const tone = left > 50 ? 'ok' : left > 20 ? 'mid' : 'low';
         const reset = resetText(x.resets_at);
@@ -2318,7 +2399,7 @@
       const box = event.target.closest('#usageMini, .tp-usage');
       const who = box?.querySelector('.um-who');
       if (!who) return;
-      toast(who.dataset.account ? `${who.dataset.provider} 계정: ${who.dataset.account}` : `${who.dataset.provider} 계정 정보를 찾지 못했어요`, 'info', null, 3500);
+      toast(who.dataset.account ? `${who.dataset.provider} 계정: ${who.dataset.account}` : `${who.dataset.provider} 계정 정보를 찾지 못했습니다`, 'info', null, 3500);
     });
     // 모델 선택은 터미널에서 직접 해도 새로고침 없이 빠르게 반영되도록 활성 창에서 2초마다 확인한다.
     setInterval(() => { if (document.visibilityState === 'visible' && state.selectedKey) refreshModel(); }, 2000);
@@ -2416,7 +2497,7 @@
         html += `<div class="ln">${body || ' '}</div>`;
       }
       const hint = screen.alternate && agentOf(currentWindow())
-        ? '<div class="alt-hint"><i class="fas fa-circle-info"></i><span>전체 화면 모드라 tmux 에 이전 기록이 남지 않아요.</span><button type="button" data-open-log>채팅으로 보기</button></div>'
+        ? '<div class="alt-hint"><i class="fas fa-circle-info"></i><span>전체 화면 모드라 tmux 에 이전 기록이 남지 않습니다.</span><button type="button" data-open-log>채팅으로 보기</button></div>'
         : '';
       inner.innerHTML = hint + (html || '<div class="ln term-empty-note">(빈 화면)</div>');
 
@@ -2643,7 +2724,7 @@
           if (state.selectedKey !== key) return;
         }
         if (list.some((item) => item.status === 'error')) {
-          throw new Error('업로드에 실패한 첨부가 있습니다. ✕ 로 빼거나 다시 첨부하세요.');
+          throw new Error('업로드에 실패한 첨부가 있습니다. ✕ 로 빼거나 다시 첨부하십시오.');
         }
         const ready = list.filter((item) => item.status === 'done');
         const text = input.value;
@@ -2706,7 +2787,7 @@
 
     function addFiles(fileList) {
       const key = state.selectedKey;
-      if (!key) { toast('먼저 첨부할 창을 선택하세요.', 'warn'); return; }
+      if (!key) { toast('먼저 첨부할 창을 선택하십시오.', 'warn'); return; }
       exitDirect();
       const list = attachList(key);
       let added = 0;
@@ -2855,7 +2936,7 @@
       // 놓자마자 메모리로 복사 (Yoink 등은 끌어낸 뒤 원본을 지워서, 나중에 읽으면 '네트워크 오류' 가 난다)
       Promise.all(files.map((file) => (file.size > 512 * 1024 * 1024 ? file
         : file.arrayBuffer().then((buf) => new File([buf], file.name, { type: file.type, lastModified: file.lastModified }))
-          .catch(() => { toast(`${file.name}: 원본 파일을 읽을 수 없어요. 끌어온 앱(Yoink 등)이 파일을 옮기거나 지웠을 수 있어요.`, 'error'); return null; }))))
+          .catch(() => { toast(`${file.name}: 원본 파일을 읽을 수 없습니다. 끌어온 앱(Yoink 등)이 파일을 옮기거나 지웠을 수 있습니다.`, 'error'); return null; }))))
         .then((copies) => { const ok = copies.filter(Boolean); if (ok.length) addFiles(ok); });
     });
     window.addEventListener('blur', hideDrop);
@@ -3157,12 +3238,12 @@
       // 표 블록 바로 앞뒤 줄바꿈은 블록이 줄을 차지하므로 넣지 않는다
       return out.reduce((acc, piece) => (acc && !acc.endsWith('</div>') && !piece.startsWith('<div class="md-table">') ? `${acc}\n${piece}` : acc + piece), '');
     }
-    const TOOL_ICONS = { Bash: 'fa-terminal', exec_command: 'fa-terminal', shell: 'fa-terminal', Read: 'fa-file-lines', Edit: 'fa-pen', Write: 'fa-file-pen', MultiEdit: 'fa-pen', apply_patch: 'fa-pen', Grep: 'fa-magnifying-glass', Glob: 'fa-folder-open', WebFetch: 'fa-globe', WebSearch: 'fa-globe', Agent: 'fa-robot', Task: 'fa-robot', TodoWrite: 'fa-list-check', spawn_agent: 'fa-robot', SendMessage: 'fa-robot', send_message: 'fa-robot', followup_task: 'fa-robot', list_agents: 'fa-robot' };
+    const TOOL_ICONS = { run_command: 'fa-terminal', command_status: 'fa-terminal', send_command_input: 'fa-terminal', read_file: 'fa-file-lines', view_file: 'fa-file-lines', write_file: 'fa-file-pen', write_to_file: 'fa-file-pen', edit_file: 'fa-pen', replace_file_content: 'fa-pen', multi_replace_file_content: 'fa-pen', grep_search: 'fa-magnifying-glass', codebase_search: 'fa-magnifying-glass', find_by_name: 'fa-folder-open', list_dir: 'fa-folder-open', search_web: 'fa-globe', read_url_content: 'fa-globe', invoke_subagent: 'fa-robot', browser_subagent: 'fa-robot', Bash: 'fa-terminal', exec_command: 'fa-terminal', shell: 'fa-terminal', Read: 'fa-file-lines', Edit: 'fa-pen', Write: 'fa-file-pen', MultiEdit: 'fa-pen', apply_patch: 'fa-pen', Grep: 'fa-magnifying-glass', Glob: 'fa-folder-open', WebFetch: 'fa-globe', WebSearch: 'fa-globe', Agent: 'fa-robot', Task: 'fa-robot', TodoWrite: 'fa-list-check', spawn_agent: 'fa-robot', SendMessage: 'fa-robot', send_message: 'fa-robot', followup_task: 'fa-robot', list_agents: 'fa-robot' };
     // 서브에이전트 관련 도구는 이름 대신 뜻으로 보인다
     const TOOL_LABELS = { Agent: '서브에이전트', Task: '서브에이전트', spawn_agent: '서브에이전트', SendMessage: '추가 지시', send_message: '서브에이전트에 메시지', followup_task: '추가 지시', list_agents: '서브에이전트 목록' };
     const SUB_FAILED = new Set(['failed', 'error', 'killed', 'cancelled']);
     function logItemHtml(item) {
-      const agentName = { claude: 'Claude', codex: 'Codex' }[log.agent] || 'Agent';
+      const agentName = AGENT_NAMES[log.agent] || 'Agent';
       if (item.kind === 'user') {
         // 첨부한 그림 (서버가 대화 기록에서 꺼내 둔 캐시 · 이름은 내용 해시라 그대로 오래 캐시된다)
         const images = (item.images || []).filter((name) => /^[0-9a-f]{32}\.(png|jpg|gif|webp)$/.test(name))
@@ -3339,7 +3420,7 @@
         const bodyHtml = d.op === 'delete' && !d.hunks.length ? ''
           : foldedHtml(rows, DIFF_FOLD, (shown, rest) => `<div class="df-body">${shown.join('')}${rest.length ? `<template data-fold>${rest.join('')}</template>` : ''}</div>`);
         return `<div class="df-file"><div class="df-head"><span class="df-path" title="${escapeHtml(d.file)}">${escapeHtml(d.file)}</span>${opLabel ? `<span class="df-op">${opLabel}</span>` : ''}<span class="df-stat"><b class="a">+${d.add || 0}</b> <b class="d">−${d.del || 0}</b></span></div>
-          ${bodyHtml}${d.cut ? '<div class="df-cut">… 길어서 일부만 보여요 (터미널 탭에서 전체)</div>' : ''}</div>`;
+          ${bodyHtml}${d.cut ? '<div class="df-cut">… 길어서 일부만 표시됩니다 (터미널 탭에서 전체)</div>' : ''}</div>`;
       }).join('');
       const failed = item.error && item.output ? `<pre>${escapeHtml(item.output)}</pre>` : '';
       return `<details class="msg-tool msg-diff auto-open ${item.error ? 'error' : ''}" data-item="${item.id}" open><summary><i class="fas fa-pen text-slate-500 text-[11px]"></i>
@@ -3361,8 +3442,8 @@
         const sig = `${data.total}:${JSON.stringify(data.items.at(-1) ?? null)}`;
         if (box.dataset.sig !== sig) {
           box.dataset.sig = sig;
-          box.innerHTML = !data.available ? '<div class="sub-empty">서브에이전트 기록을 찾지 못했어요.</div>'
-            : `${data.start > 0 ? `<div class="sub-empty">앞의 ${data.start}개 생략 · 최근 작업만 보여요</div>` : ''}${data.items.map((item) => logItemHtml(item)).join('') || '<div class="sub-empty">아직 기록이 없어요.</div>'}`;
+          box.innerHTML = !data.available ? '<div class="sub-empty">서브에이전트 기록을 찾지 못했습니다.</div>'
+            : `${data.start > 0 ? `<div class="sub-empty">앞의 ${data.start}개 생략 · 최근 작업만 표시됩니다</div>` : ''}${data.items.map((item) => logItemHtml(item)).join('') || '<div class="sub-empty">아직 기록이 없습니다.</div>'}`;
           box.querySelectorAll('.copy-btn').forEach((b) => b.remove());   // 복사 버튼은 본 대화 항목 기준이라 뺀다
           if (atBottom || !box.dataset.shown) box.scrollTop = box.scrollHeight;
           box.dataset.shown = '1';
@@ -3499,8 +3580,8 @@
       logList.innerHTML = '';
       if (!data.available) {
         logList.innerHTML = data.agent
-          ? '<div class="log-empty">아직 대화가 없습니다.<br>첫 프롬프트를 보내면 여기에 바로 보여요.</div>'
-          : '<div class="log-empty">이 창의 채팅(에이전트 세션 로그)을 찾지 못했습니다.<br>Claude Code · Codex 가 실행 중인 창에서만 볼 수 있어요.</div>';
+          ? '<div class="log-empty">아직 대화가 없습니다.<br>첫 프롬프트를 보내면 여기에 바로 표시됩니다.</div>'
+          : '<div class="log-empty">이 창의 채팅(에이전트 세션 로그)을 찾지 못했습니다.<br>Claude Code · Codex · Gemini 가 실행 중인 창에서만 볼 수 있습니다.</div>';
         renderPending();
         return;
       }
@@ -3598,18 +3679,18 @@
       chatSearchCount.textContent = !n ? '없음' : search.index >= 0 ? `${search.index + 1}/${n}${data.truncated ? '+' : ''}` : `${n}${data.truncated ? '+' : ''}개`;
     }
     function renderSearchResults(data) {
-      const agentName = { claude: 'Claude', codex: 'Codex' }[log.agent] || '에이전트';
+      const agentName = AGENT_NAMES[log.agent] || '에이전트';
       if (!search.q) { chatSearchResults.classList.add('hidden'); chatSearchResults.innerHTML = ''; return; }
       chatSearchResults.classList.remove('hidden');
       if (!data) { chatSearchResults.innerHTML = '<div class="cs-empty"><i class="fas fa-circle-notch fa-spin"></i> 찾는 중…</div>'; return; }
-      if (data.available === false) { chatSearchResults.innerHTML = '<div class="cs-empty">이 창의 대화 기록을 찾지 못했어요.</div>'; return; }
-      if (!search.items.length) { chatSearchResults.innerHTML = '<div class="cs-empty">맞는 프롬프트 · 답변이 없어요.</div>'; return; }
+      if (data.available === false) { chatSearchResults.innerHTML = '<div class="cs-empty">이 창의 대화 기록을 찾지 못했습니다.</div>'; return; }
+      if (!search.items.length) { chatSearchResults.innerHTML = '<div class="cs-empty">맞는 프롬프트 · 답변이 없습니다.</div>'; return; }
       chatSearchResults.innerHTML = search.items.map((item, index) => `
         <button type="button" class="cs-item ${index === search.index ? 'on' : ''}" data-cs-index="${index}" role="option" aria-selected="${index === search.index}">
           <span class="cs-who ${item.kind === 'user' ? 'me' : 'ai'}">${item.kind === 'user' ? '나' : escapeHtml(agentName)}</span>
           <span class="cs-text">${markTerms(item.snippet.replace(/\*\*|`/g, ''), search.terms)}</span>
           <span class="cs-time">${escapeHtml(logTime(item.ts))}</span>
-        </button>`).join('') + (data.truncated ? `<div class="cs-empty">최근 ${search.items.length}개만 보여요 (전체 ${data.matches}개). 낱말을 더 넣어 좁혀 보세요.</div>` : '');
+        </button>`).join('') + (data.truncated ? `<div class="cs-empty">최근 ${search.items.length}개만 표시됩니다 (전체 ${data.matches}개). 낱말을 더 넣어 좁혀 보십시오.</div>` : '');
     }
     async function runChatSearch() {
       const q = chatSearchInput.value.trim();
@@ -3667,7 +3748,7 @@
     async function jumpToLogItem(id) {
       const pane = state.paneId;
       if (!pane || log.pane !== pane || !log.available) return;
-      if (log.loading) { toast('이전 대화를 불러오는 중이에요. 잠시 뒤 다시 눌러 주세요.', 'info'); return; }
+      if (log.loading) { toast('이전 대화를 불러오는 중입니다. 잠시 뒤 다시 눌러 주십시오.', 'info'); return; }
       log.follow = false;   // 검색 결과로 이동: 새 내용이 와도 보던 곳에 머문다
       const target = Math.max(0, id - 3);
       if (log.start > target) {
@@ -3691,7 +3772,7 @@
         }
       }
       const el = log.rendered.get(id)?.el;
-      if (!el || !el.isConnected) { toast('그 메시지를 화면에서 찾지 못했어요.', 'error'); return; }
+      if (!el || !el.isConnected) { toast('그 메시지를 화면에서 찾지 못했습니다.', 'error'); return; }
       markLogItem(el, search.terms);
       el.scrollIntoView({ block: 'center', behavior: 'smooth' });
     }
@@ -3745,7 +3826,7 @@
     function renderUsagePanel() {
       const data = usage.data;
       if (!data) { chatUsage.innerHTML = '<div class="cu-empty">불러오는 중…</div>'; return; }
-      if (!data.available) { chatUsage.innerHTML = '<div class="cu-empty">이 창의 대화 기록을 찾지 못했어요.</div>'; return; }
+      if (!data.available) { chatUsage.innerHTML = '<div class="cu-empty">이 창의 대화 기록을 찾지 못했습니다.</div>'; return; }
       const allOpen = data.groups.every((g) => !g.items.length || usage.open.includes(g.group));
       // 에이전트가 작업 중일 때만 '지금'이다. 대기 중이면 지난 질문에서 쓴 것(방금)이고, 끝나지 않은 도구는 중단된 것.
       const busy = typeof data.busy === 'boolean' ? data.busy : usage.busy;
@@ -3754,7 +3835,7 @@
       const count = (s) => states.filter((x) => x === s).length;
       const recent = data.recent.length
         ? data.recent.map((r) => `<div class="cu-row${busy ? '' : ' past'}">${usageDot(busy ? st(r.state) : 'idle')}<span class="cu-kind">${USAGE_LABELS[r.group]}</span><span class="cu-name">${escapeHtml(r.name)}</span><span class="cu-count">×${r.count}</span></div>`).join('')
-        : `<div class="cu-empty">${busy ? '이번 질문에서는 아직 쓴 것이 없어요.' : '지난 질문에서 쓴 것이 없어요.'}</div>`;
+        : `<div class="cu-empty">${busy ? '이번 질문에서는 아직 쓴 것이 없습니다.' : '지난 질문에서 쓴 것이 없습니다.'}</div>`;
       const groups = data.groups.map((g, index) => {
         const open = usage.open.includes(g.group);
         const used = g.items.filter((r) => r.recent).length;
@@ -3824,7 +3905,7 @@
         if (!chatUsage.classList.contains('hidden')) renderUsagePanel();
         renderUsageSummary();
       } catch (error) {
-        if (seq === usage.seq && !usage.data && !chatUsage.classList.contains('hidden')) chatUsage.innerHTML = `<div class="cu-empty">${escapeHtml(error.message || '불러오지 못했어요.')}</div>`;
+        if (seq === usage.seq && !usage.data && !chatUsage.classList.contains('hidden')) chatUsage.innerHTML = `<div class="cu-empty">${escapeHtml(error.message || '불러오지 못했습니다.')}</div>`;
       }
     }
     function scheduleUsage() {
@@ -3994,7 +4075,7 @@
           return now - e.at < SENT_KEEP_MS;
         });
       }
-      const queuedBubble = (text) => `<div class="msg msg-user pending"><div class="msg-meta"><i class="fas fa-hourglass-half"></i> 대기 중 · 작업 중에 곧 전달돼요</div><div class="msg-body">${escapeHtml(text)}</div></div>`;
+      const queuedBubble = (text) => `<div class="msg msg-user pending"><div class="msg-meta"><i class="fas fa-hourglass-half"></i> 대기 중 · 작업 중에 곧 전달됩니다</div><div class="msg-body">${escapeHtml(text)}</div></div>`;
       const sentBubble = (e) => `<div class="msg msg-user"><div class="msg-meta">나 · ${escapeHtml(logTime(e.at))}</div><div class="msg-body">${escapeHtml(e.text)}</div></div>`;
       const sentHere = log.sent.filter((e) => e.pane === state.paneId);
       // 이 화면에서 보낸 말풍선이 이미 있으면 서버가 알려 준 것은 겹치니 빼고 보여 준다
@@ -4016,7 +4097,7 @@
         // 가장 아래 선택지 덩어리 (위로 스크롤된 긴 목록은 1. 이 안 보일 수 있다)
         let last = -1;
         for (let i = lines.length - 1; i >= Math.max(0, lines.length - 40); i--) if (OPTION_LINE.test(lines[i])) { last = i; break; }
-        if (last < 0) return { kind: 'waiting', question: '응답이 필요해요. 터미널 탭에서 확인하세요.', options: [] };
+        if (last < 0) return { kind: 'waiting', question: '응답이 필요합니다. 터미널 탭에서 확인하십시오.', options: [] };
         let first = last;
         for (let i = last - 1; i >= 0; i--) {
           if (OPTION_LINE.test(lines[i])) first = i;
@@ -4124,7 +4205,7 @@
     }
     // "응답이 필요해요" 카드 (메인 · 분할 화면 공용)
     function waitingCardHtml(status) {
-      const head = `<div class="chat-status-head"><i class="fas fa-hand"></i> 응답이 필요해요</div>
+      const head = `<div class="chat-status-head"><i class="fas fa-hand"></i> 응답이 필요합니다</div>
         ${status.question ? `<div class="chat-status-question">${escapeHtml(status.question)}</div>` : ''}`;
       if (!status.picker) {
         return `${head}<div class="chat-status-options">${status.options.map((o) => `<button type="button" data-status-text="${escapeHtml(o.key)}"><b>${escapeHtml(o.key)}</b> ${escapeHtml(o.label)}</button>`).join('')}
@@ -4294,7 +4375,7 @@
             title: '새 문구', fields: [{ name: 'text', label: '문구', placeholder: '예: 변경사항 요약해줘', maxlength: 2000 }], submitLabel: '추가',
             onSubmit(values) {
               const text = values.text.trim();
-              if (!text) throw new Error('문구를 입력하세요.');
+              if (!text) throw new Error('문구를 입력하십시오.');
               store.set('snippets', [text, ...snippets.filter((s) => s !== text)].slice(0, 30));
             },
           });
@@ -4368,7 +4449,7 @@
       logItem(item, agent) { const saved = log.agent; log.agent = agent; const html = logItemHtml(item); log.agent = saved; return html; },
       markFinalAnswers,
       chatStatus: (screen, w) => chatStatusFrom(screen, w),
-      prettyModel, usageMarkup, sendSlash, optionKeys, waitingCardHtml, statusMessage, watchModelChange, restartAgent,
+      prettyModel, usageMarkup, sendSlash, pickGeminiModel, optionKeys, waitingCardHtml, statusMessage, watchModelChange, restartAgent,
       chatLiveOpen, toggleChatLive,
       refreshLimits: () => refreshLimits(),
     };
@@ -4496,7 +4577,8 @@
       const active = activeId();
       bar.classList.toggle('hidden', !tabs.length && !isSplit() && !SOLO);
       $('#termPane').classList.toggle('has-tabs', tabs.length > 0 || SOLO);
-      bar.innerHTML = tabs.map((t) => tabHtml(t, t.id === active)).join('') + (SOLO ? soloBarHtml() : '');
+      bar.innerHTML = tabs.map((t) => tabHtml(t, t.id === active)).join('') + (SOLO ? soloBarHtml() : '')
+        + (tabs.length > 1 ? '<button type="button" class="wt-close-all" data-close-all title="탭 모두 닫기" aria-label="탭 모두 닫기"><i class="fas fa-rectangle-xmark"></i><span>모두 닫기</span></button>' : '');
       if (SOLO) soloSync(tabs, active);
       lastActive = active;
       bar.querySelector('.wt.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -4546,8 +4628,28 @@
       }
       renderBar();
     }
+    // 탭 모두 닫기: tmux 창은 탭만 닫히고(창은 계속 실행), Terminal 탭은 셸이 끝난다 → 닫기 전에 알린다
+    async function closeAllTabs() {
+      const tabs = mainTabs();
+      if (!tabs.length) return;
+      const shells = tabs.filter((t) => t.type === 'pty').length;
+      const windows = tabs.filter((t) => t.type === 'term').length;
+      const notes = [];
+      if (windows) notes.push(`tmux 창 ${windows}개는 탭만 닫히며 창은 계속 실행됩니다.`);
+      if (shells) notes.push(`Terminal 탭 ${shells}개는 셸이 종료됩니다.`);
+      if (tabs.some((t) => t.type === 'file' && t.tab.dirty)) notes.push('저장하지 않은 파일은 하나씩 확인합니다.');
+      const ok = await confirmSheet({ title: '탭 모두 닫기', message: `열린 탭 ${tabs.length}개를 모두 닫습니다.${notes.length ? `\n${notes.join('\n')}` : ''}`, confirmLabel: '모두 닫기', danger: shells > 0 });
+      if (!ok) return;
+      // 지금 보고 있는 탭을 마지막에 닫아야 닫는 동안 옆 탭으로 화면이 여러 번 바뀌지 않는다
+      const active = activeId();
+      for (const tab of [...tabs.filter((t) => t.id !== active), ...tabs.filter((t) => t.id === active)]) {
+        await closeTab(tab.id);
+      }
+    }
+    window.UnivDashKeys?.register('ws.closeAllTabs', () => { closeAllTabs(); });
     bar?.addEventListener('click', (event) => {
       if (event.target.closest('[data-solo-return]')) { returnToMain(); return; }
+      if (event.target.closest('[data-close-all]')) { closeAllTabs(); return; }
       const el = event.target.closest('.wt');
       if (!el) return;
       const tab = mainTabs().find((t) => t.id === el.dataset.id);
@@ -4779,7 +4881,7 @@
           <div class="side-view g-file hidden"></div>
           <div class="side-view g-pty pty-host hidden"></div>
           <div class="side-view g-mirror hidden"></div>
-          <div class="side-view side-empty"><i class="fas fa-table-columns"></i><p>탭을 여기로 끌어다 놓으세요.</p></div>
+          <div class="side-view side-empty"><i class="fas fa-table-columns"></i><p>탭을 여기로 끌어다 놓으십시오.</p></div>
         </div>`;
       editorArea.insertBefore(el, $('#dropZones'));
       const saved = groupState[id] || {};
@@ -5008,7 +5110,7 @@
     function makeGroupAt(target, edge) {
       if (!desktopQuery.matches || !canSplit(target, edge)) return null;
       const id = GROUP_IDS.find((x) => !layoutIds().includes(x));
-      if (!id) { toast('최대 4개까지 나눌 수 있어요.', 'info'); return null; }
+      if (!id) { toast('최대 4개까지 나눌 수 있습니다.', 'info'); return null; }
       cellsOf(target).forEach(([r, c]) => {
         const side = edge === 'left' ? c === 0 : edge === 'right' ? c === 1 : edge === 'top' ? r === 0 : r === 1;
         if (side) layout[r][c] = id;
@@ -5088,7 +5190,7 @@
       const moves = layoutIds().filter((id) => id !== group).map((id) => ({
         icon: 'fa-arrow-right-to-bracket', label: `${id === 'main' ? '메인 그룹' : '분할'} (${positionLabel(id)})으로 옮기기`, onClick: () => moveTab(tab, group, id),
       }));
-      const pops = [{ icon: 'fa-up-right-from-square', label: '새 창으로 띄우기', desc: '팝업 창으로 떼어 내서 다른 모니터에 두고 쓸 수 있어요', onClick: () => popOut(tab, group) }];
+      const pops = [{ icon: 'fa-up-right-from-square', label: '새 창으로 띄우기', desc: '팝업 창으로 떼어 내서 다른 모니터에 두고 쓸 수 있습니다', onClick: () => popOut(tab, group) }];
       if (window.screen?.isExtended && 'getScreenDetails' in window) pops.push({ icon: 'fa-display', label: '다른 모니터에 띄우기', onClick: () => popOut(tab, group, { otherScreen: true }) });
       actionSheet({
         title: el.querySelector('.wt-name')?.textContent || '탭',
@@ -5151,14 +5253,14 @@
         const h = Math.min(height, sc.availHeight);
         win.moveTo(Math.min(Math.max(p.x - 120, sc.availLeft), sc.availLeft + sc.availWidth - w), Math.min(Math.max(p.y - 20, sc.availTop), sc.availTop + sc.availHeight - h));
         win.resizeTo(w, h);
-        toast('놓은 모니터로 옮겼어요. 다음부터는 바로 그 모니터에 떠요.', 'success', 2600);
+        toast('놓은 모니터로 옮겼습니다. 다음부터는 바로 그 모니터에 표시됩니다.', 'success', 2600);
       } catch (e) {
-        toast('창 관리 권한이 없어 이 모니터에 띄웠어요. 주소창 왼쪽 사이트 설정에서 \'창 관리\'를 허용하면 놓은 모니터에 떠요.', 'info', 6000);
+        toast('창 관리 권한이 없어 이 모니터에 띄웠습니다. 주소창 왼쪽 사이트 설정에서 \'창 관리\'를 허용하면 놓은 모니터에 표시됩니다.', 'info', 6000);
       }
     }
     async function popOut(tab, group, { otherScreen = false, at = null } = {}) {
       if (!tab) return;
-      if (tab.type === 'file' && tab.tab?.dirty) { toast('저장하지 않은 변경이 있어요. 저장한 뒤 새 창으로 띄워 주세요.', 'error'); return; }
+      if (tab.type === 'file' && tab.tab?.dirty) { toast('저장하지 않은 변경이 있습니다. 저장한 뒤 새 창으로 띄워 주십시오.', 'error'); return; }
       const info = tabInfo(tab);
       const pane = (group === 'main' ? $('#termPane') : groups[group]?.el)?.getBoundingClientRect();
       let width = Math.round(Math.min(window.screen.availWidth, Math.max(1100, pane?.width || 1100)));
@@ -5191,8 +5293,8 @@
       const win = window.open(soloUrl(info), popupName(tab.id), `popup=yes,width=${width},height=${height},left=${left},top=${top}`);
       if (!win) {
         // 끌어 놓기가 길면(다른 모니터까지) 브라우저가 '클릭 직후'로 보지 않아 팝업을 막는다 → 버튼 한 번으로 띄운다
-        if (at) toast('탭을 새 창으로 띄우려면 눌러 주세요.', 'info', { label: '새 창 열기', onClick: () => popOut(tab, group, { at }) }, 8000);
-        else toast('팝업이 막혔어요. 주소창의 팝업 차단 아이콘에서 이 사이트를 허용한 뒤 다시 눌러 주세요.', 'error');
+        if (at) toast('탭을 새 창으로 띄우려면 눌러 주십시오.', 'info', { label: '새 창 열기', onClick: () => popOut(tab, group, { at }) }, 8000);
+        else toast('팝업이 막혔습니다. 주소창의 팝업 차단 아이콘에서 이 사이트를 허용한 뒤 다시 눌러 주십시오.', 'error');
         return;
       }
       const askScreen = needScreenAccess === true && at;
@@ -5200,8 +5302,8 @@
       if (group === 'main') await closeTab(tab.id, { keep: true });
       else await closeTabIn(groups[group], tab.id, { keep: true });
       if (info.type === 'pty') watchPopup(win, info);
-      if (askScreen) toast('놓은 모니터에 띄우려면 창 관리 권한이 필요해요.', 'info', { label: '허용하고 옮기기', onClick: () => moveToScreen(win, at, width, height) }, 8000);
-      else toast('새 창으로 띄웠어요. 원하는 모니터로 옮겨 쓰세요.', 'success', 2200);
+      if (askScreen) toast('놓은 모니터에 띄우려면 창 관리 권한이 필요합니다.', 'info', { label: '허용하고 옮기기', onClick: () => moveToScreen(win, at, width, height) }, 8000);
+      else toast('새 창으로 띄웠습니다. 원하는 모니터로 옮겨 쓰십시오.', 'success', 2200);
     }
     // 팝업이 닫혔는데 Terminal 이 돌아오지 않았으면 (그냥 창을 닫은 경우) 셸이 살아 있는 한 이 창 탭으로 되돌린다
     function watchPopup(win, info) {
@@ -5214,7 +5316,7 @@
           if (!alive || ptys.has(info.id)) return;
           addPty(alive);
           renderBar();
-          toast('새 창을 닫아서 Terminal 을 이 창 탭으로 돌려놨어요.', 'info', 2600);
+          toast('새 창을 닫아서 Terminal 을 이 창 탭으로 돌려놨습니다.', 'info', 2600);
         } catch (e) { /* noop */ }
       }, 1200);
     }
@@ -5253,7 +5355,7 @@
     }
     function returnToMain() {
       const tabs = [...currentTabs(), ...Object.values(groups).flatMap((g) => tabsOf(g))];
-      if (tabs.some((t) => t.type === 'file' && t.tab?.dirty)) { toast('저장하지 않은 변경이 있어요. 저장한 뒤 돌려놓아 주세요.', 'error'); return; }
+      if (tabs.some((t) => t.type === 'file' && t.tab?.dirty)) { toast('저장하지 않은 변경이 있습니다. 저장한 뒤 돌려놓아 주십시오.', 'error'); return; }
       const message = { type: 'univdash-solo-return', tabs: [...new Map(tabs.map((t) => [t.id.replace(/^sfile:/, 'file:'), tabInfo(t)])).values()] };
       let sent = false;
       try { if (window.opener && !window.opener.closed) { window.opener.postMessage(message, location.origin); sent = true; } } catch (e) { /* noop */ }
@@ -5489,9 +5591,9 @@
       try { payload = JSON.parse(event.dataTransfer.getData(XTAB)); } catch (e) { payload = null; }
       const info = payload?.info;
       if (!info || payload.from === WIN_ID) return;
-      if (payload.dirty) { toast('저장하지 않은 변경이 있어요. 저장한 뒤 옮겨 주세요.', 'error'); return; }
+      if (payload.dirty) { toast('저장하지 않은 변경이 있습니다. 저장한 뒤 옮겨 주십시오.', 'error'); return; }
       const id = info.type === 'term' ? termId(info.key) : info.type === 'pty' ? ptyId(info.id) : fileId(info.path);
-      if (info.type === 'term' && !byKey().has(info.key)) { toast('이 창에서 찾을 수 없는 tmux 세션이에요.', 'error'); return; }
+      if (info.type === 'term' && !byKey().has(info.key)) { toast('이 창에서 찾을 수 없는 tmux 세션입니다.', 'error'); return; }
       adoptTabs([info]);
       tabChannel?.postMessage({ type: 'tab-taken', from: payload.from, srcId: payload.srcId, group: payload.group });
       // 놓은 자리로 순서 맞추기 (파일 탭은 열리는 데 조금 걸린다)
@@ -5591,7 +5693,7 @@
               <textarea rows="1" enterkeyhint="send" placeholder="프롬프트 입력" spellcheck="false" autocapitalize="off" class="prompt-input w-full glass-input rounded-2xl pl-4 pr-11 py-2.5 text-white placeholder-white/30 resize-none"></textarea>
               <button type="button" class="attach-btn" data-tp-attach title="사진 · 파일 첨부" aria-label="첨부"><i class="fas fa-paperclip"></i></button>
               <input type="file" multiple class="hidden tp-file" tabindex="-1" aria-hidden="true">
-              <div class="tp-direct-banner hidden"><i class="fas fa-keyboard"></i> 직접 입력 중 · 누르는 키가 바로 터미널로 가요</div>
+              <div class="tp-direct-banner hidden"><i class="fas fa-keyboard"></i> 직접 입력 중 · 누르는 키가 바로 터미널로 전달됩니다</div>
             </div>
             <button type="button" class="composer-btn" data-tp-direct title="터미널 직접 입력 모드" aria-pressed="false"><i class="fas fa-keyboard text-sm"></i></button>
             <button type="submit" class="send-btn btn-glow" aria-label="보내기"><i class="fas fa-paper-plane text-sm"></i></button>
@@ -5601,7 +5703,7 @@
               <button type="button" class="submit-toggle" data-tp-keybar></button>
               <button type="button" class="submit-toggle qs-btn" data-tp-snippet title="최근 보낸 프롬프트 · 빠른 문구" aria-label="히스토리">히스토리</button>
               <button type="button" class="submit-toggle qs-btn hidden" data-tp-update title="에이전트를 업데이트하고 같은 대화로 다시 켜기" aria-label="업데이트">업데이트</button>
-              <button type="button" class="submit-toggle qs-btn hidden" data-tp-switch title="지금 에이전트를 끄고 다른 에이전트를 새 대화로 켜기">Codex로 바꾸기</button>
+              <button type="button" class="submit-toggle qs-btn hidden" data-tp-switch title="지금 에이전트를 끄고 다른 에이전트(Claude · Codex · Gemini)를 선택해 켜기">에이전트 바꾸기</button>
             </div>
             <div class="flex items-center gap-1 min-w-0">
               <span class="truncate hidden sm:inline">Enter 전송 · Shift+Enter 줄바꿈</span>
@@ -5712,7 +5814,7 @@
           let arrived = items.filter((item) => item.kind === 'user' && item.id > sent[0].afterId).length;
           while (sent.length && (arrived > 0 || Date.now() - sent[0].at > 10 * 60 * 1000)) { if (arrived > 0) arrived -= 1; sent.shift(); }
         }
-        const queuedHtml = chat.queued.map((text) => `<div class="msg msg-user pending"><div class="msg-meta"><i class="fas fa-hourglass-half"></i> 대기 중 · 작업 중에 곧 전달돼요</div><div class="msg-body">${escapeHtml(text)}</div></div>`).join('');
+        const queuedHtml = chat.queued.map((text) => `<div class="msg msg-user pending"><div class="msg-meta"><i class="fas fa-hourglass-half"></i> 대기 중 · 작업 중에 곧 전달됩니다</div><div class="msg-body">${escapeHtml(text)}</div></div>`).join('');
         const pending = queuedHtml + (sent.length
           ? sent.map((e) => `<div class="msg msg-user"><div class="msg-meta">나 · ${escapeHtml(new Date(e.at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }))}</div><div class="msg-body">${escapeHtml(e.text)}</div></div>`).join('')
           : chat.submitted.map((text) => `<div class="msg msg-user"><div class="msg-meta">나 · 전달됨</div><div class="msg-body">${escapeHtml(text)}</div></div>`).join(''));
@@ -5745,7 +5847,7 @@
           chat.available = data.available;
           chat.agent = data.agent;
           if (!data.available) {
-            listEl.innerHTML = data.agent ? '<div class="log-empty">아직 대화가 없습니다. 첫 프롬프트를 보내면 여기에 바로 보여요.</div>' : '<div class="log-empty">이 창의 채팅(에이전트 세션 로그)을 찾지 못했습니다.</div>';
+            listEl.innerHTML = data.agent ? '<div class="log-empty">아직 대화가 없습니다. 첫 프롬프트를 보내면 여기에 바로 표시됩니다.</div>' : '<div class="log-empty">이 창의 채팅(에이전트 세션 로그)을 찾지 못했습니다.</div>';
             if (data.agent) send({ t: 'logsub', pane, since: 0 });   // 로그가 생기면 서버가 알려 준다
             return;
           }
@@ -5845,7 +5947,7 @@
         $$in('[data-tp-update]').classList.toggle('hidden', !w.agent);
         const switchBtn = $$in('[data-tp-switch]');
         switchBtn.classList.toggle('hidden', !w.agent);
-        if (w.agent) switchBtn.textContent = `${AGENT_NAMES[w.agent === 'codex' ? 'claude' : 'codex']}로 바꾸기`;
+        if (w.agent) switchBtn.textContent = '에이전트 바꾸기';
         modelEl.querySelector('span').textContent = R.prettyModel(model.id);
       }
       async function refreshModel() {
@@ -5866,10 +5968,12 @@
       window.addEventListener('univdash:codex-account-changed', accountChanged);
       modelEl.addEventListener('click', async () => {
         if (!w?.agent || !pane) return;
-        if (w.status === 'busy') { toast('지금 작업 중이에요. 끝난 뒤에 모델을 바꿀 수 있어요.', 'warn'); return; }
-        await R.sendSlash(pane, w.agent, '/model', async (message) => send(message));
+        if (w.status === 'busy') { toast('지금 작업 중입니다. 끝난 뒤에 모델을 바꿀 수 있습니다.', 'warn'); return; }
         const before = model.id;
-        R.watchModelChange(refreshModel, () => disposed || model.id !== before);
+        const watch = () => R.watchModelChange(refreshModel, () => disposed || model.id !== before);
+        if (w.agent === 'gemini') { R.pickGeminiModel(pane, async (message) => send(message), watch); return; }
+        await R.sendSlash(pane, w.agent, '/model', async (message) => send(message));
+        watch();
       });
       // ── 입력 (메인 입력창과 같은 구성: 특수 키 · 빠른 문구 · 모델 · 첨부 · 직접 입력 · 자동 제출 · 키 접기 · 이전 프롬프트) ──
       const autosize = () => { input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 160)}px`; };
@@ -5900,7 +6004,7 @@
         b.addEventListener('pointerdown', (event) => event.preventDefault());
         b.addEventListener('click', () => recall(Number(b.dataset.tpHist)));
       });
-      $$in('[data-tp-switch]').addEventListener('click', () => { if (w?.agent) switchAgent(w, w.agent === 'codex' ? 'claude' : 'codex'); });
+      $$in('[data-tp-switch]').addEventListener('click', () => pickAgentSwitch(w));
       $$in('[data-tp-update]').addEventListener('click', () => R.restartAgent({ pane, agent: w?.agent, busy: w?.status === 'busy', window: w }));
       $$in('[data-tp-snippet]').addEventListener('click', () => {
         const snippets = store.get('snippets', ['계속 진행해줘', '커밋해줘', '테스트 돌려서 확인해줘', '/compact', '/clear']);
@@ -6096,7 +6200,7 @@
     function insertPath(path) {
       const w = workspace.currentWindow();
       if (!w) {
-        window.UnivDashExplorer.copyText(path, '먼저 창을 선택하세요. 경로는 복사했어요');
+        window.UnivDashExplorer.copyText(path, '먼저 창을 선택하십시오. 경로는 복사했습니다');
         return;
       }
       const fromViewer = document.body.classList.contains('file-open');
@@ -6130,7 +6234,7 @@
         for (let cut = 1; !info && cut <= 3 && /\p{Script=Hangul}{2,}$/u.test(path.slice(0, path.length - cut + 1)); cut += 1) {
           try { info = await api('GET', `/api/fs/stat?path=${encodeURIComponent(path.slice(0, -cut))}`); } catch (e) { /* 다음 */ }
         }
-        if (!info) { toast(`열 수 없어요: ${raw} (${error.message})`, 'warn'); return; }
+        if (!info) { toast(`열 수 없습니다: ${raw} (${error.message})`, 'warn'); return; }
       }
       if (info.type === 'dir') { reveal(info.path); return; }
       const name = info.path.split('/').pop();

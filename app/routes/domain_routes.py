@@ -194,7 +194,7 @@ async def domain_console(websocket: WebSocket):
         arguments = domain_service.console_arguments(data)
         passphrase = domain_service.clean_passphrase(data.pop("passphrase", None))
         if not (await asyncio.to_thread(domain_service.helper_status))["ready"]:
-            raise ValueError("먼저 Nginx 헬퍼를 설치해 주세요.")
+            raise ValueError("먼저 Nginx 헬퍼를 설치해 주십시오.")
     except (ValueError, TimeoutError, WebSocketDisconnect, RuntimeError) as error:
         message = str(error) if isinstance(error, ValueError) else "잘못된 요청입니다."
         await send({"line": f"실패: {message}"})

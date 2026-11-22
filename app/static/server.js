@@ -283,7 +283,7 @@ async function controlPM2(action, name) {
 
 async function restartAllPM2() {
     const count = document.querySelectorAll('.proc-row').length;
-    if (!confirm(`PM2 앱 ${count}개를 모두 재시작할까요? (환경 변수 갱신 --update-env)\n대시보드도 마지막에 재시작되어 잠깐 연결이 끊깁니다.`)) return;
+    if (!confirm(`PM2 앱 ${count}개를 모두 재시작하시겠습니까? (환경 변수 갱신 --update-env)\n대시보드도 마지막에 재시작되어 잠깐 연결이 끊깁니다.`)) return;
     const button = document.getElementById('pm2RestartAllButton');
     button.disabled = true;
     button.classList.add('opacity-50');
@@ -397,7 +397,7 @@ async function procTask(key, button, icon, run) {
 }
 
 async function restartAfter(name, what) {
-    if (!confirm(`${name} ${what} 완료. 지금 재시작할까요? (--update-env)`)) return;
+    if (!confirm(`${name} ${what} 완료. 지금 재시작하시겠습니까? (--update-env)`)) return;
     const res = await fetch(`/control/restart/${encodeURIComponent(name)}`, { method: 'POST' });
     UnivDash.toast(res.ok ? `${name} 재시작됨` : '재시작 실패', res.ok ? 'success' : 'error');
     updateStats();
@@ -405,7 +405,7 @@ async function restartAfter(name, what) {
 
 // 성공하면 true. then 이 false 면 재시작을 묻지 않는다 (git pull 에서 이어 부를 때)
 async function uvSync(name, button, { ask = true, then = true } = {}) {
-    if (ask && !confirm(`${name} 작업 폴더에서 uv sync 를 실행할까요?\n(uv.lock 이 있는 폴더 기준 · 끝나면 재시작 여부를 묻습니다)`)) return false;
+    if (ask && !confirm(`${name} 작업 폴더에서 uv sync 를 실행하시겠습니까?\n(uv.lock 이 있는 폴더 기준 · 끝나면 재시작 여부를 묻습니다)`)) return false;
     button = button || document.querySelector(`[data-proc-action="uv-sync"][data-name="${CSS.escape(name)}"]`);
     let ok = false;
     await procTask(`uv:${name}`, button, 'fa-box-open', async () => {
@@ -425,7 +425,7 @@ async function uvSync(name, button, { ask = true, then = true } = {}) {
 }
 
 async function gitPull(name, button) {
-    if (!confirm(`${name} 저장소에서 git pull 할까요?\n(--ff-only · 로컬 커밋과 갈라져 있으면 실패하고 아무것도 바꾸지 않습니다)`)) return;
+    if (!confirm(`${name} 저장소에서 git pull 하시겠습니까?\n(--ff-only · 로컬 커밋과 갈라져 있으면 실패하고 아무것도 바꾸지 않습니다)`)) return;
     let data = null;
     await procTask(`git:${name}`, button, 'fa-code-pull-request', async () => {
         showOutput(`GIT PULL: ${name}`, 'git pull 실행 중...', 'terminal-muted italic');
@@ -441,7 +441,7 @@ async function gitPull(name, button) {
     });
     if (!data?.ok || !data.updated) return;
     const uvButton = document.querySelector(`[data-proc-action="uv-sync"][data-name="${CSS.escape(name)}"]`);
-    if (data.deps_changed && uvButton && confirm(`${name} 의존성(uv.lock / pyproject.toml)이 바뀌었습니다. uv sync 를 실행할까요?`)) {
+    if (data.deps_changed && uvButton && confirm(`${name} 의존성(uv.lock / pyproject.toml)이 바뀌었습니다. uv sync 를 실행하시겠습니까?`)) {
         if (!await uvSync(name, uvButton, { ask: false, then: false })) return;
     }
     await restartAfter(name, 'git pull');
@@ -540,7 +540,7 @@ window.addEventListener('keydown', (event) => {
     }
     apps = data.apps;
     if (!apps.length) {
-      list.innerHTML = '<div class="p-5 text-xs text-white/40">등록된 앱이 없습니다. <b>새 앱</b>으로 추가하세요.</div>';
+      list.innerHTML = '<div class="p-5 text-xs text-white/40">등록된 앱이 없습니다. <b>새 앱</b>으로 추가하십시오.</div>';
       return;
     }
     list.innerHTML = apps.map((app) => `
@@ -606,7 +606,7 @@ window.addEventListener('keydown', (event) => {
           <label class="check-row"><input type="checkbox" name="time" ${app.time ? 'checked' : ''}> 로그에 시간 표시 (time)</label>
           ${running && !app.self ? '<label class="check-row"><input type="checkbox" name="apply" checked> 저장한 뒤 새 설정으로 다시 시작</label>' : ''}
         </div>
-        ${app.self ? '<p class="text-[11px] text-amber-300/80">이 대시보드 자신입니다. 이름은 바꿀 수 없고, 저장한 설정은 직접 다시 시작해야 반영됩니다. 잘못 고치면 대시보드가 켜지지 않을 수 있어요.</p>' : ''}
+        ${app.self ? '<p class="text-[11px] text-amber-300/80">이 대시보드 자신입니다. 이름은 바꿀 수 없고, 저장한 설정은 직접 다시 시작해야 반영됩니다. 잘못 고치면 대시보드가 켜지지 않을 수 있습니다.</p>' : ''}
         ${notes.map((note) => `<p class="text-[11px] opacity-60">${escapeHtml(note)}</p>`).join('')}`,
       submitLabel: '저장',
       onMount(body) {
@@ -622,7 +622,7 @@ window.addEventListener('keydown', (event) => {
         const result = await api(`/api/ecosystem/apps/${encodeURIComponent(name)}`, { method: 'PUT', body: payload });
         if (!result.changed.length) ui().toast('바뀐 설정이 없습니다.', 'ok');
         else if (result.applied === false) ui().toast(`저장했지만 다시 시작하지 못했습니다:\n${result.output || ''}`, 'error', null, 9000);
-        else if (result.applied === 'self') ui().toast(`저장했습니다. 반영하려면 pm2 delete ${name} && pm2 start ecosystem.config.js --only ${name} 를 직접 실행하세요.`, 'ok', null, 10000);
+        else if (result.applied === 'self') ui().toast(`저장했습니다. 반영하려면 pm2 delete ${name} && pm2 start ecosystem.config.js --only ${name} 를 직접 실행하십시오.`, 'ok', null, 10000);
         else ui().toast(`${payload.name} 설정을 저장했습니다${result.applied ? ' · 새 설정으로 다시 시작' : ''}.`, 'ok', result.applied ? { label: '새로고침', onClick: () => location.reload() } : null, 6000);
         load();
       },

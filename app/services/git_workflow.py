@@ -90,7 +90,7 @@ def jobs() -> list[dict]:
             and not _alive(job.get("pid"))
         ):
             job.update(
-                status="error", error="작업 프로세스가 중간에 끝났어요.", finished=now
+                status="error", error="작업 프로세스가 중간에 끝났습니다.", finished=now
             )
             _write(job)
         found.append(job)
@@ -117,9 +117,9 @@ def start(repository_id: str) -> dict:
 
     repository = GitService._get_repository(repository_id)  # 없으면 KeyError
     if not public_settings()["configured"]:
-        raise ValueError("먼저 AI 커밋 메시지 설정을 해 주세요.")
+        raise ValueError("먼저 AI 커밋 메시지 설정을 해 주십시오.")
     if running_for(repository.id):
-        raise ValueError("이 저장소에서 자동 커밋 흐름이 이미 실행 중이에요.")
+        raise ValueError("이 저장소에서 자동 커밋 흐름이 이미 실행 중입니다.")
     job = {
         "id": secrets.token_hex(8),
         "repository_id": repository.id,
@@ -196,7 +196,7 @@ def _run(job_id: str) -> None:
         lines = (formatted.get("output") or "").splitlines()
         job["ruff"] = formatted.get("summary") or (lines[-1] if lines else "")
         if not formatted.get("success"):
-            return fail("ruff format 이 실패했어요.", formatted.get("output", ""))
+            return fail("ruff format 이 실패했습니다.", formatted.get("output", ""))
 
         step("ai")
         generated = ai_commit_service.generate(repository_id, True)
@@ -217,7 +217,7 @@ def _run(job_id: str) -> None:
         )
         job["output"] = (committed.get("output") or "")[-4000:]
         if not committed.get("success"):
-            return fail("커밋 또는 푸시가 실패했어요.", committed.get("output", ""))
+            return fail("커밋 또는 푸시가 실패했습니다.", committed.get("output", ""))
         job.update(status="done", step="done", step_label="완료", finished=time.time())
         _write(job)
     except Exception as error:  # noqa: BLE001 — 어떤 실패든 상태 파일에 남긴다

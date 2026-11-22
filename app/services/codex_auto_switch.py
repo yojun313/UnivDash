@@ -302,8 +302,8 @@ def _start_switch(state: dict, target: dict) -> list[dict]:
         return [
             _notice(
                 state,
-                "Codex 자동 전환을 멈췄어요",
-                "1시간에 전환이 너무 많아요. 계정 상태를 확인해 주세요.",
+                "Codex 자동 전환을 멈췄습니다",
+                "1시간에 전환이 너무 많습니다. 계정 상태를 확인해 주십시오.",
             )
         ]
     result = codex_accounts.switch(target["id"], update=False)
@@ -317,11 +317,11 @@ def _start_switch(state: dict, target: dict) -> list[dict]:
     }
     busy = applied.get("waiting") or []
     body = (
-        f"{target['email']} 로 바꿨어요. 작업 중인 창 {len(busy)}개가 끝나면 다시 켜요."
+        f"{target['email']} 로 바꿨습니다. 작업 중인 창 {len(busy)}개가 끝나면 다시 켭니다."
         if busy
-        else f"{target['email']} 로 바꾸고 멈춘 창을 다시 켜요."
+        else f"{target['email']} 로 바꾸고 멈춘 창을 다시 켭니다."
     )
-    return [_notice(state, "Codex 사용량이 다 떨어졌어요", body)]
+    return [_notice(state, "Codex 사용량이 다 떨어졌습니다", body)]
 
 
 def _follow_switch(state: dict) -> list[dict]:
@@ -353,8 +353,8 @@ def _follow_switch(state: dict) -> list[dict]:
         return [
             _notice(
                 state,
-                "Codex 창을 다시 켜지 못했어요",
-                f"{', '.join(missed)} 은(는) 직접 다시 켜 주세요.",
+                "Codex 창을 다시 켜지 못했습니다",
+                f"{', '.join(missed)} 은(는) 직접 다시 켜 주십시오.",
             )
         ]
     return []
@@ -386,8 +386,8 @@ def _send_resume(state: dict) -> list[dict]:
             notices.append(
                 _notice(
                     state,
-                    "Codex 창을 이어가지 못했어요",
-                    f"{item['key']} 입력창이 뜨지 않아요. 확인해 주세요.",
+                    "Codex 창을 이어가지 못했습니다",
+                    f"{item['key']} 입력창이 뜨지 않습니다. 확인해 주십시오.",
                 )
             )
     state["resume"] = remaining
@@ -442,7 +442,9 @@ def _tick(state: dict) -> list[dict]:
         state["waiting"] = {}
         state["notified_wait"] = False
         return [
-            _notice(state, "Codex 사용량이 초기화됐어요", "멈춘 창을 이어서 진행해요.")
+            _notice(
+                state, "Codex 사용량이 초기화됐습니다", "멈춘 창을 이어서 진행합니다."
+            )
         ] + _send_resume(state)
     target, reset = _choose(accounts)
     if target:
@@ -459,12 +461,14 @@ def _tick(state: dict) -> list[dict]:
         return []
     state["notified_wait"] = True
     when = (
-        f"가장 빠른 초기화는 {datetime.fromisoformat(earliest).astimezone():%m/%d %H:%M} 이에요."
+        f"가장 빠른 초기화는 {datetime.fromisoformat(earliest).astimezone():%m/%d %H:%M} 입니다."
         if earliest
-        else "초기화 시각을 알 수 없어요."
+        else "초기화 시각을 알 수 없습니다."
     )
     return [
-        _notice(state, "Codex 계정을 모두 다 썼어요", f"{when} 풀리면 이어서 진행해요.")
+        _notice(
+            state, "Codex 계정을 모두 다 썼습니다", f"{when} 풀리면 이어서 진행합니다."
+        )
     ]
 
 

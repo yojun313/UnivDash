@@ -48,14 +48,14 @@ def move(session_id: str, path: str) -> dict:
     agents, shells, skipped = [], [], []
     for window in windows:
         for pane in window.panes:
-            if pane.command in tmux_service.AGENTS:
+            if tmux_service.agent_of(pane.command):
                 if window.status == "busy":
                     raise ValueError(
-                        f"{window.key} 이(가) 작업 중이에요. 끝난 뒤에 옮기세요."
+                        f"{window.key} 이(가) 작업 중입니다. 끝난 뒤에 옮기십시오."
                     )
                 if window.status == "waiting":
                     raise ValueError(
-                        f"{window.key} 이(가) 응답을 기다리고 있어요. 답한 뒤에 옮기세요."
+                        f"{window.key} 이(가) 응답을 기다리고 있습니다. 답한 뒤에 옮기십시오."
                     )
                 info = agent_restart.plan(pane.id)  # 다시 켤 수 없는 창이면 여기서 거절
                 if info["agent"] == "claude":

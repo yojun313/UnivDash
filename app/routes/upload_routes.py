@@ -148,7 +148,7 @@ async def chunked_append(token: str, request: Request, offset: int = Query(..., 
     except ValueError:
         raise HTTPException(status_code=400, detail="잘못된 요청입니다.") from None
     if declared > chunk_upload.CHUNK_BYTES:
-        raise HTTPException(status_code=413, detail="조각이 너무 커요.")
+        raise HTTPException(status_code=413, detail="조각이 너무 큽니다.")
     try:
         received = await chunk_upload.append(user, token, offset, request.stream())
     except ChunkError as error:

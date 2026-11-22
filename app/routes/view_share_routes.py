@@ -72,7 +72,7 @@ async def create_view_share(body: ViewShareRequest):
             body.chat,
         )
     except KeyError as error:
-        raise HTTPException(status_code=404, detail="창을 찾을 수 없어요.") from error
+        raise HTTPException(status_code=404, detail="창을 찾을 수 없습니다.") from error
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except TmuxError as error:
@@ -97,7 +97,7 @@ async def list_view_shares():
 @router.delete("/api/view-shares/{share_id}", dependencies=api_auth)
 async def revoke_view_share(share_id: str):
     if not await asyncio.to_thread(view_share_service.revoke, share_id[:64]):
-        raise HTTPException(status_code=404, detail="이미 끊긴 공유예요.")
+        raise HTTPException(status_code=404, detail="이미 끊긴 공유입니다.")
     return {"ok": True}
 
 
@@ -268,7 +268,7 @@ async def _notify(share: dict) -> None:
     try:
         await push_service.send(
             {
-                "title": "공유한 화면을 누가 보고 있어요",
+                "title": "공유한 화면을 누가 보고 있습니다",
                 "body": f"{share['title']} · {share.get('opens', 0)}번째 열림",
                 "tag": f"univdash-view-{share['id']}",
                 "url": "/",
@@ -283,8 +283,8 @@ async def _notify_lock(share: dict) -> None:
     try:
         await push_service.send(
             {
-                "title": "화면 공유 접근 코드가 여러 번 틀렸어요",
-                "body": f"{share['title']} · 15분 동안 막았어요. 모르는 사람이면 공유를 끊으세요.",
+                "title": "화면 공유 접근 코드가 여러 번 틀렸습니다",
+                "body": f"{share['title']} · 15분 동안 막았습니다. 모르는 사람이면 공유를 끊으십시오.",
                 "tag": f"univdash-view-lock-{share['id']}",
                 "url": "/",
             },

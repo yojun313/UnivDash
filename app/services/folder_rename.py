@@ -108,10 +108,11 @@ def _follow(window, pane, old: str, new: str) -> None:
 def tick() -> None:
     for window in tmux_service.cached_windows(TICK_SECONDS):
         for pane in window.panes:
-            if pane.command not in tmux_service.AGENTS:
+            agent = tmux_service.agent_of(pane.command)
+            if agent is None:
                 continue
             try:
-                proc = transcript_service._agent_process(pane.pid, pane.command)
+                proc = transcript_service._agent_process(pane.pid, agent)
                 found = renamed(proc) if proc else None
             except psutil.Error:
                 continue

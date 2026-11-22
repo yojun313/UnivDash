@@ -78,7 +78,7 @@ def _fallback_ready(data: dict) -> bool:
 def _clean_token(token: str) -> str:
     token = token.strip()
     if len(token) > 1000 or any(c in token for c in "\r\n"):
-        raise ValueError("토큰 형식이 올바르지 않아요.")
+        raise ValueError("토큰 형식이 올바르지 않습니다.")
     return token
 
 
@@ -96,17 +96,17 @@ def save_settings(
     if fallback_model is not None:
         fallback_model = fallback_model.strip()
         if fallback_model and not _MODEL.match(fallback_model):
-            raise ValueError("예비 모델 이름이 올바르지 않아요.")
+            raise ValueError("예비 모델 이름이 올바르지 않습니다.")
     if base_url and not re.match(r"^https?://[^\s/?#]+(?:/[^\s?#]*)?$", base_url):
         raise ValueError(
-            "API 주소는 http:// 또는 https:// 로 시작해야 해요 (예: https://api.openai.com/v1)."
+            "API 주소는 http:// 또는 https:// 로 시작해야 합니다 (예: https://api.openai.com/v1)."
         )
     if len(base_url) > 500:
-        raise ValueError("API 주소가 너무 길어요.")
+        raise ValueError("API 주소가 너무 깁니다.")
     if model and not _MODEL.match(model):
-        raise ValueError("모델 이름이 올바르지 않아요.")
+        raise ValueError("모델 이름이 올바르지 않습니다.")
     if language not in LANGUAGES:
-        raise ValueError("언어 설정이 올바르지 않아요.")
+        raise ValueError("언어 설정이 올바르지 않습니다.")
     data = _read()
     data.update({"base_url": base_url, "model": model, "language": language})
     if token is not None:
@@ -128,9 +128,9 @@ def save_settings(
 def _validated_base_url(base_url: str) -> str:
     base_url = (base_url or "").strip().rstrip("/")
     if not re.match(r"^https?://[^\s/?#]+(?:/[^\s?#]*)?$", base_url):
-        raise ValueError("API 주소는 http:// 또는 https:// 로 시작해야 해요.")
+        raise ValueError("API 주소는 http:// 또는 https:// 로 시작해야 합니다.")
     if len(base_url) > 500:
-        raise ValueError("API 주소가 너무 길어요.")
+        raise ValueError("API 주소가 너무 깁니다.")
     return base_url
 
 
@@ -146,7 +146,7 @@ def discover_model(
             token if token is not None else saved.get("fallback_token") or ""
         )
         if not token:
-            raise AICommitError("OpenAI API 키를 입력해 주세요.")
+            raise AICommitError("OpenAI API 키를 입력해 주십시오.")
         listed = _list_models(f"{OPENAI_BASE_URL}/models", token)
         models = sorted(
             (
@@ -157,7 +157,7 @@ def discover_model(
             reverse=True,
         )
         if not models:
-            raise AICommitError("이 키로 쓸 수 있는 대화용 모델이 없어요.")
+            raise AICommitError("이 키로 쓸 수 있는 대화용 모델이 없습니다.")
         current = saved.get("fallback_model") or ""
         return {"model": current if current in models else models[0], "models": models}
     base_url = _validated_base_url(base_url)
@@ -193,14 +193,14 @@ def _list_models(models_url: str, token: str) -> dict:
         with httpx.Client(timeout=15.0, follow_redirects=False) as client:
             response = client.get(models_url, headers=headers)
     except httpx.TimeoutException as error:
-        raise AICommitError("모델 목록 조회 시간이 초과됐어요.") from error
+        raise AICommitError("모델 목록 조회 시간이 초과됐습니다.") from error
     except httpx.HTTPError as error:
         raise AICommitError(
-            f"모델 목록을 가져오지 못했어요: {type(error).__name__}"
+            f"모델 목록을 가져오지 못했습니다:{type(error).__name__}"
         ) from error
     if response.status_code >= 400:
         raise AICommitError(
-            f"모델 목록 조회 실패 ({response.status_code}). API 주소와 토큰을 확인해 주세요."
+            f"모델 목록 조회 실패 ({response.status_code}). API 주소와 토큰을 확인해 주십시오."
         )
     try:
         payload = response.json()
@@ -216,10 +216,10 @@ def _list_models(models_url: str, token: str) -> dict:
             and isinstance(row.get("id") or row.get("name"), str)
         ]
     except (ValueError, TypeError, AttributeError) as error:
-        raise AICommitError("모델 목록 응답이 OpenAI 호환 형식이 아니에요.") from error
+        raise AICommitError("모델 목록 응답이 OpenAI 호환 형식이 아닙니다.") from error
     models = list(dict.fromkeys(model.strip() for model in models if model.strip()))
     if not models:
-        raise AICommitError("API 주소에서 사용 가능한 모델을 찾지 못했어요.")
+        raise AICommitError("API 주소에서 사용 가능한 모델을 찾지 못했습니다.")
     return {"models": models, "rows": rows}
 
 
@@ -269,9 +269,9 @@ def collect_changes(repository_id: str, include_all: bool) -> dict:
         diff += f"\n(새 파일 {len(untracked) - MAX_UNTRACKED_FILES}개 더)\n"
     if not diff.strip():
         raise AICommitError(
-            "커밋할 변경이 없어요."
+            "커밋할 변경이 없습니다."
             if include_all
-            else "스테이징된 변경이 없어요. 파일을 스테이징하거나 '모든 변경 포함'을 켜 주세요."
+            else "스테이징된 변경이 없습니다. 파일을 스테이징하거나 '모든 변경 포함'을 켜 주십시오."
         )
     truncated = len(diff) > MAX_DIFF_CHARS
     stat_args = (
@@ -359,10 +359,10 @@ def _ask(base_url: str, model: str, token: str, prompt: str) -> str:
         with httpx.Client(timeout=REQUEST_TIMEOUT, follow_redirects=False) as client:
             response = client.post(_endpoint(base_url), headers=headers, json=body)
     except httpx.TimeoutException as error:
-        raise AICommitError("AI 응답이 너무 늦어요 (60초 초과).") from error
+        raise AICommitError("AI 응답이 너무 늦습니다 (60초 초과).") from error
     except httpx.HTTPError as error:
         raise AICommitError(
-            f"AI 서버에 연결하지 못했어요: {type(error).__name__}"
+            f"AI 서버에 연결하지 못했습니다:{type(error).__name__}"
         ) from error
     if response.status_code >= 400:
         detail = ""
@@ -382,11 +382,11 @@ def _ask(base_url: str, model: str, token: str, prompt: str) -> str:
         content = response.json()["choices"][0]["message"]["content"]
     except (ValueError, KeyError, IndexError, TypeError) as error:
         raise AICommitError(
-            "AI 응답 형식을 알 수 없어요 (OpenAI 호환 /chat/completions 인지 확인해 주세요)."
+            "AI 응답 형식을 알 수 없습니다 (OpenAI 호환 /chat/completions 인지 확인해 주십시오)."
         ) from error
     message = _clean(content if isinstance(content, str) else "")
     if not message:
-        raise AICommitError("AI 가 빈 메시지를 돌려줬어요.")
+        raise AICommitError("AI 가 빈 메시지를 돌려줬습니다.")
     return message[:5000]
 
 
@@ -413,7 +413,7 @@ def generate(repository_id: str, include_all: bool) -> dict:
             )
         )
     if not attempts:
-        raise AICommitError("AI 설정(API 주소 · 모델)을 먼저 해 주세요.")
+        raise AICommitError("AI 설정(API 주소 · 모델)을 먼저 해 주십시오.")
     changes = collect_changes(repository_id, include_all)
     prompt = _build_prompt(changes, settings.get("language") or "auto")
     errors = []

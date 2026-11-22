@@ -89,7 +89,7 @@ async def push_test(body: Device):
     results = await push_service.send(
         {
             "title": "UnivDash 테스트 알림",
-            "body": "에이전트 작업이 끝나면 이렇게 알려 드려요.",
+            "body": "에이전트 작업이 끝나면 이렇게 알려 드립니다.",
             "tag": "univdash-test",
             "url": "/",
         },
@@ -97,10 +97,12 @@ async def push_test(body: Device):
         skip_focused=False,
     )
     if not results:
-        raise HTTPException(status_code=404, detail="이 기기는 아직 구독되지 않았어요.")
+        raise HTTPException(
+            status_code=404, detail="이 기기는 아직 구독되지 않았습니다."
+        )
     if not any(200 <= code < 300 for code in results):
         raise HTTPException(
             status_code=502,
-            detail=f"푸시 서비스가 거절했어요 ({results[0] or '연결 실패'}).",
+            detail=f"푸시 서비스가 거절했습니다 ({results[0] or '연결 실패'}).",
         )
     return {"ok": True}

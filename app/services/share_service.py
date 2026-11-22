@@ -170,18 +170,18 @@ def check_target(path: str) -> tuple[Path, str]:
     elif real.is_file():
         kind = "file"
     else:
-        raise FsError("파일이나 폴더만 공유할 수 있어요.")
+        raise FsError("파일이나 폴더만 공유할 수 있습니다.")
     if any(real == root for root in fs_service.roots()):
-        raise FsError("탐색기 맨 위 폴더(홈 전체)는 공유할 수 없어요.")
+        raise FsError("탐색기 맨 위 폴더(홈 전체)는 공유할 수 없습니다.")
     home = Path.home().resolve()
     for rel in SENSITIVE:
         secret = home / rel
         if real == secret or secret in real.parents or real in secret.parents:
-            raise FsError(f"비밀 정보가 있는 위치(~/{rel})는 공유할 수 없어요.")
+            raise FsError(f"비밀 정보가 있는 위치(~/{rel})는 공유할 수 없습니다.")
     if ".git" in real.parts:
-        raise FsError(".git 폴더와 그 안은 공유할 수 없어요.")
+        raise FsError(".git 폴더와 그 안은 공유할 수 없습니다.")
     if kind == "file" and SECRET_NAME.match(real.name):
-        raise FsError(".env · 개인 키 같은 비밀 파일은 공유할 수 없어요.")
+        raise FsError(".env · 개인 키 같은 비밀 파일은 공유할 수 없습니다.")
     return real, kind
 
 
@@ -245,7 +245,7 @@ def create(
                 _drop(shares[key])
             if len(alive) >= MAX_ACTIVE:
                 raise FsError(
-                    f"공유 링크가 너무 많아요 (최대 {MAX_ACTIVE}개). 안 쓰는 링크를 지워 주세요."
+                    f"공유 링크가 너무 많습니다 (최대 {MAX_ACTIVE}개). 안 쓰는 링크를 지워 주십시오."
                 )
             alive[_hash(token)] = share
             _save(alive)

@@ -230,11 +230,11 @@ def _run_zip_job(job: dict, path: str, skip_ignored: bool) -> None:
     try:
         archive, name = fs_service.zip_folder(path, skip_ignored, progress)
     except (FsError, OSError) as error:
-        job.update(state="error", error=str(error) or "압축하지 못했어요.")
+        job.update(state="error", error=str(error) or "압축하지 못했습니다.")
         return
     except Exception:  # 작업 스레드가 조용히 죽지 않게
         logger.exception("폴더 압축 실패 · %s", path)
-        job.update(state="error", error="압축하지 못했어요.")
+        job.update(state="error", error="압축하지 못했습니다.")
         return
     token = secrets.token_urlsafe(24)
     _zips[token] = (archive, name, time.monotonic())
@@ -260,7 +260,8 @@ async def make_zip(body: ZipRequest):
         _fail(error)
     if sum(job["state"] == "running" for job in _zip_jobs.values()) >= ZIP_JOBS_MAX:
         raise HTTPException(
-            status_code=429, detail="압축 중인 작업이 많아요. 잠시 뒤 다시 시도하세요."
+            status_code=429,
+            detail="압축 중인 작업이 많습니다. 잠시 뒤 다시 시도하십시오.",
         )
     job_id = secrets.token_urlsafe(18)
     job = {
@@ -298,7 +299,7 @@ _ZIP_JOB_FIELDS = (
 async def zip_job(job_id: str):
     job = _zip_jobs.get(job_id)
     if job is None:
-        raise HTTPException(status_code=404, detail="압축 작업을 찾을 수 없어요.")
+        raise HTTPException(status_code=404, detail="압축 작업을 찾을 수 없습니다.")
     job["seen"] = time.monotonic()
     result = {key: job[key] for key in _ZIP_JOB_FIELDS if key in job}
     if job["state"] != "running":
@@ -319,7 +320,7 @@ async def get_zip(token: str):
     item = _zips.pop(token, None)
     if not item or not item[0].exists():
         raise HTTPException(
-            status_code=404, detail="다운로드가 만료되었습니다. 다시 시도하세요."
+            status_code=404, detail="다운로드가 만료되었습니다. 다시 시도하십시오."
         )
     archive, name, _ = item
     return FileResponse(
@@ -395,7 +396,7 @@ async def write_file(body: FsWrite):
     except FileExistsError as error:
         raise HTTPException(
             status_code=409,
-            detail="다른 곳에서 파일이 바뀌었습니다. 다시 불러오거나 덮어쓰기를 선택하세요.",
+            detail="다른 곳에서 파일이 바뀌었습니다. 다시 불러오거나 덮어쓰기를 선택하십시오.",
         ) from error
     except (FsError, OSError) as error:
         _fail(error)
@@ -521,7 +522,7 @@ async def md_pdf_save(token: str, body: MdPdfSaveRequest):
         )
     except FileExistsError as error:
         raise HTTPException(
-            status_code=409, detail="같은 이름의 PDF 가 이미 있어요."
+            status_code=409, detail="같은 이름의 PDF 가 이미 있습니다."
         ) from error
     except (FsError, OSError) as error:
         _fail(error)

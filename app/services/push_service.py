@@ -403,7 +403,7 @@ def _display_name(window, windows, aliases: dict[str, str]) -> str:
     )
 
 
-AGENT_LABELS = {"claude": "Claude", "codex": "Codex"}
+AGENT_LABELS = {"claude": "Claude", "codex": "Codex", "gemini": "Gemini"}
 
 
 def _events(previous: dict[str, str], windows, prefs) -> list[dict]:
@@ -418,7 +418,7 @@ def _events(previous: dict[str, str], windows, prefs) -> list[dict]:
         ):
             continue
         if window.status == "waiting":
-            what = "응답이 필요해요"
+            what = "응답이 필요합니다"
         elif before == "busy" and window.status == "idle":
             if getattr(window, "compacted", False):
                 continue  # 대화 압축만 끝난 것은 작업 완료가 아니다

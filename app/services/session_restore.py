@@ -95,7 +95,10 @@ def _write(path: Path, data: dict) -> None:
 
 def _agent_info(pid: int, command: str, cwd: str) -> dict | None:
     """pane 에서 도는 에이전트의 대화 ID · 이어서 켤 때 쓸 옵션."""
-    if command not in tmux_service.AGENTS:
+    command = tmux_service.agent_of(
+        command
+    )  # 실행 파일 이름(agy) → 에이전트 이름(gemini)
+    if command is None:
         return None
     proc = transcript_service._agent_process(pid, command)
     if proc is None:
@@ -106,11 +109,10 @@ def _agent_info(pid: int, command: str, cwd: str) -> dict | None:
     except psutil.Error:
         return None
     log = transcript_service.find_log(pid, command, cwd)
-    ids = agent_restart._UUID.findall(log.name) if log else []
     keep = agent_restart.KEEP[command]
     info = {
         "agent": command,
-        "session_id": ids[-1] if ids else None,
+        "session_id": transcript_service.conversation_id(log) or None,
         "flags": agent_restart.keep_flags(argv, keep),
     }
     if codex_home:
@@ -505,10 +507,10 @@ def restore_from_history(snapshot_id: str, names: list[str] | None = None) -> li
         wanted = set(names)
         missing = [s for s in missing if s["name"] in wanted]
     if not missing:
-        raise ValueError("다시 만들 세션이 없습니다. 모두 열려 있어요.")
+        raise ValueError("다시 만들 세션이 없습니다. 모두 열려 있습니다.")
     with _job_lock:
         if _job["running"]:
-            raise RuntimeError("이미 복구하는 중입니다. 잠시 뒤 다시 시도하세요.")
+            raise RuntimeError("이미 복구하는 중입니다. 잠시 뒤 다시 시도하십시오.")
         _job.update(running=True, result=None, at=time.time())
 
     def run() -> None:

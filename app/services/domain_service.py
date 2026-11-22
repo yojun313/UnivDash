@@ -65,7 +65,7 @@ def helper_command(*args: str) -> list[str]:
 
 def clean_passphrase(value) -> str:
     if not isinstance(value, str) or not 1 <= len(value) <= 1024:
-        raise ValueError("변경 비밀번호를 입력해 주세요.")
+        raise ValueError("변경 비밀번호를 입력해 주십시오.")
     if any(ord(character) < 32 for character in value):
         raise ValueError("변경 비밀번호에 쓸 수 없는 글자가 있습니다.")
     return value
@@ -75,7 +75,7 @@ def _run_helper(
     *args: str, passphrase: str, new_passphrase: str | None = None
 ) -> tuple[int, str]:
     if not helper_status()["ready"]:
-        raise ValueError("도메인을 바꾸려면 먼저 Nginx 헬퍼를 설치해 주세요.")
+        raise ValueError("도메인을 바꾸려면 먼저 Nginx 헬퍼를 설치해 주십시오.")
     lines = [clean_passphrase(passphrase)]
     if new_passphrase is not None:
         lines.append(clean_passphrase(new_passphrase))
@@ -91,7 +91,7 @@ def _run_helper(
             check=False,
         )
     except subprocess.TimeoutExpired as error:
-        raise ValueError("시간 안에 끝나지 않았어요.") from error
+        raise ValueError("시간 안에 끝나지 않았습니다.") from error
     return result.returncode, (result.stdout + result.stderr).strip()
 
 
@@ -276,7 +276,7 @@ def list_folders() -> list[dict]:
 def _clean_folder_name(name: str) -> str:
     name = " ".join((name or "").split())
     if not name:
-        raise ValueError("폴더 이름을 입력해 주세요.")
+        raise ValueError("폴더 이름을 입력해 주십시오.")
     if len(name) > MAX_FOLDER_NAME:
         raise ValueError(f"폴더 이름은 {MAX_FOLDER_NAME}자 이하여야 합니다.")
     return name

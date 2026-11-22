@@ -16,21 +16,21 @@
   // 이 기기 설정: [제목, 설명, 읽기, 쓰기]
   const SWITCHES = {
     editor: [
-      ['auto-save', '자동 저장', '입력을 멈추면 0.8초 뒤 저장해요.', () => raw.get('univdash-ex-auto-save', true), (v) => raw.set('univdash-ex-auto-save', v)],
-      ['md-split', '마크다운 실시간 미리보기', '편집할 때 오른쪽(휴대폰은 아래)에 렌더링 결과를 바로 보여 줘요.', () => raw.get('univdash-ex-md-split', true), (v) => raw.set('univdash-ex-md-split', v)],
-      ['md-rendered', '마크다운 · 노트북 렌더링해서 열기', '끄면 파일을 코드로 먼저 보여 줘요.', () => raw.get('univdash-ex-md-rendered', true), (v) => raw.set('univdash-ex-md-rendered', v)],
-      ['show-env', '.env 파일 항상 보이기', '숨김 파일(. 파일)을 꺼 둬도 파일 탐색기에 .env · .env.local 같은 파일은 보여 줘요.', () => raw.get('univdash-ex-show-env', true), (v) => raw.set('univdash-ex-show-env', v)],
-      ['wrap', '긴 줄 줄바꿈', '코드 보기와 편집기에서 긴 줄을 화면 폭에 맞춰 접어요.', () => raw.get('univdash-ex-wrap', coarse), (v) => raw.set('univdash-ex-wrap', v)],
+      ['auto-save', '자동 저장', '입력을 멈추면 0.8초 뒤 저장합니다.', () => raw.get('univdash-ex-auto-save', true), (v) => raw.set('univdash-ex-auto-save', v)],
+      ['md-split', '마크다운 실시간 미리보기', '편집할 때 오른쪽(휴대폰은 아래)에 렌더링 결과를 바로 보여 줍니다.', () => raw.get('univdash-ex-md-split', true), (v) => raw.set('univdash-ex-md-split', v)],
+      ['md-rendered', '마크다운 · 노트북 렌더링해서 열기', '끄면 파일을 코드로 먼저 보여 줍니다.', () => raw.get('univdash-ex-md-rendered', true), (v) => raw.set('univdash-ex-md-rendered', v)],
+      ['show-env', '.env 파일 항상 보이기', '숨김 파일(. 파일)을 꺼 둬도 파일 탐색기에 .env · .env.local 같은 파일은 보여 줍니다.', () => raw.get('univdash-ex-show-env', true), (v) => raw.set('univdash-ex-show-env', v)],
+      ['wrap', '긴 줄 줄바꿈', '코드 보기와 편집기에서 긴 줄을 화면 폭에 맞춰 접습니다.', () => raw.get('univdash-ex-wrap', coarse), (v) => raw.set('univdash-ex-wrap', v)],
     ],
     notify: [
-      ['notify-desktop', '시스템 알림 (푸시)', '다른 앱 · 다른 화면을 보거나 브라우저를 닫아 둬도, 에이전트 작업이 끝나거나 응답이 필요하면 맥 · 윈도우 · 휴대폰 알림으로 알려 줘요.', () => U().settings.get('notify-desktop'), (v) => U().settings.set('notify-desktop', v)],
-      ['notify-agents', '화면 안 알림', '대시보드를 보고 있을 때, 다른 창에서 응답이 필요하거나 작업이 끝나면 화면 아래에 알려 줘요.', () => U().settings.get('notify-agents'), (v) => U().settings.set('notify-agents', v)],
-      ['notify-git', 'Git 푸시 완료 알림', '자동 커밋 · 푸시가 끝나면 알려 줘요. 실패는 항상 알려요.', () => U().settings.get('notify-git'), (v) => U().settings.set('notify-git', v)],
-      ['haptics', '진동', '버튼을 누르거나 알림이 올 때 짧게 진동해요 (지원하는 기기만).', () => U().settings.get('haptics'), (v) => U().settings.set('haptics', v)],
+      ['notify-desktop', '시스템 알림 (푸시)', '다른 앱 · 다른 화면을 보거나 브라우저를 닫아 둬도, 에이전트 작업이 끝나거나 응답이 필요하면 맥 · 윈도우 · 휴대폰 알림으로 알려 줍니다.', () => U().settings.get('notify-desktop'), (v) => U().settings.set('notify-desktop', v)],
+      ['notify-agents', '화면 안 알림', '대시보드를 보고 있을 때, 다른 창에서 응답이 필요하거나 작업이 끝나면 화면 아래에 알려 줍니다.', () => U().settings.get('notify-agents'), (v) => U().settings.set('notify-agents', v)],
+      ['notify-git', 'Git 푸시 완료 알림', '자동 커밋 · 푸시가 끝나면 알려 줍니다. 실패는 항상 알립니다.', () => U().settings.get('notify-git'), (v) => U().settings.set('notify-git', v)],
+      ['haptics', '진동', '버튼을 누르거나 알림이 올 때 짧게 진동합니다 (지원하는 기기만).', () => U().settings.get('haptics'), (v) => U().settings.set('haptics', v)],
     ],
     monitor: [
       ['show-overview', 'OVERVIEW', '창 · 에이전트 · 작업 중 · 응답 필요 숫자 카드', () => U().settings.get('show-overview'), (v) => U().settings.set('show-overview', v)],
-      ['sysmon-detail', '자세히 보기', '끄면 한 줄씩 간단히 (막대 · %), 켜면 코어 · 온도 · 용량 · 그래프까지. 사이드바의 자세히/간단히 버튼과 같아요.', () => U().settings.get('sysmon-detail'), (v) => U().settings.set('sysmon-detail', v)],
+      ['sysmon-detail', '자세히 보기', '끄면 한 줄씩 간단히 (막대 · %), 켜면 코어 · 온도 · 용량 · 그래프까지. 사이드바의 자세히/간단히 버튼과 같습니다.', () => U().settings.get('sysmon-detail'), (v) => U().settings.set('sysmon-detail', v)],
       ['sysmon-cpu', 'CPU', '사용률 · 코어 수 · 온도 · 부하, 최근 변화 그래프', () => U().settings.get('sysmon-cpu'), (v) => U().settings.set('sysmon-cpu', v)],
       ['sysmon-gpu', 'GPU', 'GPU 사용률 · VRAM 점유율 · 온도 · 전력 (NVIDIA)', () => U().settings.get('sysmon-gpu'), (v) => U().settings.set('sysmon-gpu', v)],
       ['sysmon-mem', '메모리', 'RAM 사용량 · 스왑', () => U().settings.get('sysmon-mem'), (v) => U().settings.set('sysmon-mem', v)],
@@ -48,7 +48,7 @@
     { id: 'monitor', icon: 'fa-gauge-high', label: '사이드바', desc: 'Overview · 서버 상태 (CPU · GPU …)' },
     { id: 'keys', icon: 'fa-keyboard', label: '단축키', desc: '키 바꾸기 · 설정 내보내기 / 불러오기' },
     { id: 'upload', icon: 'fa-cloud-arrow-up', label: '업로드 · 파일', desc: '최대 크기 · 보관 · 뷰어', server: true },
-    { id: 'devices', icon: 'fa-laptop', label: '로그인 기기', desc: '로그인된 세션 · 기기별 로그아웃', server: true },
+    { id: 'devices', icon: 'fa-laptop', label: '로그인 기기', desc: '로그아웃 · 로그인된 세션 관리', server: true },
   ];
   const TAB_KEY = 'univdash-settings-tab';
   let tab = raw.get(TAB_KEY, 'display');
@@ -82,12 +82,35 @@
     return s < 60 ? '방금' : s < 3600 ? `${Math.floor(s / 60)}분 전` : s < 86400 ? `${Math.floor(s / 3600)}시간 전` : `${Math.floor(s / 86400)}일 전`;
   };
   const stamp = (t) => new Date(t * 1000).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  function devicesSection() {
+  // 로그아웃 (예전에는 사이드바 아래에 있던 버튼). 기기 목록을 못 불러와도 항상 보인다.
+  const logoutRow = () => `
+    <div class="ud-set-row ud-dev-me">
+      <div class="ud-set-text"><p class="ud-set-title">로그아웃</p><p class="ud-set-desc">이 브라우저만 로그아웃하거나, 로그인된 모든 기기의 세션을 한 번에 끊습니다.</p></div>
+      <div class="ud-dev-btns">
+        <button type="button" class="ud-set-btn ud-dev-out" data-logout="/logout"><i class="fas fa-right-from-bracket"></i> 로그아웃</button>
+        <button type="button" class="ud-set-btn ud-dev-out" data-logout="/logout-all"><i class="fas fa-user-slash"></i> 모든 기기</button>
+      </div>
+    </div>`;
+  async function logout(all) {
+    const ok = await window.UnivDashUI.confirmSheet(all
+      ? { title: '모든 기기에서 로그아웃', message: '이 기기를 포함해 로그인된 모든 브라우저 · 홈 화면 앱의 세션을 끊습니다.', confirmLabel: '모두 로그아웃', danger: true }
+      : { title: '로그아웃', message: '지금 쓰는 이 브라우저에서 로그아웃하고 로그인 화면으로 갑니다.', confirmLabel: '로그아웃', danger: true });
+    if (!ok) return;
+    // 서버의 로그아웃은 폼 POST 를 받는다 (같은 출처라 Origin 검사를 통과)
+    const form = document.createElement('form');
+    form.method = 'post';
+    form.action = all ? '/logout-all' : '/logout';
+    form.hidden = true;
+    document.body.appendChild(form);
+    form.submit();
+  }
+  const devicesSection = () => logoutRow() + deviceList();
+  function deviceList() {
     if (!devices) return '<p class="ud-set-note"><i class="fas fa-circle-notch fa-spin"></i> 로그인된 기기를 불러오는 중…</p>';
     if (devices.error) return `<p class="ud-set-note">${esc(devices.error)}</p><button type="button" class="ud-set-btn" data-devices-reload><i class="fas fa-rotate"></i> 다시 불러오기</button>`;
     const others = devices.sessions.filter((d) => !d.current).length;
     return `
-      <p class="ud-set-note">지금 로그인돼 있는 브라우저 · 홈 화면 앱이에요. 모르는 기기가 있으면 로그아웃하고 비밀번호를 바꿔 주세요.</p>
+      <p class="ud-set-note">지금 로그인돼 있는 브라우저 · 홈 화면 앱입니다. 모르는 기기가 있으면 로그아웃하고 비밀번호를 바꿔 주십시오.</p>
       ${devices.sessions.map((d) => {
         const { icon, label } = deviceName(d.ua);
         const ip = d.last_ip && d.last_ip !== d.ip ? `${d.last_ip} (로그인 ${d.ip || '?'})` : d.ip || '?';
@@ -120,7 +143,7 @@
     const all = button.matches('[data-devices-others]');
     const ok = await window.UnivDashUI.confirmSheet({
       title: all ? '다른 기기 모두 로그아웃' : current ? '이 기기에서 로그아웃' : '이 기기 로그아웃',
-      message: all ? '이 기기를 뺀 나머지 브라우저 · 홈 화면 앱의 세션을 모두 끊습니다.' : current ? '지금 쓰는 이 브라우저에서 로그아웃하고 로그인 화면으로 갑니다.' : '이 기기는 바로 로그아웃되고, 다시 쓰려면 로그인해야 해요.',
+      message: all ? '이 기기를 뺀 나머지 브라우저 · 홈 화면 앱의 세션을 모두 끊습니다.' : current ? '지금 쓰는 이 브라우저에서 로그아웃하고 로그인 화면으로 갑니다.' : '이 기기는 바로 로그아웃되고, 다시 쓰려면 로그인해야 합니다.',
       confirmLabel: '로그아웃',
       danger: true,
     });
@@ -129,11 +152,11 @@
     try {
       if (all) {
         const result = await U().api('/api/auth/sessions/revoke-others', { method: 'POST' });
-        U().toast(`${result.count}개 기기를 로그아웃했어요.`, 'success');
+        U().toast(`${result.count}개 기기를 로그아웃했습니다.`, 'success');
       } else {
         const result = await U().api(`/api/auth/sessions/${encodeURIComponent(button.dataset.deviceOut)}`, { method: 'DELETE' });
         if (result.current) { location.href = '/login'; return; }
-        U().toast('로그아웃했어요.', 'success');
+        U().toast('로그아웃했습니다.', 'success');
       }
     } catch (error) {
       U().toast(error.message, 'error');
@@ -163,7 +186,7 @@
           </div>
         </div>
         <div class="ud-set-row">
-          <div class="ud-set-text"><p class="ud-set-title">편집기 글자 크기</p><p class="ud-set-desc">파일 편집기의 글자 크기예요.</p></div>
+          <div class="ud-set-text"><p class="ud-set-title">편집기 글자 크기</p><p class="ud-set-desc">파일 편집기의 글자 크기입니다.</p></div>
           <div class="ud-set-stepper">
             <button type="button" data-font="-1" aria-label="작게"><i class="fas fa-minus"></i></button>
             <span>${font}px</span>
@@ -174,9 +197,9 @@
     if (id === 'monitor') {
       const every = Number(U().settings.get('sysmon-interval')) || 2;
       return `
-        <p class="ud-set-note">왼쪽 사이드바에 보일 항목이에요. 서버 상태(CPU · GPU · 메모리 · 디스크 · 네트워크)는 실시간으로 바뀌고, 모두 끄면 숨겨요.</p>
+        <p class="ud-set-note">왼쪽 사이드바에 보일 항목입니다. 서버 상태(CPU · GPU · 메모리 · 디스크 · 네트워크)는 실시간으로 바뀌고, 모두 끄면 숨깁니다.</p>
         <div class="ud-set-row">
-          <div class="ud-set-text"><p class="ud-set-title">업데이트 주기</p><p class="ud-set-desc">짧을수록 자주 새로 고쳐요. 탭이 안 보이거나 사이드바를 접으면 멈춰요.</p></div>
+          <div class="ud-set-text"><p class="ud-set-title">업데이트 주기</p><p class="ud-set-desc">짧을수록 자주 새로 고칩니다. 탭이 안 보이거나 사이드바를 접으면 멈춥니다.</p></div>
           <div class="ud-set-seg" role="group" aria-label="업데이트 주기">
             ${MONITOR_INTERVALS.map((n) => `<button type="button" data-interval="${n}" class="${n === every ? 'on' : ''}">${n}초</button>`).join('')}
           </div>
@@ -198,7 +221,7 @@
     const gb = s.upload_max_mb >= 1024 && s.upload_max_mb % 1024 === 0;
     return `
       <div class="ud-set-row ud-set-col">
-        <div class="ud-set-text"><p class="ud-set-title">업로드 최대 파일 크기</p><p class="ud-set-desc">프롬프트 첨부와 파일 탐색기 업로드에서 한 파일당 최대 크기예요. 큰 파일은 나눠서 올라가요.${server.disk_free != null ? ` 서버 디스크 남은 공간 <b>${bytes(server.disk_free)}</b>.` : ''}</p></div>
+        <div class="ud-set-text"><p class="ud-set-title">업로드 최대 파일 크기</p><p class="ud-set-desc">프롬프트 첨부와 파일 탐색기 업로드에서 한 파일당 최대 크기입니다. 큰 파일은 나눠서 올라갑니다.${server.disk_free != null ? ` 서버 디스크 남은 공간 <b>${bytes(server.disk_free)}</b>.` : ''}</p></div>
         <div class="ud-set-upload">
           <div class="ud-set-chips">${UPLOAD_PRESETS.filter((n) => n <= limit).map((n) => `<button type="button" data-upload="${n}" class="${n === s.upload_max_mb ? 'on' : ''}">${mb(n)}</button>`).join('')}</div>
           <div class="ud-set-number">
@@ -208,15 +231,15 @@
         </div>
       </div>
       <div class="ud-set-row">
-        <div class="ud-set-text"><p class="ud-set-title">첨부 파일 보관 기간</p><p class="ud-set-desc">프롬프트에 첨부한 원본을 서버에 두는 기간이에요. 지나면 자동으로 지워요.</p></div>
+        <div class="ud-set-text"><p class="ud-set-title">첨부 파일 보관 기간</p><p class="ud-set-desc">프롬프트에 첨부한 원본을 서버에 두는 기간입니다. 지나면 자동으로 지웁니다.</p></div>
         ${selectHtml('upload_ttl_days', TTL_OPTIONS, s.upload_ttl_days)}
       </div>
       <div class="ud-set-row">
-        <div class="ud-set-text"><p class="ud-set-title">뷰어에서 열 텍스트 최대 크기</p><p class="ud-set-desc">이보다 큰 텍스트 파일은 앞부분만 보여 주고 편집할 수 없어요.</p></div>
+        <div class="ud-set-text"><p class="ud-set-title">뷰어에서 열 텍스트 최대 크기</p><p class="ud-set-desc">이보다 큰 텍스트 파일은 앞부분만 보여 주고 편집할 수 없습니다.</p></div>
         ${selectHtml('viewer_max_mb', VIEWER_OPTIONS.map((n) => [n, `${n}MB`]), s.viewer_max_mb)}
       </div>
       <div class="ud-set-row">
-        <div class="ud-set-text"><p class="ud-set-title">편집기 저장 최대 크기</p><p class="ud-set-desc">편집기에서 저장할 수 있는 파일 크기예요.</p></div>
+        <div class="ud-set-text"><p class="ud-set-title">편집기 저장 최대 크기</p><p class="ud-set-desc">편집기에서 저장할 수 있는 파일 크기입니다.</p></div>
         ${selectHtml('edit_max_mb', EDIT_OPTIONS.map((n) => [n, `${n}MB`]), s.edit_max_mb)}
       </div>`;
   }
@@ -244,8 +267,8 @@
       const binding = rec.strokes.join(' ');
       const clash = binding ? K().conflicts(action.id, binding) : [];
       binds = `<div class="ud-keys-rec" role="status" aria-live="polite">
-          ${binding ? `<span class="ud-kb">${kbd(binding)}</span>` : '<span class="ud-keys-wait">원하는 키를 누르세요…</span>'}
-          <small>${binding ? (clash.length ? `⚠ ${esc(clash.map((a) => a.label).join(', '))} 와(과) 겹쳐요` : '두 번째 키를 이어 누를 수도 있어요') : `${rec.mode === 'add' ? '키 추가' : '키 바꾸기'} · Enter 저장 · Esc 취소`}</small>
+          ${binding ? `<span class="ud-kb">${kbd(binding)}</span>` : '<span class="ud-keys-wait">원하는 키를 누르십시오…</span>'}
+          <small>${binding ? (clash.length ? `⚠ ${esc(clash.map((a) => a.label).join(', '))} 와(과) 겹칩니다` : '두 번째 키를 이어 누를 수도 있습니다') : `${rec.mode === 'add' ? '키 추가' : '키 바꾸기'} · Enter 저장 · Esc 취소`}</small>
           <span class="ud-keys-rec-btns"><button type="button" class="ud-set-btn" data-key-save ${binding ? '' : 'disabled'}>저장</button><button type="button" class="ud-set-btn" data-key-cancel>취소</button></span>
         </div>`;
     } else {
@@ -269,19 +292,19 @@
       const rows = K().actions.filter((a) => a.scope === scope && words.every((w) => searchText(a).includes(w)));
       return rows.length ? `<h5 class="ud-keys-scope">${esc(title)}<span>${rows.length}</span></h5>${rows.map(keyRow).join('')}` : '';
     }).join('');
-    return groups || '<p class="ud-set-note">찾는 명령이 없어요.</p>';
+    return groups || '<p class="ud-set-note">찾는 명령이 없습니다.</p>';
   }
   function importPanel() {
     if (!importing) return '';
     const date = importing.exported_at ? new Date(importing.exported_at) : null;
     return `<div class="ud-keys-import">
         <p><b>${esc(importing.name)}</b>${date && !Number.isNaN(date.getTime()) ? ` · ${esc(date.toLocaleString())} 에 내보냄` : ''}</p>
-        <p>단축키 ${importing.keyCount}개 · 이 기기 설정 ${importing.settingCount}개를 불러와 지금 값을 덮어써요.${importing.settingCount ? ' 적용하려고 화면을 새로 고쳐요.' : ''}</p>
+        <p>단축키 ${importing.keyCount}개 · 이 기기 설정 ${importing.settingCount}개를 불러와 지금 값을 덮어씁니다.${importing.settingCount ? ' 적용하려고 화면을 새로 고칩니다.' : ''}</p>
         <div><button type="button" class="ud-set-btn primary" data-import-apply>불러오기</button><button type="button" class="ud-set-btn" data-import-cancel>취소</button></div>
       </div>`;
   }
   function keysSection() {
-    if (!K()) return '<p class="ud-set-note">단축키 모듈을 불러오지 못했어요.</p>';
+    if (!K()) return '<p class="ud-set-note">단축키 모듈을 불러오지 못했습니다.</p>';
     return `
       <div class="ud-keys-top">
         <label class="ud-keys-search"><i class="fas fa-magnifying-glass"></i><input type="search" data-keys-search value="${esc(keyQuery)}" placeholder="명령 · 키 검색 (예: 사이드바, ctrl+b)" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="단축키 검색"></label>
@@ -293,7 +316,7 @@
         </div>
       </div>
       <div data-import-panel>${importPanel()}</div>
-      <p class="ud-set-note ud-keys-help">✎ 를 누르거나 줄을 두 번 누른 뒤 원하는 키를 누르고 <kbd>Enter</kbd>. 두 키를 이어 누르는 조합(예: <kbd>G</kbd><i class="ud-kb-then">,</i><kbd>W</kbd>)도 돼요. 글자 키 단축키는 입력칸에 쓰는 중이거나 터미널에 직접 입력할 때는 동작하지 않아요. 내보내기 파일에는 화면 · 편집기 · 알림 · 사이드바 설정과 테마도 함께 담겨요.</p>
+      <p class="ud-set-note ud-keys-help">✎ 를 누르거나 줄을 두 번 누른 뒤 원하는 키를 누르고 <kbd>Enter</kbd>. 두 키를 이어 누르는 조합(예: <kbd>G</kbd><i class="ud-kb-then">,</i><kbd>W</kbd>)도 됩니다. 글자 키 단축키는 입력칸에 쓰는 중이거나 터미널에 직접 입력할 때는 동작하지 않습니다. 내보내기 파일에는 화면 · 편집기 · 알림 · 사이드바 설정과 테마도 함께 담깁니다.</p>
       <div class="ud-keys-list" data-keys-list>${keyList()}</div>`;
   }
   function refreshKeys() {
@@ -318,7 +341,7 @@
       const binding = strokes.join(' ');
       const clash = K().conflicts(id, binding);
       K().setKeys(id, mode === 'add' ? [...K().keysOf(id), binding] : [binding]);
-      U().toast(clash.length ? `저장했어요. ${clash.map((a) => a.label).join(', ')} 와(과) 키가 겹쳐요.` : '단축키를 저장했어요.', clash.length ? 'error' : 'success', clash.length ? 5000 : 1600);
+      U().toast(clash.length ? `저장했습니다. ${clash.map((a) => a.label).join(', ')} 와(과) 키가 겹칩니다.` : '단축키를 저장했습니다.', clash.length ? 'error' : 'success', clash.length ? 5000 : 1600);
     }
     refreshKeys();
   }
@@ -367,7 +390,7 @@
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    U().toast(`내보냈어요 · 바꾼 단축키 ${Object.keys(data.keybindings).length}개 · 설정 ${Object.keys(settings).length}개`, 'success', 2600);
+    U().toast(`내보냈습니다 · 바꾼 단축키 ${Object.keys(data.keybindings).length}개 · 설정 ${Object.keys(settings).length}개`, 'success', 2600);
   }
   // 불러올 값 검사: 아는 키만, 값은 짧은 문자열만 (테마는 정해진 값만)
   function validSetting(key, value) {
@@ -378,15 +401,15 @@
   }
   async function readImport(file) {
     if (!file) return;
-    if (file.size > 1024 * 1024) { U().toast('파일이 너무 커요 (1MB 이하).', 'error'); return; }
+    if (file.size > 1024 * 1024) { U().toast('파일이 너무 큽니다 (1MB 이하).', 'error'); return; }
     let data;
-    try { data = JSON.parse(await file.text()); } catch (e) { U().toast('JSON 파일이 아니에요.', 'error'); return; }
-    if (!data || typeof data !== 'object' || data.app !== 'univdash') { U().toast('UnivDash 에서 내보낸 설정 파일이 아니에요.', 'error'); return; }
+    try { data = JSON.parse(await file.text()); } catch (e) { U().toast('JSON 파일이 아닙니다.', 'error'); return; }
+    if (!data || typeof data !== 'object' || data.app !== 'univdash') { U().toast('UnivDash 에서 내보낸 설정 파일이 아닙니다.', 'error'); return; }
     const allowed = new Set(EXPORT_KEYS());
     const keybindings = data.keybindings && typeof data.keybindings === 'object' && !Array.isArray(data.keybindings) ? data.keybindings : null;
     const settings = Object.fromEntries(Object.entries(data.settings && typeof data.settings === 'object' ? data.settings : {})
       .filter(([key, value]) => allowed.has(key) && validSetting(key, value)));
-    if (!keybindings && !Object.keys(settings).length) { U().toast('불러올 단축키나 설정이 없어요.', 'error'); return; }
+    if (!keybindings && !Object.keys(settings).length) { U().toast('불러올 단축키나 설정이 없습니다.', 'error'); return; }
     importing = { name: file.name, exported_at: data.exported_at, keybindings, settings, keyCount: keybindings ? Object.keys(keybindings).length : 0, settingCount: Object.keys(settings).length };
     refreshKeys();
   }
@@ -398,7 +421,7 @@
     for (const [key, value] of Object.entries(settings)) {
       try { localStorage.setItem(key, value); } catch (e) { /* noop */ }
     }
-    U().toast(`불러왔어요 · 단축키 ${result.applied}개${result.skipped ? ` (모르는 항목 ${result.skipped}개는 건너뜀)` : ''} · 설정 ${settingCount}개`, 'success', 3000);
+    U().toast(`불러왔습니다 · 단축키 ${result.applied}개${result.skipped ? ` (모르는 항목 ${result.skipped}개는 건너뜀)` : ''} · 설정 ${settingCount}개`, 'success', 3000);
     if (settingCount) setTimeout(() => location.reload(), 900);
     else refreshKeys();
   }
@@ -407,7 +430,7 @@
     if (event.target.closest('[data-keys-export]')) { exportSettings(); return true; }
     if (event.target.closest('[data-keys-import]')) { overlay.querySelector('[data-keys-file]').click(); return true; }
     if (event.target.closest('[data-keys-reset-all]')) {
-      if (window.confirm('모든 단축키를 기본값으로 되돌릴까요?')) { K().resetAll(); U().toast('모든 단축키를 기본값으로 되돌렸어요.', 'success', 1800); }
+      if (window.confirm('모든 단축키를 기본값으로 되돌리시겠습니까?')) { K().resetAll(); U().toast('모든 단축키를 기본값으로 되돌렸습니다.', 'success', 1800); }
       return true;
     }
     if (event.target.closest('[data-import-apply]')) { applyImport(); return true; }
@@ -449,7 +472,7 @@
     const el = overlay?.querySelector('[data-push-status]');
     if (!el) return;
     const push = window.UnivDashPush;
-    (promise || push?.status() || Promise.resolve({ text: '알림 모듈을 불러오지 못했어요.' }))
+    (promise || push?.status() || Promise.resolve({ text: '알림 모듈을 불러오지 못했습니다.' }))
       .then((info) => { const now = overlay?.querySelector('[data-push-status]'); if (now) { now.textContent = info.text; now.dataset.state = info.state || ''; } })
       .catch((error) => { const now = overlay?.querySelector('[data-push-status]'); if (now) now.textContent = error.message; });
   }
@@ -470,7 +493,7 @@
       if (seq !== saveSeq) return;
       server = data;
       render();
-      U().toast('설정을 저장했어요.', 'success', 1800);
+      U().toast('설정을 저장했습니다.', 'success', 1800);
     } catch (error) {
       U().toast(error.message, 'error');
       render();
@@ -482,6 +505,8 @@
     const tabBtn = event.target.closest('[data-tab]');
     if (tabBtn) { selectTab(tabBtn.dataset.tab); return; }
     if (tab === 'keys' && event.target.closest('.ud-set-body') && onKeysClick(event)) return;
+    const bye = event.target.closest('[data-logout]');
+    if (bye) { logout(bye.dataset.logout === '/logout-all'); return; }
     const out = event.target.closest('[data-device-out], [data-devices-others]');
     if (out) { deviceOut(out); return; }
     if (event.target.closest('[data-devices-reload]')) { devices = null; render(); loadDevices(); return; }
@@ -509,7 +534,7 @@
       }
       const test = push.test();
       showPush(test.then(() => push.status()));
-      test.then(() => U().toast('테스트 알림을 보냈어요. 안 보이면 OS 알림 설정에서 브라우저 알림이 켜져 있는지 확인해 주세요.', 'success', 6000))
+      test.then(() => U().toast('테스트 알림을 보냈습니다. 안 보이면 OS 알림 설정에서 브라우저 알림이 켜져 있는지 확인해 주십시오.', 'success', 6000))
         .catch((error) => U().toast(error.message, 'error'));
       return;
     }
@@ -550,7 +575,7 @@
       const value = Math.round(amount * (unit === 'GB' ? 1024 : 1));
       const limit = server.limits.upload_max_mb;
       if (!Number.isFinite(amount) || value < 1 || value > limit) {
-        U().toast(`1MB ~ ${mb(limit)} 사이로 넣어 주세요.`, 'error');
+        U().toast(`1MB ~ ${mb(limit)} 사이로 넣어 주십시오.`, 'error');
         render();
         return;
       }
@@ -652,6 +677,7 @@
     window.addEventListener('univdash:settings', () => { if (overlay && !overlay.hidden) render(); });
     window.addEventListener('univdash:keybindings', () => { if (overlay && !overlay.hidden && tab === 'keys' && !recording) refreshKeys(); });
     window.UnivDashKeys?.register('app.settings', () => { open(); });
+    window.UnivDashKeys?.register('app.logout', () => { logout(false); });
     window.UnivDashKeys?.register('app.keybindings', () => { open('keys'); });
     window.UnivDashSettings = { open, close };
   }

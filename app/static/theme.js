@@ -93,13 +93,13 @@
     overlay.innerHTML =
       '<div class="pmd-theme-modal" role="dialog" aria-modal="true" aria-label="테마 설정">'
       + '<div class="pmd-theme-head">'
-      + '<div><h3>테마 설정</h3><p>원하는 테마를 골라보세요. 모든 페이지에 동일하게 적용됩니다.</p></div>'
+      + '<div><h3>테마 설정</h3><p>원하는 테마를 선택하십시오. 모든 페이지에 동일하게 적용됩니다.</p></div>'
       + '<button type="button" class="pmd-theme-close" aria-label="닫기">&times;</button>'
       + '</div>'
       + '<div class="pmd-theme-body">' + optionsHtml + '</div>'
       + '<div class="pmd-theme-mode-row"><span>다크 모드</span>'
       + '<button type="button" class="pmd-mode-switch" aria-label="다크 모드 전환"></button></div>'
-      + '<div class="pmd-theme-mode-row pmd-lite-row"><span>가벼운 모드<small>블러 · 반짝임 효과를 줄여 GPU · CPU · 메모리를 아껴요</small></span>'
+      + '<div class="pmd-theme-mode-row pmd-lite-row"><span>가벼운 모드<small>블러 · 반짝임 효과를 줄여 GPU · CPU · 메모리를 아낍니다</small></span>'
       + '<button type="button" class="pmd-mode-switch pmd-lite-switch" aria-label="가벼운 모드 전환"></button></div>'
       + '</div>';
 

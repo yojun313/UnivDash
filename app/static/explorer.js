@@ -370,7 +370,7 @@
       const names = list.slice(0, 6).map((p) => `· ${basename(p)}`).join('\n') + (list.length > 6 ? `\n외 ${list.length - 6}개` : '');
       const ok = await ui().confirmSheet({
         title: list.length > 1 ? `${list.length}개 항목을 휴지통으로` : '휴지통으로 이동',
-        message: `${names}\n\n~/.univdash/trash 로 옮깁니다. 필요하면 거기서 되살릴 수 있어요.`, confirmLabel: '삭제', danger: true,
+        message: `${names}\n\n~/.univdash/trash 로 옮깁니다. 필요하면 거기서 되살릴 수 있습니다.`, confirmLabel: '삭제', danger: true,
       });
       if (!ok) return;
       let done = 0;
@@ -498,7 +498,7 @@
           ${field('name', '폴더 이름', '새 폴더', 'both')}
           ${field('branch', '브랜치 (선택)', '비우면 기본 브랜치', 'clone')}
           <label data-mode-field="clone" class="check-row"><input type="checkbox" name="shallow"> 최근 기록만 받기 (--depth 1, 빠름)</label>
-          <p data-mode-field="clone" class="text-[11px] opacity-60 leading-5">비공개 저장소는 서버에 SSH 키(또는 git 자격 증명)가 설정되어 있어야 합니다. 비밀번호는 묻지 않아요.</p>`,
+          <p data-mode-field="clone" class="text-[11px] opacity-60 leading-5">비공개 저장소는 서버에 SSH 키(또는 git 자격 증명)가 설정되어 있어야 합니다. 비밀번호는 묻지 않습니다.</p>`,
         onMount(sheet) {
           const nameInput = sheet.querySelector('input[name="name"]');
           const urlInput = sheet.querySelector('input[name="url"]');
@@ -522,7 +522,7 @@
         async onSubmit(values, sheet) {
           if (mode === 'empty') {
             const name = (values.name || '').trim();
-            if (!name) throw new Error('폴더 이름을 적어 주세요.');
+            if (!name) throw new Error('폴더 이름을 적어 주십시오.');
             const result = await api('/api/fs/op', { method: 'POST', body: { op: 'mkdir', path: dir, name } });
             await afterCreate(dir, result.path);
             return false;
@@ -571,7 +571,7 @@
       if (!top.length) return;
       shared.clipboard = { mode, paths: top };
       render();
-      toast(`${clipLabel()} ${mode === 'cut' ? '잘라냈어요' : '복사했어요'} · 붙여 넣을 폴더에서 ${isMac ? '⌘' : 'Ctrl'}+V`, 'info');
+      toast(`${clipLabel()} ${mode === 'cut' ? '잘라냈습니다' : '복사했습니다'} · 붙여 넣을 폴더에서 ${isMac ? '⌘' : 'Ctrl'}+V`, 'info');
     }
     const clipTargets = (entry) => (entry && picked.has(entry.path) && picked.size > 1 ? [...picked] : [entry?.path]);
     let pasting = false;
@@ -597,7 +597,7 @@
         }
       } finally { pasting = false; clearTimeout(slow); }
       if (move) shared.clipboard = null;   // 잘라내기는 한 번만, 복사는 여러 번 붙일 수 있게
-      if (placed.length) toast(placed.length > 1 ? `${placed.length}개 항목을 ${move ? '옮겼어요' : '복사했어요'}.` : `${basename(placed[0])} ${move ? '옮겼어요' : '복사했어요'}.`, 'success');
+      if (placed.length) toast(placed.length > 1 ? `${placed.length}개 항목을 ${move ? '옮겼습니다' : '복사했습니다'}.` : `${basename(placed[0])} ${move ? '옮겼습니다' : '복사했습니다'}.`, 'success');
       expanded.add(dir);
       saveExpanded();
       for (const d of new Set(placed.map(dirname))) await refresh(d);
@@ -621,7 +621,7 @@
       }
       const name = basename(source);
       const ok = await ui().confirmSheet({
-        title: copy ? '여기로 복사할까요?' : '여기로 옮길까요?',
+        title: copy ? '여기로 복사하시겠습니까?' : '여기로 옮기시겠습니까?',
         message: `${name}\n${where(dirname(source))}  →  ${where(dest)}${copy ? '' : '\n\nCtrl/Alt 를 누른 채 놓으면 복사합니다.'}`,
         confirmLabel: copy ? '복사' : '이동',
       });
@@ -650,11 +650,11 @@
     async function moveManyTo(sources, dest, { copy = false } = {}) {
       const list = sources.filter((p) => (copy ? !(dest === p || dest.startsWith(`${p}/`)) : canMove(p, dest)));
       const skipped = sources.length - list.length;
-      if (!list.length) { toast(copy ? '폴더를 자기 안으로 복사할 수 없습니다.' : '옮길 수 있는 항목이 없어요 (이미 그 폴더에 있거나 자기 안으로).', 'error'); return; }
+      if (!list.length) { toast(copy ? '폴더를 자기 안으로 복사할 수 없습니다.' : '옮길 수 있는 항목이 없습니다 (이미 그 폴더에 있거나 자기 안으로).', 'error'); return; }
       const names = list.slice(0, 6).map((p) => `· ${basename(p)}`).join('\n') + (list.length > 6 ? `\n외 ${list.length - 6}개` : '');
       const ok = await ui().confirmSheet({
-        title: `${list.length}개 항목을 여기로 ${copy ? '복사' : '옮길'}할까요?`,
-        message: `${names}\n→  ${where(dest)}${skipped ? `\n\n(이미 그 폴더에 있거나 자기 안이라 ${skipped}개는 빼요)` : ''}${copy ? '' : '\n\nCtrl/Alt 를 누른 채 놓으면 복사합니다.'}`,
+        title: `${list.length}개 항목을 여기로 ${copy ? '복사하' : '옮기'}시겠습니까?`,
+        message: `${names}\n→  ${where(dest)}${skipped ? `\n\n(이미 그 폴더에 있거나 자기 안이라 ${skipped}개는 제외합니다)` : ''}${copy ? '' : '\n\nCtrl/Alt 를 누른 채 놓으면 복사합니다.'}`,
         confirmLabel: copy ? '복사' : '이동',
       });
       if (!ok) return;
@@ -682,7 +682,7 @@
         prefs().hidden = prefs().hidden.map(swap);
         savePrefs();
       }
-      if (placed.length) toast(`${placed.length}개 항목을 ${copy ? '복사했어요' : '옮겼어요'}.`, 'success');
+      if (placed.length) toast(`${placed.length}개 항목을 ${copy ? '복사했습니다' : '옮겼습니다'}.`, 'success');
       expanded.add(dest);
       saveExpanded();
       for (const d of new Set(list.map(dirname))) await load(d, true);
@@ -714,7 +714,7 @@
       prefs().hidden = gated ? list.filter((p) => p !== entry.path) : [...list, entry.path];
       savePrefs();
       render();
-      if (!gated) toast(`${entry.name} 을(를) 가렸습니다. ⋮ 메뉴 → 가린 항목 표시로 다시 볼 수 있어요.`, 'info');
+      if (!gated) toast(`${entry.name} 을(를) 가렸습니다. ⋮ 메뉴 → 가린 항목 표시로 다시 볼 수 있습니다.`, 'info');
     }
     function togglePin(path) {
       const pinned = prefs().pinned;
@@ -731,7 +731,7 @@
     function uploadItems(items, refreshDir, emptyDirs = []) {
       if (!items.length && !emptyDirs.length) return;
       const total = items.length;
-      if (total > 300 && !confirm(`파일 ${total}개를 업로드할까요?`)) return;
+      if (total > 300 && !confirm(`파일 ${total}개를 업로드하시겠습니까?`)) return;
       const progress = (n) => toast(`${n}/${total}개 업로드 중… (${shortHome(refreshDir)})`, 'info');
       if (total) progress(0);
       let done = 0;
@@ -825,7 +825,7 @@
     async function uploadSnapshots(pending, dir) {
       const list = await pending;
       const bad = list.filter((x) => x.unreadable);
-      bad.forEach(({ file }) => toast(`${file.name}: 원본 파일을 읽을 수 없어요. 끌어온 앱(Yoink 등)이 파일을 옮기거나 지웠을 수 있어요.`, 'error'));
+      bad.forEach(({ file }) => toast(`${file.name}: 원본 파일을 읽을 수 없습니다. 끌어온 앱(Yoink 등)이 파일을 옮기거나 지웠을 수 있습니다.`, 'error'));
       const ok = list.filter((x) => !x.unreadable).map((x) => x.file);
       if (ok.length) upload(ok, dir);
     }
@@ -847,8 +847,8 @@
           const inner = (rel) => rel.split('/').slice(1).join('/');   // 맨 위 폴더 이름을 뺀 나머지
           out.files.forEach(({ file, rel }) => items.push({ file, dir: top, rel: inner(rel) }));
           out.dirs.forEach((rel) => emptyDirs.push({ dir: top, rel: inner(rel) }));
-          if (!out.files.length && !out.dirs.length) toast(`${entry.name}: 빈 폴더를 만들었어요.`, 'info');
-        } catch (error) { toast(`${entry.name}: ${error.message || '폴더를 읽지 못했어요.'}`, 'error'); }
+          if (!out.files.length && !out.dirs.length) toast(`${entry.name}: 빈 폴더를 만들었습니다.`, 'info');
+        } catch (error) { toast(`${entry.name}: ${error.message || '폴더를 읽지 못했습니다.'}`, 'error'); }
       }
       uploadItems(items, dir, emptyDirs);
     }
@@ -1100,7 +1100,7 @@
           continue;
         }
         bar.close();
-        if (job.state === 'error') { toast(cancelled ? '압축을 취소했어요.' : job.error, cancelled ? 'info' : 'error'); return; }
+        if (job.state === 'error') { toast(cancelled ? '압축을 취소했습니다.' : job.error, cancelled ? 'info' : 'error'); return; }
         toast(`${job.name} (${formatSize(job.size)}) 다운로드를 시작합니다.`, 'success');
         window.location.href = `/api/fs/zip/${encodeURIComponent(job.token)}`;
         return;
@@ -1141,8 +1141,8 @@
         extraHtml: `<label>받을 수 있는 시간<select name="minutes">${opts(SHARE_TIMES, 15)}</select></label>
           <label>받을 수 있는 횟수<select name="count">${opts(SHARE_COUNTS, 0)}</select></label>
           ${isDir ? '<label class="check-row"><input type="checkbox" name="skip_ignored"> .gitignore 항목 빼기 (node_modules · .venv 등)</label>' : ''}
-          <label class="check-row"><input type="checkbox" name="require_code"> 접근 코드도 있어야 받을 수 있게 (링크와 따로 전달할 코드를 만들어요)</label>
-          <p class="text-[11px] opacity-60 leading-5"><i class="fas fa-shield-halved mr-1"></i>링크를 받은 사람은 로그인 없이 ${isDir ? '이 폴더 하나만 zip 으로' : '이 파일 하나만'} 받을 수 있어요. 다른 파일 · 폴더는 볼 수 없고, 시간이 지나면 링크가 사라져요.${isDir ? ' 지금 내용을 묶어 두므로 나중에 바뀐 내용은 들어가지 않아요. .env · 개인 키 · .git 은 빠져요.' : ''}</p>`,
+          <label class="check-row"><input type="checkbox" name="require_code"> 접근 코드도 있어야 받을 수 있게 (링크와 따로 전달할 코드를 만듭니다)</label>
+          <p class="text-[11px] opacity-60 leading-5"><i class="fas fa-shield-halved mr-1"></i>링크를 받은 사람은 로그인 없이 ${isDir ? '이 폴더 하나만 zip 으로' : '이 파일 하나만'} 받을 수 있습니다. 다른 파일 · 폴더는 볼 수 없고, 시간이 지나면 링크가 사라집니다.${isDir ? ' 지금 내용을 묶어 두므로 나중에 바뀐 내용은 들어가지 않습니다. .env · 개인 키 · .git 은 제외됩니다.' : ''}</p>`,
         async onSubmit(values) {
           const body = { path: entry.path, minutes: Number(values.minutes) || 15, max_downloads: Number(values.count) || 0, skip_ignored: !!values.skip_ignored, require_code: !!values.require_code };
           const result = await api('/api/share', { method: 'POST', body });
@@ -1169,7 +1169,7 @@
           continue;
         }
         bar.close();
-        if (job.state === 'error') { toast(cancelled ? '공유를 취소했어요.' : job.error, cancelled ? 'info' : 'error'); return; }
+        if (job.state === 'error') { toast(cancelled ? '공유를 취소했습니다.' : job.error, cancelled ? 'info' : 'error'); return; }
         shareResult(job);
         return;
       }
@@ -1185,14 +1185,14 @@
       const link = `${location.origin}${url}`;
       const codeBox = code ? window.UnivDashAccessCode?.html(code) : '';
       ui().infoSheet({
-        title: '공유 링크를 만들었어요', subtitle: `${share.name} · ${formatSize(share.size)}`,
+        title: '공유 링크를 만들었습니다', subtitle: `${share.name} · ${formatSize(share.size)}`,
         bodyHtml: `<div class="share-box">${codeBox ? `${codeBox}<div class="mt-3"></div>` : ''}<div class="share-link"><input readonly value="${escapeHtml(link)}" aria-label="공유 링크" spellcheck="false">
             <button type="button" class="btn-glow" data-copy><i class="fas fa-copy mr-1"></i>복사</button>
             ${navigator.share ? '<button type="button" class="sheet-cancel" data-send><i class="fas fa-share-nodes mr-1"></i>보내기</button>' : ''}</div>
-          <p class="text-[12px] opacity-75 leading-5 mt-3">${escapeHtml(shareWhen(share.expires))}까지 받을 수 있어요 · ${escapeHtml(share.max_downloads ? `${share.max_downloads}번만` : '횟수 제한 없음')}</p>
+          <p class="text-[12px] opacity-75 leading-5 mt-3">${escapeHtml(shareWhen(share.expires))}까지 받을 수 있습니다 · ${escapeHtml(share.max_downloads ? `${share.max_downloads}번만` : '횟수 제한 없음')}</p>
           <p class="text-[11px] opacity-60 leading-5 mt-1"><i class="fas fa-triangle-exclamation mr-1"></i>${code
-            ? '링크와 코드는 지금만 보여요. 링크만으로는 받을 수 없고 코드가 꼭 있어야 해요. 코드는 링크와 다른 방법(직접 말하기 · 다른 메신저)으로 받을 사람에게만 전달하세요.'
-            : '링크는 지금만 보여요. 링크를 아는 사람은 누구나 받을 수 있으니 받을 사람에게만 보내세요.'} 탐색기 ⋯ 메뉴 › 공유 중인 링크에서 언제든 끊을 수 있어요.</p></div>`,
+            ? '링크와 코드는 지금만 표시됩니다. 링크만으로는 받을 수 없고 코드가 꼭 있어야 합니다. 코드는 링크와 다른 방법(직접 말하기 · 다른 메신저)으로 받을 사람에게만 전달하십시오.'
+            : '링크는 지금만 표시됩니다. 링크를 아는 사람은 누구나 받을 수 있으니 받을 사람에게만 보내십시오.'} 탐색기 ⋯ 메뉴 › 공유 중인 링크에서 언제든 끊을 수 있습니다.</p></div>`,
         onMount(body) {
           if (code) window.UnivDashAccessCode?.mount(body, code);
           const input = body.querySelector('.share-link input');
@@ -1212,8 +1212,8 @@
             <div class="text-[11px] opacity-75">${escapeHtml(shareLeft(s))} · ${escapeHtml(formatSize(s.size))}</div></div>
           <button type="button" class="sheet-danger" data-revoke>끊기</button></li>`).join('');
       ui().infoSheet({
-        title: '공유 중인 링크', subtitle: list.length ? `${list.length}개 · 시간이 지나면 저절로 사라져요` : '',
-        bodyHtml: `<div class="share-box">${list.length ? `<ul class="share-list">${rows}</ul>` : '<p class="opacity-70 text-sm">공유 중인 링크가 없어요. 파일이나 폴더를 우클릭해 만들 수 있어요.</p>'}</div>`,
+        title: '공유 중인 링크', subtitle: list.length ? `${list.length}개 · 시간이 지나면 저절로 사라집니다` : '',
+        bodyHtml: `<div class="share-box">${list.length ? `<ul class="share-list">${rows}</ul>` : '<p class="opacity-70 text-sm">공유 중인 링크가 없습니다. 파일이나 폴더를 우클릭해 만들 수 있습니다.</p>'}</div>`,
         onMount(body) {
           body.querySelectorAll('[data-revoke]').forEach((button) => button.addEventListener('click', async () => {
             const row = button.closest('[data-share]');
@@ -1221,7 +1221,7 @@
             try {
               await api(`/api/shares/${encodeURIComponent(row.dataset.share)}`, { method: 'DELETE' });
               row.remove();
-              toast('링크를 끊었어요. 이제 받을 수 없어요.', 'success');
+              toast('링크를 끊었습니다. 이제 받을 수 없습니다.', 'success');
             } catch (error) { button.disabled = false; toast(error.message, 'error'); }
           }));
         },
@@ -1333,7 +1333,7 @@
     function sortSheet() {
       const current = prefs().sort;
       ui().actionSheet({
-        title: '정렬 기준', subtitle: '모든 폴더에 적용됩니다. 직접 지정은 폴더마다 순서를 기억해요.',
+        title: '정렬 기준', subtitle: '모든 폴더에 적용됩니다. 직접 지정은 폴더마다 순서를 기억합니다.',
         actions: Object.entries(SORTS).map(([id, s]) => ({ icon: s.icon, label: s.label, desc: s.desc, sub: id === current ? '✓' : '', current: id === current, onClick: () => { prefs().sort = id; savePrefs(); render(); } })),
       });
     }
@@ -1930,7 +1930,7 @@
       if (index < 0) return false;
       if (autoSave && current?.path === path && editing) await flushPending();
       if (hasDraft(path)) {
-        const ok = await ui().confirmSheet({ title: '저장 안 한 변경이 있어요', message: `${basename(path)} 의 수정 내용을 버리고 닫을까요?`, confirmLabel: '버리고 닫기', danger: true });
+        const ok = await ui().confirmSheet({ title: '저장 안 한 변경이 있습니다', message: `${basename(path)} 의 수정 내용을 버리고 닫으시겠습니까?`, confirmLabel: '버리고 닫기', danger: true });
         if (!ok) return false;
         clearDraft(path);
       }
@@ -2070,7 +2070,7 @@
       }
       html = html || escapeHtml(lines.join('\n'));
       const gutter = Array.from({ length: lines.length }, (_, i) => i + 1).join('\n');
-      return `${file.truncated ? '<div class="exv-note">파일이 커서 앞부분(2MB)만 보여줍니다. 전체는 다운로드하세요.</div>' : ''}
+      return `${file.truncated ? '<div class="exv-note">파일이 커서 앞부분(2MB)만 보여줍니다. 전체는 다운로드하십시오.</div>' : ''}
         <div class="exv-code ${wrap ? 'wrap' : ''}"><pre class="exv-gutter" aria-hidden="true">${gutter}</pre><pre class="exv-pre"><code class="hljs">${html}</code></pre></div>`;
     }
     // Markdown 미리보기 (marked → DOMPurify 로 정리 → 상대 경로 이미지 · 링크를 Explorer 로 연결)
@@ -2188,11 +2188,11 @@
         if (!job) return;
         try {
           const result = await api(`/api/fs/md-pdf/${job.token}/save`, { method: 'POST', body: { path: entry.path, overwrite, layout: shown || '1' } });
-          toast(`저장했어요: ${shortHome(result.path)}`, 'success');
+          toast(`저장했습니다:${shortHome(result.path)}`, 'success');
           window.dispatchEvent(new CustomEvent('univdash:fs-changed', { detail: { dir: dirname(entry.path) } }));
         } catch (error) {
-          if (!overwrite && /이미 있어요/.test(error.message)) {
-            if (confirm(`${fileName()} 가 이미 있어요. 덮어쓸까요?`)) save(true);
+          if (!overwrite && /이미 있(습니다|어요)/.test(error.message)) {
+            if (confirm(`${fileName()} 가 이미 있습니다. 덮어쓰시겠습니까?`)) save(true);
             return;
           }
           toast(error.message, 'error');
@@ -2200,7 +2200,7 @@
       }
       UI.infoSheet({
         title: 'PDF 로 저장',
-        subtitle: `${entry.name} — ${sourcePdf ? '한 장에 여러 쪽씩 모아 A4 로 다시 배치해요.' : '화면에 보이는 모습 그대로 (A4).'} ${zoomable ? '배율 · ' : ''}한 장에 넣을 쪽 수를 정한 뒤 저장하거나 내려받으세요.`,
+        subtitle: `${entry.name} — ${sourcePdf ? '한 장에 여러 쪽씩 모아 A4 로 다시 배치합니다.' : '화면에 보이는 모습 그대로 (A4).'} ${zoomable ? '배율 · ' : ''}한 장에 넣을 쪽 수를 정한 뒤 저장하거나 내려받으십시오.`,
         bodyHtml: `<div class="mdpdf">
             <div class="mdpdf-bar">
               <span class="mdpdf-zoomctl${zoomable ? '' : ' hidden'}">
@@ -2319,7 +2319,7 @@
       bodyEl.innerHTML = metaHtml(file) + (rendered ? `<div class="exv-rich">${rendered}</div>` : renderCode({ ...file, name: entry.name, ext: file.ext || entry.ext }));
       if (rendered) { sizeRich(); showZoom(); } else $('.exv-zoom').classList.add('hidden');
       const htmlHost = rendered && bodyEl.querySelector('.exv-htmldoc');
-      if (htmlHost) mountHtmlDoc(htmlHost, file.content, entry.path, openLocal).then(() => find.refresh()).catch(() => { htmlHost.textContent = 'HTML 을 그리지 못했어요. 코드 보기로 확인하세요.'; });
+      if (htmlHost) mountHtmlDoc(htmlHost, file.content, entry.path, openLocal).then(() => find.refresh()).catch(() => { htmlHost.textContent = 'HTML 을 그리지 못했습니다. 코드 보기로 확인하십시오.'; });
       $('[data-act="mdpdf"]').classList.remove('hidden');   // 글 파일은 모두 PDF 로 (md · 코드 · 노트북 · 표 · html)
     }
 
@@ -2382,7 +2382,7 @@
       const more = rows.length > 2000 || file.truncated;
       return `<div class="data-wrap"><table class="data-table"><thead><tr><th class="rn">#</th>${head.map((c) => `<th>${escapeHtml(c)}</th>`).join('')}</tr></thead>
         <tbody>${body.slice(0, 2000).map((r, i) => `<tr><td class="rn">${i + 1}</td>${r.map((c) => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>
-        ${more ? '<p class="exv-note">앞부분만 보여줍니다. 전체는 코드 보기나 다운로드로 확인하세요.</p>' : ''}</div>`;
+        ${more ? '<p class="exv-note">앞부분만 보여줍니다. 전체는 코드 보기나 다운로드로 확인하십시오.</p>' : ''}</div>`;
     }
 
     // ── 서버 미리보기: hwpx · 압축 · SQLite · 변환 이미지 · 헥스 ──
@@ -2737,7 +2737,7 @@
       if (!current || conflictPath !== current.path) return;
       const bar = document.createElement('div');
       bar.className = 'exv-conflict';
-      bar.innerHTML = `<i class="fas fa-triangle-exclamation"></i><span>연 뒤에 다른 곳(에이전트 등)에서 이 파일이 바뀌어 자동 저장을 멈췄어요. 내 수정은 그대로 남아 있어요.</span>
+      bar.innerHTML = `<i class="fas fa-triangle-exclamation"></i><span>연 뒤에 다른 곳(에이전트 등)에서 이 파일이 바뀌어 자동 저장을 멈췄습니다. 내 수정은 그대로 남아 있습니다.</span>
         <button type="button" data-act="conflict-overwrite">내 것으로 덮어쓰기</button><button type="button" data-act="conflict-reload">파일 다시 불러오기</button>`;
       bodyEl.querySelector('.exv-meta')?.after(bar);
     }
@@ -3145,7 +3145,7 @@
     async function exitEdit() {
       if (autoSave && current && hasDraft(current.path) && conflictPath !== current.path) await flushPending();
       if (current && hasDraft(current.path)) {
-        const ok = await ui().confirmSheet({ title: '저장할까요?', message: `${current.name} 에 저장 안 한 변경이 있어요.`, confirmLabel: '저장하고 닫기' });
+        const ok = await ui().confirmSheet({ title: '저장하시겠습니까?', message: `${current.name} 에 저장 안 한 변경이 있습니다.`, confirmLabel: '저장하고 닫기' });
         if (!ok) return;
         if (!(await save())) return;
       }
@@ -3180,7 +3180,7 @@
         if (response.status === 409) {
           if (auto) { conflictPath = path; if (current?.path === path) showConflict(); return false; }
           saving = false;
-          const ok = await ui().confirmSheet({ title: '파일이 바뀌었어요', message: '연 뒤에 다른 곳(에이전트 등)에서 이 파일을 고쳤습니다. 내 내용으로 덮어쓸까요? 취소하면 편집 내용은 그대로 남아요.', confirmLabel: '덮어쓰기', danger: true });
+          const ok = await ui().confirmSheet({ title: '파일이 바뀌었습니다', message: '연 뒤에 다른 곳(에이전트 등)에서 이 파일을 고쳤습니다. 내 내용으로 덮어쓰시겠습니까? 취소하면 편집 내용은 그대로 남습니다.', confirmLabel: '덮어쓰기', danger: true });
           return ok ? save(true) : false;
         }
         if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : '저장하지 못했습니다.');
@@ -3249,7 +3249,7 @@
         const raw = `/api/fs/raw?path=${encodeURIComponent(entry.path)}&v=${file.mtime}`;
         if (file.pdf || file.preview === 'office') {
           $('[data-act="wrap"]').classList.add('hidden');
-          if (file.preview === 'office') bodyEl.innerHTML = `${metaHtml(file)}<div class="exv-note"><i class="fas fa-circle-notch fa-spin"></i> 문서를 변환하는 중… (처음 한 번만 몇 초 걸려요)</div>`;
+          if (file.preview === 'office') bodyEl.innerHTML = `${metaHtml(file)}<div class="exv-note"><i class="fas fa-circle-notch fa-spin"></i> 문서를 변환하는 중… (처음 한 번만 몇 초 걸립니다)</div>`;
           const info = await api(`/api/fs/pdf/info?path=${encodeURIComponent(entry.path)}`);
           if (seq !== renderSeq) return;
           $('.exv-zoom').classList.remove('hidden');
@@ -3418,7 +3418,7 @@
         autoSave = !autoSave;
         store.set('auto-save', autoSave);
         setEditButtons();
-        toast(autoSave ? '자동 저장을 켰습니다.' : '자동 저장을 껐습니다. 저장 버튼이나 Ctrl/⌘+S 로 저장하세요.', 'info');
+        toast(autoSave ? '자동 저장을 켰습니다.' : '자동 저장을 껐습니다. 저장 버튼이나 Ctrl/⌘+S 로 저장하십시오.', 'info');
         if (autoSave && current && hasDraft(current.path)) scheduleAutoSave(200);
       } else if (act === 'conflict-overwrite') { conflictPath = null; save(true); }
       else if (act === 'conflict-reload') { conflictPath = null; clearDraft(current.path); viewOf(current.path).edit = true; show(current); }

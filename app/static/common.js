@@ -90,7 +90,7 @@
     let token = null;
     const fail = (message, status = 0) => Object.assign(new Error(message), { status, aborted });
     const send = (method, url, body, headers = {}, progress) => new Promise((resolve, reject) => {
-      if (aborted) { reject(fail('업로드를 취소했어요.')); return; }
+      if (aborted) { reject(fail('업로드를 취소했습니다.')); return; }
       const xhr = new XMLHttpRequest();
       current = xhr;
       xhr.open(method, url);
@@ -104,7 +104,7 @@
         else reject(Object.assign(fail(typeof data.detail === 'string' ? data.detail : `업로드 실패 (${xhr.status})`, xhr.status), { data }));
       };
       xhr.onerror = () => reject(fail('네트워크 오류'));
-      xhr.onabort = () => reject(fail('업로드를 취소했어요.'));
+      xhr.onabort = () => reject(fail('업로드를 취소했습니다.'));
       xhr.send(body);
     });
     const report = (n) => onProgress?.(file.size ? Math.min(1, n / file.size) : 1);
@@ -183,7 +183,7 @@
         const subject = (job.message || '').split('\n')[0];
         toast(`${where} 푸시 완료${subject ? `\n${subject}` : ''}`, 'success', 7000);
       } else {
-        toast(`${where} 자동 커밋이 멈췄어요: ${job.error || '알 수 없는 오류'}`, 'error', 9000);
+        toast(`${where} 자동 커밋이 멈췄습니다:${job.error || '알 수 없는 오류'}`, 'error', 9000);
       }
     }
     function notify(job) {
@@ -470,7 +470,7 @@
         const waiting = (status.waiting || []).join(', ');
         if (status.state === 'waiting' && waiting && waiting !== shownWaiting) {
           shownWaiting = waiting;
-          toast(`작업 중인 Codex 창(${waiting})이 끝나면 자동으로 업데이트하고 새 계정으로 다시 켜요.`, 'info', 7000);
+          toast(`작업 중인 Codex 창(${waiting})이 끝나면 자동으로 업데이트하고 새 계정으로 다시 켭니다.`, 'info', 7000);
         } else if (status.state === 'applying' && !shownApplying) {
           shownApplying = true;
           toast('Codex 창을 끄고 업데이트한 뒤 같은 대화로 다시 켜는 중…', 'info', 5000);
@@ -478,14 +478,14 @@
         setTimeout(() => request('/api/accounts/codex/apply').then(step, () => setTimeout(() => step(status), 4000)), status.state === 'waiting' ? 3000 : 1500);
         return;
       }
-      if (status.state === 'error') { toast(status.error || 'Codex 창에 적용하지 못했어요.', 'error', 9000); return; }
+      if (status.state === 'error') { toast(status.error || 'Codex 창에 적용하지 못했습니다.', 'error', 9000); return; }
       if (status.state === 'done') {
         const r = status.result || {};
         const after = r.after_stop || {};
         const parts = [];
-        parts.push(r.relaunched?.length ? `Codex 창 ${r.relaunched.length}개를 같은 대화로 다시 켰어요` : '다시 켤 Codex 창이 없었어요');
-        if (after.updated === true) parts.push('Codex 를 최신으로 업데이트했어요');
-        else if (after.updated === false) parts.push('업데이트는 실패했어요 (기존 버전으로 켰어요)');
+        parts.push(r.relaunched?.length ? `Codex 창 ${r.relaunched.length}개를 같은 대화로 다시 켰습니다` : '다시 켤 Codex 창이 없었습니다');
+        if (after.updated === true) parts.push('Codex 를 최신으로 업데이트했습니다');
+        else if (after.updated === false) parts.push('업데이트는 실패했습니다 (기존 버전으로 켰습니다)');
         if (r.skipped?.length) parts.push(`직접 다시 켜야 하는 창: ${r.skipped.join(', ')}`);
         toast(`${parts.join(' · ')}.`, r.skipped?.length || after.updated === false ? 'warn' : 'success', 8000);
         window.dispatchEvent(new CustomEvent('univdash:codex-applied', { detail: status }));

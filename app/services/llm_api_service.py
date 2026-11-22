@@ -37,8 +37,10 @@ from app.services import llm_sandbox
 
 logger = logging.getLogger(__name__)
 
-PROVIDERS = ("claude", "codex")
-PROVIDER_LABEL = {"claude": "Claude", "codex": "Codex"}
+PROVIDERS = ("claude", "codex", "gemini")
+PROVIDER_LABEL = {"claude": "Claude", "codex": "Codex", "gemini": "Gemini"}
+# 제공자 → CLI 실행 파일 이름 (Gemini 는 Antigravity CLI · agy)
+PROVIDER_BIN = {"claude": "claude", "codex": "codex", "gemini": "agy"}
 TOKEN_PREFIX = "ud-"
 TOKEN_RE = re.compile(r"^ud-[A-Za-z0-9_-]{43}$")
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:\[\]@+-]{0,79}$")
@@ -52,7 +54,7 @@ CLAUDE_MODELS = ("fable", "opus", "sonnet", "haiku")
 STRATEGIES = ("order", "round_robin")
 DEFAULTS = {
     "enabled": False,
-    "providers": {"claude": True, "codex": True},
+    "providers": {"claude": True, "codex": True, "gemini": True},
     "accounts": {},  # {"claude": {계정 id: bool}, "codex": {...}} — 없는 제공자는 '지금 로그인된 계정만'
     "strategy": "order",
     "default_model": "claude",
@@ -153,6 +155,10 @@ def _accounts(provider: str) -> dict:
             from app.services import claude_accounts
 
             return claude_accounts.list_accounts()
+        if provider == "gemini":
+            from app.services import gemini_accounts
+
+            return gemini_accounts.list_accounts()
         from app.services import codex_accounts
 
         return codex_accounts.list_accounts()
@@ -170,7 +176,7 @@ def _account_flags(config: dict, provider: str, listing: dict) -> dict[str, bool
 
 
 def installed(provider: str) -> bool:
-    return bool(find_command(provider))
+    return bool(find_command(PROVIDER_BIN.get(provider, provider)))
 
 
 # ── 관리 화면 ─────────────────────────────────────────────────────────────────
@@ -278,11 +284,11 @@ def update_settings(changes: dict) -> None:
         if "aliases" in changes:
             aliases = changes["aliases"]
             if not isinstance(aliases, dict) or len(aliases) > MAX_ALIASES:
-                raise ValueError(f"별칭은 {MAX_ALIASES}개까지 둘 수 있어요.")
+                raise ValueError(f"별칭은 {MAX_ALIASES}개까지 둘 수 있습니다.")
             clean = {}
             for name, target in aliases.items():
                 if not isinstance(name, str) or not ALIAS_RE.match(name):
-                    raise ValueError(f"별칭 이름이 올바르지 않아요: {str(name)[:40]}")
+                    raise ValueError(f"별칭 이름이 올바르지 않습니다:{str(name)[:40]}")
                 _route(str(target), {})  # 가리키는 모델이 올바른지
                 clean[name] = str(target)
             config["aliases"] = clean
@@ -296,10 +302,10 @@ def update_settings(changes: dict) -> None:
 
 def set_account(provider: str, account_id: str, on: bool) -> None:
     if provider not in PROVIDERS or not ID_RE.match(account_id or ""):
-        raise ValueError("없는 계정이에요.")
+        raise ValueError("없는 계정입니다.")
     listing = _accounts(provider)
     if account_id not in {a["id"] for a in listing["accounts"]}:
-        raise ValueError("없는 계정이에요.")
+        raise ValueError("없는 계정입니다.")
     with _lock:
         config = _load()
         flags = _account_flags(config, provider, listing)
@@ -313,14 +319,14 @@ def _clean_token_fields(fields: dict, record: dict) -> None:
     if "name" in fields:
         name = re.sub(r"[\x00-\x1f\x7f]", "", str(fields["name"] or "")).strip()
         if not name:
-            raise ValueError("토큰 이름을 적어 주세요.")
+            raise ValueError("토큰 이름을 적어 주십시오.")
         record["name"] = name[:NAME_MAX]
     if "enabled" in fields:
         record["enabled"] = bool(fields["enabled"])
     if "providers" in fields:
         chosen = [p for p in PROVIDERS if p in (fields["providers"] or [])]
         if not chosen:
-            raise ValueError("쓸 수 있는 제공자를 하나 이상 골라 주세요.")
+            raise ValueError("쓸 수 있는 제공자를 하나 이상 골라 주십시오.")
         record["providers"] = chosen
     if "rpm" in fields:
         record["rpm"] = max(0, min(600, int(fields["rpm"] or 0)))
@@ -333,7 +339,7 @@ def _clean_token_fields(fields: dict, record: dict) -> None:
         for provider in PROVIDERS:
             value = str((fields["accounts"] or {}).get(provider) or "")
             if value and not ID_RE.match(value):
-                raise ValueError("없는 계정이에요.")
+                raise ValueError("없는 계정입니다.")
             pinned[provider] = value
         record["accounts"] = pinned
 
@@ -362,7 +368,7 @@ def create_token(fields: dict) -> tuple[str, dict]:
     with _lock:
         config = _load()
         if len(config["tokens"]) >= MAX_TOKENS:
-            raise ValueError(f"토큰은 {MAX_TOKENS}개까지 만들 수 있어요.")
+            raise ValueError(f"토큰은 {MAX_TOKENS}개까지 만들 수 있습니다.")
         config["tokens"][_hash(token)] = record
         _save(config)
     logger.info("LLM API 토큰 만듦 · %s · %s", record["id"], record["name"])
@@ -373,7 +379,7 @@ def _find_token(config: dict, token_id: str) -> tuple[str, dict]:
     for key, record in config["tokens"].items():
         if record.get("id") == token_id:
             return key, record
-    raise KeyError("없는 토큰이에요.")
+    raise KeyError("없는 토큰입니다.")
 
 
 def update_token(token_id: str, fields: dict) -> dict:
@@ -453,6 +459,8 @@ def _route(model: str, aliases: dict) -> tuple[str, str]:
             provider = "claude"
         elif re.match(r"^(gpt-|o\d|codex)", low):
             provider = "codex"
+        elif low.startswith("gemini"):
+            provider = "gemini"
         else:
             raise ApiError(
                 404,
@@ -491,6 +499,13 @@ def codex_models() -> list[str]:
     return [slug for _, slug in sorted(found)]
 
 
+def gemini_models() -> list[str]:
+    """Gemini(Antigravity CLI)가 쓸 수 있는 모델 이름들 (`agy models` — gemini_service 가 받아 둔다)."""
+    from app.services import gemini_service
+
+    return [m["id"] for m in gemini_service.models() if MODEL_RE.match(m["id"])]
+
+
 def models(config: dict | None = None) -> list[dict]:
     if config is None:
         with _lock:
@@ -502,6 +517,9 @@ def models(config: dict | None = None) -> list[dict]:
     if config["providers"].get("codex", True) and installed("codex"):
         out.append({"id": "codex", "owned_by": "openai"})
         out += [{"id": f"codex/{m}", "owned_by": "openai"} for m in codex_models()]
+    if config["providers"].get("gemini", True) and installed("gemini"):
+        out.append({"id": "gemini", "owned_by": "google"})
+        out += [{"id": f"gemini/{m}", "owned_by": "google"} for m in gemini_models()]
     known = {m["id"] for m in out}
     out += [{"id": a, "owned_by": "alias"} for a in config["aliases"] if a not in known]
     return out
@@ -994,6 +1012,122 @@ async def _run_codex(
                 raise _cli_error("codex", failure)
 
 
+def _gemini_auth(account: dict) -> dict:
+    """컨테이너에 넣을 Gemini 로그인 사본: 접근 토큰(한 시간짜리)만 넣고 갱신 토큰은 뺀다."""
+    from datetime import UTC, datetime
+
+    from app.services import gemini_accounts
+
+    token = gemini_accounts.account_token(account["id"])
+    if token is None or token["expires"] - time.time() < 120:
+        raise _unavailable("The Gemini login on this server needs a refresh.")
+    return {
+        "token": {
+            "access_token": token["access"],
+            "token_type": "Bearer",
+            "refresh_token": "",
+            "expiry": datetime.fromtimestamp(token["expires"], UTC).isoformat(),
+        },
+        "auth_method": "consumer",
+    }
+
+
+GEMINI_NO_TOOLS = (
+    "Answer directly from your own knowledge. Do not call tools, run commands, "
+    "read or write files, browse, or ask for permission."
+)
+
+
+async def _run_gemini(
+    account: dict, model: str, system: str, prompt: str, timeout: float, fast: bool
+) -> AsyncIterator[tuple[str, object]]:
+    """Gemini: Antigravity CLI(agy)의 headless 모드. 도구를 쓰려 하면 바로 끊는다 (컨테이너 밖은 어차피 닿지 않는다)."""
+    exe = find_command("agy")
+    if not exe:
+        raise ApiError(
+            503,
+            "Gemini (Antigravity CLI) is not installed on this server.",
+            "api_error",
+            "provider_unavailable",
+        )
+    auth = await asyncio.to_thread(_gemini_auth, account)
+    home, user = llm_sandbox.account_home("gemini", account["id"])
+    command = [
+        "agy",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--disable-slash-commands",
+        "--sandbox",
+        "--print-timeout",
+        f"{int(timeout)}s",
+    ]
+    if model:
+        command += ["--model", model]
+    elif fast:
+        command += ["--effort", "low"]
+    instructions = f"{GEMINI_NO_TOOLS}\n\n{system}" if system else GEMINI_NO_TOOLS
+    text = json.dumps(
+        {
+            "event": "user",
+            "message": {"content": f"[Instructions]\n{instructions}\n\n{prompt}"},
+        },
+        ensure_ascii=False,
+    )
+    target = (llm_sandbox.new_request(), home, user)
+    argv = llm_sandbox.exec_argv(
+        *target,
+        command,
+        timeout=timeout,
+        env={"UD_FILE": ".gemini/antigravity-cli/antigravity-oauth-token"},
+        pass_env=("UD_FILE_DATA",),
+    )
+    env = llm_sandbox.client_env({"UD_FILE_DATA": json.dumps(auth)})
+    got_text = False
+    failure = ""
+    async for event in _lines(target, argv, env, text + "\n", timeout):
+        if "_exit" in event:
+            if not got_text:
+                raise _cli_error(
+                    "gemini", failure or event["_stderr"] or "no output", event["_exit"]
+                )
+            return
+        kind = event.get("event")
+        if kind == "step_update":
+            step = event.get("step_update") or {}
+            step_type = step.get("step_type")
+            if (
+                step_type == "tool"
+                or step.get("tool_name")
+                or step.get("subagent_info")
+            ):
+                raise _blocked()
+            if step_type == "agent_response" and step.get("text_delta"):
+                got_text = True
+                yield "text", str(step["text_delta"])
+        elif kind == "result":
+            result = event.get("result") or {}
+            usage = result.get("usage") if isinstance(result.get("usage"), dict) else {}
+            yield (
+                "usage",
+                {
+                    "input": int(usage.get("input_tokens") or 0)
+                    + int(usage.get("cache_read_tokens") or 0),
+                    "output": int(usage.get("output_tokens") or 0),
+                },
+            )
+            if result.get("status") != "SUCCESS":
+                failure = str(result.get("error") or result.get("status") or "error")
+                if got_text:
+                    raise _cli_error("gemini", failure)
+            elif not got_text and isinstance(result.get("response"), str):
+                if result["response"].strip():
+                    got_text = True
+                    yield "text", result["response"]
+            # 한 번의 대화만 한다: 답이 끝났으면 표준 입력이 닫혀 CLI 도 끝난다
+
+
 def _semaphore(size: int) -> asyncio.Semaphore:
     global _slots, _slots_size
     if _slots is None or _slots_size != size:
@@ -1040,7 +1174,9 @@ async def generate(
             "context_length_exceeded",
         )
     meta.update(provider=provider, model=f"{provider}/{sub}" if sub else provider)
-    runner = _run_claude if provider == "claude" else _run_codex
+    runner = {"claude": _run_claude, "codex": _run_codex, "gemini": _run_gemini}[
+        provider
+    ]
     slots = _semaphore(config["max_concurrency"])
     try:
         await asyncio.wait_for(slots.acquire(), timeout=60)

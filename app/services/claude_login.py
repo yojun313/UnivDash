@@ -108,7 +108,7 @@ def _stop(login: _Login, reason: str) -> None:
         return
     login.state = "cancelled" if reason == "cancel" else "error"
     if reason == "timeout":
-        login.error = "시간이 지나 로그인이 취소됐어요. 다시 시도해 주세요."
+        login.error = "시간이 지나 로그인이 취소되었습니다. 다시 시도해 주십시오."
     proc = login.proc
     if proc and proc.poll() is None:
         try:
@@ -187,16 +187,16 @@ def _run(login: _Login, command: str) -> None:
         else:
             login.state = "error"
             login.error = (
-                "코드가 맞지 않거나 만료됐어요. 지금 로그인은 그대로예요. 다시 시도해 주세요."
+                "코드가 맞지 않거나 만료되었습니다. 지금 로그인은 그대로입니다. 다시 시도해 주십시오."
                 if failed
-                else "로그인이 끝나지 않았어요. 지금 로그인은 그대로예요. 다시 시도해 주세요."
+                else "로그인이 끝나지 않았습니다. 지금 로그인은 그대로입니다. 다시 시도해 주십시오."
             )
     except claude_accounts.AccountError as error:
         login.state = "error"
         login.error = str(error)
     except Exception:  # noqa: BLE001 — 스레드 안: 상태로 알린다 (비밀값이 섞이지 않게 내용은 빼고)
         login.state = "error"
-        login.error = "로그인을 진행하지 못했어요. 다시 시도해 주세요."
+        login.error = "로그인을 진행하지 못했습니다. 다시 시도해 주십시오."
     finally:
         timer.cancel()
         if login.folder is not None:
@@ -214,7 +214,7 @@ def start_login(add: bool = False) -> dict:
     """add=False: 지금 로그인을 다시 · add=True: 지금 로그인은 그대로 두고 다른 계정을 목록에 추가."""
     command = find_command("claude")
     if not command:
-        raise LoginError("claude 명령을 찾지 못했어요.")
+        raise LoginError("claude 명령을 찾지 못했습니다.")
     with _lock:
         for other in list(_logins.values()):  # 한 번에 하나만
             _stop(other, "cancel")
@@ -229,29 +229,29 @@ def start_login(add: bool = False) -> dict:
         time.sleep(0.1)
     if login.state == "starting":
         _stop(login, "cancel")
-        raise LoginError("로그인 링크를 받지 못했어요. 잠시 뒤 다시 시도해 주세요.")
+        raise LoginError("로그인 링크를 받지 못했습니다. 잠시 뒤 다시 시도해 주십시오.")
     return login.public()
 
 
 def status(login_id: str) -> dict:
     login = _logins.get(login_id)
     if not login:
-        raise KeyError("로그인 요청을 찾지 못했어요.")
+        raise KeyError("로그인 요청을 찾지 못했습니다.")
     return login.public()
 
 
 def submit_code(login_id: str, code: str) -> dict:
     login = _logins.get(login_id)
     if not login:
-        raise KeyError("로그인 요청을 찾지 못했어요.")
+        raise KeyError("로그인 요청을 찾지 못했습니다.")
     code = code.strip()
     if not _CODE.match(code):
         raise LoginError(
-            "코드 형식이 올바르지 않아요. 복사한 코드를 그대로 붙여 넣어 주세요."
+            "코드 형식이 올바르지 않습니다. 복사한 코드를 그대로 붙여 넣어 주십시오."
         )
     with _lock:
         if login.state != "waiting" or login.master is None:
-            raise LoginError("지금은 코드를 받을 수 없어요. 다시 시도해 주세요.")
+            raise LoginError("지금은 코드를 받을 수 없습니다. 다시 시도해 주십시오.")
         login.state = "verifying"
         os.write(login.master, code.encode() + b"\r")
     return login.public()

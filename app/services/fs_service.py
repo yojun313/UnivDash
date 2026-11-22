@@ -437,7 +437,7 @@ def write_file(path: str, content: str, expected_mtime_ns: int | None) -> dict:
     limit = settings_service.edit_max_bytes()
     if len(data) > limit:
         raise FsError(
-            f"{limit // (1024 * 1024)}MB 넘는 파일은 여기서 저장할 수 없습니다 (설정에서 늘릴 수 있어요)."
+            f"{limit // (1024 * 1024)}MB 넘는 파일은 여기서 저장할 수 없습니다 (설정에서 늘릴 수 있습니다)."
         )
     st = file.stat()
     if expected_mtime_ns is not None and st.st_mtime_ns != expected_mtime_ns:
@@ -587,7 +587,7 @@ def zip_folder(
                 if len(files) > ZIP_MAX_FILES:
                     raise FsError(f"파일이 너무 많습니다 (최대 {ZIP_MAX_FILES:,}개).")
             if report({"stage": "scan", "files": len(files)}):
-                raise FsError("압축을 취소했어요.")
+                raise FsError("압축을 취소했습니다.")
     total = 0
     chosen = []
     for file in files:
@@ -610,7 +610,7 @@ def zip_folder(
         total += st.st_size
         if total > ZIP_MAX_BYTES:
             raise FsError(
-                "폴더가 너무 큽니다 (최대 4GB). .gitignore 제외 옵션이나 하위 폴더로 받아 보세요."
+                "폴더가 너무 큽니다 (최대 4GB). .gitignore 제외 옵션이나 하위 폴더로 받아 보십시오."
             )
         chosen.append((file, st.st_size))
     state = {
@@ -629,7 +629,7 @@ def zip_folder(
         if now - last[0] >= 0.2:  # 너무 자주 알리지 않게
             last[0] = now
             if report(dict(state)):
-                raise FsError("압축을 취소했어요.")
+                raise FsError("압축을 취소했습니다.")
 
     temp_dir = Path.home() / ".univdash" / "cache" / "zip"
     temp_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -693,7 +693,7 @@ def git_clone(
     target = directory / valid_name(name or clone_name(url))
     if os.path.lexists(target):
         raise FsError(
-            f"'{target.name}' 이(가) 이미 있습니다. 다른 폴더 이름을 적어 주세요."
+            f"'{target.name}' 이(가) 이미 있습니다. 다른 폴더 이름을 적어 주십시오."
         )
     branch = (branch or "").strip()
     if branch and (
@@ -744,7 +744,7 @@ def git_clone(
             or "could not read Username" in result.stderr
             or "Permission denied" in result.stderr
         ):
-            detail = "인증이 필요합니다. 비공개 저장소는 서버에 SSH 키나 git 자격 증명을 설정한 뒤 git@… 주소로 받아 주세요."
+            detail = "인증이 필요합니다. 비공개 저장소는 서버에 SSH 키나 git 자격 증명을 설정한 뒤 git@… 주소로 받아 주십시오."
         raise FsError(f"clone 실패: {detail[:300]}")
     return {"path": str(target), "name": target.name}
 

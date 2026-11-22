@@ -72,6 +72,17 @@ CODEX_KEEP = {
 }
 
 
+# Gemini (Antigravity CLI · agy). --model · --effort 는 뺀다 (대화 중에 /model 로 바꿨을 수 있다).
+GEMINI_KEEP = {
+    "--dangerously-skip-permissions": 0,
+    "--add-dir": 1,
+    "--agent": 1,
+    "--mode": 1,
+    "--project": 1,
+    "--sandbox": 0,
+}
+
+
 def keep_flags(argv: list[str], keep: dict[str, int]) -> list[str]:
     out: list[str] = []
     index = 0
@@ -99,9 +110,9 @@ def _find(pane_id: str):
 
 def _agent_of(pane_id: str):
     window, pane = _find(pane_id)
-    agent = pane.command if pane.command in tmux_service.AGENTS else window.agent
+    agent = tmux_service.agent_of(pane.command) or window.agent
     if agent not in tmux_service.AGENTS:
-        raise ValueError("Claude Code · Codex 가 실행 중인 창이 아닙니다.")
+        raise ValueError("Claude Code · Codex · Gemini 가 실행 중인 창이 아닙니다.")
     proc = transcript_service._agent_process(pane.pid, agent)
     if proc is None:
         raise ValueError("에이전트 프로세스를 찾지 못했습니다.")
@@ -110,10 +121,10 @@ def _agent_of(pane_id: str):
 
 def _conversation_id(pane, agent: str) -> str:
     log = transcript_service.find_log(pane.pid, agent, os.path.expanduser(pane.path))
-    ids = _UUID.findall(log.name) if log else []
-    if not ids:
+    session_id = transcript_service.conversation_id(log)
+    if not session_id:
         raise ValueError("이어갈 대화(세션 ID)를 찾지 못했습니다.")
-    return ids[-1]
+    return session_id
 
 
 def fork_command(
@@ -126,18 +137,22 @@ def fork_command(
     """
     window, pane, agent, proc = _agent_of(pane_id)
     if target is not None and target not in LAUNCH:
-        raise ValueError("Claude 또는 Codex 만 켤 수 있어요.")
-    if target is not None and target != agent:
+        raise ValueError("Claude · Codex · Gemini 만 켤 수 있습니다.")
+    # Gemini(Antigravity CLI)는 대화를 복제해 켜는 옵션이 없어, 같은 Gemini 로 이어받을 때도 기록을 넘겨준다
+    if (target is not None and target != agent) or agent == "gemini":
+        target = target or agent
         cwd = os.path.expanduser(pane.path)
         log = transcript_service.find_log(pane.pid, agent, cwd)
         items = transcript_service.all_items(log, agent) if log else []
         if not any(item.get("kind") in {"user", "assistant"} for item in items):
-            raise ValueError("넘겨줄 대화 기록이 없어요.")
+            raise ValueError("넘겨줄 대화 기록이 없습니다.")
         handoff = _write_handoff(
             window.key, _handoff_markdown(items, agent, target, cwd, log)
         )
         prompt = _handoff_prompt(agent, handoff, same_folder=Path(cwd) == directory)
-        return target, shlex.join([*_launch_command(target, None, None), prompt])
+        return target, shlex.join(
+            [*_launch_command(target, None, None), *_first_prompt(target, prompt)]
+        )
     session_id = _conversation_id(pane, agent)
     try:
         argv = proc.cmdline()[1:]
@@ -163,10 +178,12 @@ def plan(pane_id: str) -> dict:
         raise ValueError("에이전트 프로세스 정보를 읽지 못했습니다.") from error
     if parent_name.lstrip("-") not in SHELLS:
         raise ValueError(
-            "셸에서 실행한 에이전트만 다시 켤 수 있어요 (종료하면 창이 닫히는 구조입니다)."
+            "셸에서 실행한 에이전트만 다시 켤 수 있습니다 (종료하면 창이 닫히는 구조입니다)."
         )
     session_id = _conversation_id(pane, agent)
-    if agent == "claude":
+    if agent == "gemini":
+        resume = _launch_command("gemini", session_id, keep_flags(argv, GEMINI_KEEP))
+    elif agent == "claude":
         resume = [
             "claude",
             *max_permission("claude", keep_flags(argv, CLAUDE_KEEP)),
@@ -187,7 +204,7 @@ def plan(pane_id: str) -> dict:
         "proc": proc,
         "session_id": session_id,
         "resume": shlex.join(resume),
-        "update": shlex.join([agent, "update"]),
+        "update": shlex.join([tmux_service.AGENT_BIN[agent], "update"]),
     }
 
 
@@ -211,13 +228,13 @@ def _stop(pane_id: str, proc: psutil.Process) -> None:
         tmux_service.send_keys(pane_id, ["C-d"])
         if not _gone(proc, 2.0):
             raise RuntimeError(
-                "에이전트가 종료되지 않았어요. 터미널 화면을 확인해 주세요."
+                "에이전트가 종료되지 않았습니다. 터미널 화면을 확인해 주십시오."
             )
     time.sleep(0.4)  # 셸 프롬프트가 다시 뜰 때까지
 
 
 BUSY_MESSAGE = (
-    "지금 작업 중이에요. 끝난 뒤에 다시 시도하세요 (종료하면 작업이 끊깁니다)."
+    "지금 작업 중입니다. 끝난 뒤에 다시 시도하십시오 (종료하면 작업이 끊깁니다)."
 )
 
 
@@ -226,7 +243,7 @@ def claude_project_dir(directory: Path) -> Path:
     slug = re.sub(r"[^A-Za-z0-9]", "-", str(directory))
     # Claude 는 긴 경로를 해시로 줄이는데 그 규칙은 따라 하지 않는다
     if len(slug) > 200:
-        raise ValueError("폴더 경로가 너무 길어 Claude 대화를 옮길 수 없어요.")
+        raise ValueError("폴더 경로가 너무 길어 Claude 대화를 옮길 수 없습니다.")
     root = transcript_service._data_root("CLAUDE_DATA_DIR", ".claude")
     return root / "projects" / slug
 
@@ -308,8 +325,10 @@ def restart(pane_id: str, update: bool = True, cwd: Path | None = None) -> dict:
 MAX_PERMISSION = {
     "claude": ["--dangerously-skip-permissions"],
     "codex": ["--sandbox", "danger-full-access", "--ask-for-approval", "never"],
+    "gemini": ["--dangerously-skip-permissions"],
 }
 _PERMISSION_FLAGS = {
+    "gemini": {"--dangerously-skip-permissions": 0, "--sandbox": 0},
     "claude": {
         "--permission-mode": 1,
         "--dangerously-skip-permissions": 0,
@@ -351,12 +370,13 @@ LAUNCH = {
         "--ask-for-approval",
         "never",
     ],
+    "gemini": ["agy", "--dangerously-skip-permissions"],
 }
 
 
 # 창(window key)마다 에이전트별 마지막 대화를 기억해 두고, 다시 그 에이전트로 바꾸면 그 대화를 이어서 켠다.
 _MEMORY_LOCK = threading.Lock()
-KEEP = {"claude": CLAUDE_KEEP, "codex": CODEX_KEEP}
+KEEP = {"claude": CLAUDE_KEEP, "codex": CODEX_KEEP, "gemini": GEMINI_KEEP}
 
 
 def _memory_file() -> Path:
@@ -402,6 +422,8 @@ def _remember(
 def _session_exists(agent: str, session_id: str) -> bool:
     if not _UUID.fullmatch(session_id or ""):
         return False
+    if agent == "gemini":
+        return transcript_service.gemini_log_path(session_id) is not None
     if agent == "claude":
         root = AIUsageService._data_root("CLAUDE_DATA_DIR", ".claude") / "projects"
         return any(root.glob(f"*/{session_id}.jsonl"))
@@ -414,19 +436,34 @@ def _open_session_ids() -> set[str]:
     found: set[str] = set()
     for window in tmux_service.list_windows(with_status=False):
         for pane in window.panes:
-            if pane.command not in tmux_service.AGENTS:
+            agent = tmux_service.agent_of(pane.command)
+            if agent is None:
                 continue
             log = transcript_service.find_log(
-                pane.pid, pane.command, os.path.expanduser(pane.path)
+                pane.pid, agent, os.path.expanduser(pane.path)
             )
-            ids = _UUID.findall(log.name) if log else []
-            if ids:
-                found.add(ids[-1])
+            session_id = transcript_service.conversation_id(log)
+            if session_id:
+                found.add(session_id)
     return found
 
 
 def _latest_in_folder(agent: str, cwd: str, skip: set[str]) -> str | None:
     """기억된 대화가 없을 때: 그 폴더의 가장 최근 대화."""
+    if agent == "gemini":
+        # Antigravity CLI 가 폴더마다 마지막 대화를 적어 둔다 (cache/last_conversations.json)
+        path = transcript_service.gemini_root() / "cache" / "last_conversations.json"
+        try:
+            last = json.loads(path.read_text(encoding="utf-8")).get(cwd)
+        except (OSError, ValueError, AttributeError):
+            return None
+        if (
+            isinstance(last, str)
+            and last not in skip
+            and transcript_service.gemini_log_path(last) is not None
+        ):
+            return last
+        return None
     if agent == "claude":
         root = AIUsageService._data_root("CLAUDE_DATA_DIR", ".claude") / "projects"
         folder = root / re.sub(r"[^A-Za-z0-9]", "-", cwd)
@@ -469,11 +506,23 @@ def _launch_command(
     agent: str, session_id: str | None, flags: list[str] | None
 ) -> list[str]:
     flags = max_permission(agent, LAUNCH[agent][1:] if flags is None else flags)
+    binary = tmux_service.AGENT_BIN[agent]
     if not session_id:
-        return [agent, *flags]
+        return [binary, *flags]
+    if agent == "gemini":
+        return [binary, *flags, "--conversation", session_id]
     if agent == "claude":
         return ["claude", *flags, "--resume", session_id]
     return ["codex", "resume", session_id, *flags]
+
+
+def _first_prompt(agent: str, prompt: str) -> list[str]:
+    """켜면서 바로 보낼 첫 프롬프트의 명령줄 인자.
+
+    Claude · Codex 는 명령 뒤에 그대로 붙이고, Gemini(Antigravity CLI)는 -i 로 넘겨야 한다
+    (그냥 붙이면 실행되지 않고 끝난다).
+    """
+    return ["-i", prompt] if agent == "gemini" else [prompt]
 
 
 # ── 대화 넘기기: 지금 에이전트의 대화 기록을 파일로 만들어 다른 에이전트가 읽고 이어 가게 한다 ──
@@ -484,7 +533,7 @@ HANDOFF_LIMIT = (
 HANDOFF_FULL = 120_000  # 최근 대화는 이만큼 그대로 싣고, 그 앞은 줄인다
 HANDOFF_TOOLS = 6  # 이어진 도구 호출 중 요약을 적는 개수 (마지막 몇 개)
 HANDOFF_SUMMARY = 160
-AGENT_LABEL = {"claude": "Claude", "codex": "Codex"}
+AGENT_LABEL = {"claude": "Claude", "codex": "Codex", "gemini": "Gemini"}
 
 
 def _handoff_dir() -> Path:
@@ -633,10 +682,10 @@ def switch_agent(pane_id: str, target: str, carry: bool = False) -> dict:
     carry 면 지금 대화 기록 전체를 인계 파일로 만들고, target 을 새 대화로 켜서 그 파일을 읽고 이어 가게 한다.
     """
     if target not in LAUNCH:
-        raise ValueError("Claude 또는 Codex 만 켤 수 있어요.")
+        raise ValueError("Claude · Codex · Gemini 만 켤 수 있습니다.")
     window, pane = _find(pane_id)
     cwd = os.path.expanduser(pane.path)
-    current = pane.command if pane.command in tmux_service.AGENTS else None
+    current = tmux_service.agent_of(pane.command)
     if current is None and pane.command.lstrip("-") not in SHELLS:
         # 다른 프로그램(vim 등)이 돌고 있거나, 에이전트가 이 pane 이 아닌 곳에서 도는 경우
         agent_proc = (
@@ -646,13 +695,11 @@ def switch_agent(pane_id: str, target: str, carry: bool = False) -> dict:
         )
         if agent_proc is None:
             raise ValueError(
-                f"이 창은 셸 프롬프트가 아니에요 (지금 실행 중: {pane.command}). 터미널을 확인해 주세요."
+                f"이 창은 셸 프롬프트가 아닙니다 (지금 실행 중: {pane.command}). 터미널을 확인해 주십시오."
             )
         current = window.agent
     if current == target:
-        raise ValueError(
-            f"이미 {'Codex' if target == 'codex' else 'Claude'} 가 켜져 있어요."
-        )
+        raise ValueError(f"이미 {AGENT_LABEL[target]} 가 켜져 있습니다.")
     if current:
         if window.status == "busy":
             raise ValueError(BUSY_MESSAGE)
@@ -667,27 +714,27 @@ def switch_agent(pane_id: str, target: str, carry: bool = False) -> dict:
             raise ValueError("에이전트 프로세스 정보를 읽지 못했습니다.") from error
         if parent_name.lstrip("-") not in SHELLS:
             raise ValueError(
-                "셸에서 실행한 에이전트만 바꿀 수 있어요 (종료하면 창이 닫히는 구조입니다)."
+                "셸에서 실행한 에이전트만 바꿀 수 있습니다 (종료하면 창이 닫히는 구조입니다)."
             )
         # 끄기 전에 지금 대화를 기억 (다시 이 에이전트로 바꾸면 이어진다)
         log = transcript_service.find_log(pane.pid, current, cwd)
-        ids = _UUID.findall(log.name) if log else []
-        if ids:
+        current_id = transcript_service.conversation_id(log)
+        if current_id:
             _remember(
-                window.key, current, ids[-1], keep_flags(argv, KEEP[current]), cwd
+                window.key, current, current_id, keep_flags(argv, KEEP[current]), cwd
             )
         if carry:
             # 끄기 전에 기록을 만든다 (못 만들면 끄지 않는다)
             items = transcript_service.all_items(log, current) if log else []
             if not any(item.get("kind") in {"user", "assistant"} for item in items):
-                raise ValueError("넘겨줄 대화 기록이 없어요.")
+                raise ValueError("넘겨줄 대화 기록이 없습니다.")
             handoff = _write_handoff(
                 window.key, _handoff_markdown(items, current, target, cwd, log)
             )
         _stop(pane_id, proc)
     else:
         if carry:
-            raise ValueError("넘겨줄 대화가 없어요 (지금 켜진 에이전트가 없어요).")
+            raise ValueError("넘겨줄 대화가 없습니다 (지금 켜진 에이전트가 없습니다).")
         tmux_service.send_keys(pane_id, ["C-u"])  # 셸에 쓰다 만 명령이 있으면 지운다
         time.sleep(0.1)
     # 이어갈 대화: 이 창에서 하던 대화 → 그 폴더의 최근 대화 → 새 대화
@@ -702,7 +749,10 @@ def switch_agent(pane_id: str, target: str, carry: bool = False) -> dict:
             else None
         )
         command = shlex.join(
-            [*_launch_command(target, None, flags), _handoff_prompt(current, handoff)]
+            [
+                *_launch_command(target, None, flags),
+                *_first_prompt(target, _handoff_prompt(current, handoff)),
+            ]
         )
         tmux_service.send_literal(pane_id, command)
         tmux_service.send_keys(pane_id, ["Enter"])
@@ -822,7 +872,7 @@ def relaunch_codex(after_stop=None) -> dict:
     busy = [window.key for window, _ in targets if window.status == "busy"]
     if busy:
         raise ValueError(
-            f"Codex 가 작업 중인 창이 있어요 ({', '.join(busy)}). 끝난 뒤에 다시 시도하세요."
+            f"Codex 가 작업 중인 창이 있습니다 ({', '.join(busy)}). 끝난 뒤에 다시 시도하십시오."
         )
     home = AIUsageService._data_root("CODEX_DATA_DIR", ".codex").resolve()
     plans, skipped = [], []
@@ -916,14 +966,37 @@ def _answer_codex_trust(pane_id: str, lines: list[str]) -> str | None:
     return None
 
 
+def _answer_gemini_trust(pane_id: str, lines: list[str]) -> str | None:
+    """Antigravity CLI: "Do you trust the contents of this project?" + "> Yes, I trust this folder / No, exit"
+
+    + 아래쪽 "↑/↓ Navigate · enter Confirm" (그 아래 줄에는 모델 이름이 있다).
+    """
+    bottom = [line for line in lines if line.strip()][-16:]
+    yes = _option_line(bottom, "Yes, I trust this folder")
+    if (
+        yes
+        and _option_line(bottom, "No, exit")
+        and any("Do you trust the contents" in line for line in bottom)
+        and any("enter Confirm" in line for line in bottom[-2:])
+    ):
+        key = "Enter" if _CURSOR.match(yes) else "Up"
+        tmux_service.send_keys(pane_id, [key])
+        return f"gemini-trust:{key}"
+    return None
+
+
 def _trust_waiting_codex() -> None:
     for window in tmux_service.cached_windows():
-        if window.agent != "codex" or window.status != "waiting":
+        if window.agent not in {"codex", "gemini"} or window.status != "waiting":
             continue
         pane = next((p for p in window.panes if p.active), None)
         if pane is None:
             continue
         lines = _screen_lines(pane.id)
+        if window.agent == "gemini":
+            if _answer_gemini_trust(pane.id, lines):
+                logger.info("Gemini 폴더 신뢰 질문 자동 수락: %s", window.key)
+            continue
         if _answer_codex_trust(pane.id, lines):
             logger.info("Codex 폴더 신뢰 질문 자동 수락: %s", window.key)
         elif _answer_codex_cwd(pane.id, lines, only_if_gone=True):
@@ -1018,7 +1091,9 @@ def _answer_once(pane_id: str, lines: list[str]) -> str | None:
         key = "Enter" if _CURSOR.match(yes) else "Down"
         tmux_service.send_keys(pane_id, [key])
         return f"claude-bypass:{key}"
-    answered = _answer_codex_trust(pane_id, lines)
+    answered = _answer_codex_trust(pane_id, lines) or _answer_gemini_trust(
+        pane_id, lines
+    )
     if answered:
         return answered
     if update_prompt_version(lines) is not None:
@@ -1059,7 +1134,10 @@ def _ready(lines: list[str], agent: str | None) -> bool:
     Claude: 아래쪽에 입력칸 위아래 구분선(────)이 두 줄. Codex: "› …" 입력줄과 "? for shortcuts" 안내.
     """
     bottom = _bottom(lines, 6)
-    if agent == "claude":
+    if agent in {
+        "claude",
+        "gemini",
+    }:  # Antigravity CLI 도 입력칸 위아래에 구분선이 있다
         return sum(1 for line in bottom if re.match(r"^\s*─{20,}\s*$", line)) >= 2
     if agent == "codex":  # 창이 좁으면 "? for shortcuts" 가 잘린다
         return tmux_service.has_input_box(lines, "codex")
@@ -1124,7 +1202,8 @@ def watch_startup(
                 continue
             fresh = _bottom(lines) != initial_bottom
             if fresh and _ready(lines, agent) and (agent or answered):
-                if ask_model and agent in tmux_service.AGENTS:
+                # Gemini(Antigravity CLI)의 모델 선택 창은 번호가 없어 채팅 카드로 옮기지 못한다 → 모델 버튼에서 고른다
+                if ask_model and agent in tmux_service.AGENTS and agent != "gemini":
                     time.sleep(0.5)
                     _send_model_command(pane_id, agent)
                 return

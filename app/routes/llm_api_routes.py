@@ -559,11 +559,11 @@ async def sync_sandbox() -> None:
 # ── 관리 ──────────────────────────────────────────────────────────────────────
 def _bad(error: Exception):
     if isinstance(error, KeyError):
-        raise HTTPException(status_code=404, detail="없는 항목이에요.") from error
+        raise HTTPException(status_code=404, detail="없는 항목입니다.") from error
     if isinstance(error, ApiError):
         raise HTTPException(
             status_code=400,
-            detail="모델 이름이 올바르지 않아요 (예: claude, claude/sonnet, codex).",
+            detail="모델 이름이 올바르지 않습니다 (예: claude, claude/sonnet, codex).",
         ) from error
     raise HTTPException(
         status_code=400, detail=str(error) or "잘못된 요청입니다."
@@ -667,7 +667,7 @@ async def llm_log_item(request_id: str):
     """요청 하나의 받은 메시지 · 보낸 답변 (관리자만)."""
     data = await asyncio.to_thread(llm.request_content, request_id[:16])
     if data is None:
-        raise HTTPException(status_code=404, detail="기록을 찾을 수 없어요.")
+        raise HTTPException(status_code=404, detail="기록을 찾을 수 없습니다.")
     return data
 
 

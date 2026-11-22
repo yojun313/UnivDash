@@ -162,7 +162,7 @@ def create(
     chat 이면 그 창의 에이전트(Claude · Codex) 대화 기록 전체도 채팅으로 보여 준다.
     """
     if history not in HISTORY_CHOICES:
-        raise ValueError("스크롤백 범위가 올바르지 않아요.")
+        raise ValueError("스크롤백 범위가 올바르지 않습니다.")
     minutes = max(MINUTES_MIN, min(MINUTES_MAX, int(minutes)))
     server = _pane_server(pane_id)
     now = time.time()
@@ -184,7 +184,7 @@ def create(
         alive = {h: s for h, s in _load().items() if _alive(s, now)}
         if len(alive) >= MAX_ACTIVE:
             raise ValueError(
-                f"화면 공유가 너무 많아요 (최대 {MAX_ACTIVE}개). 안 쓰는 공유를 끊어 주세요."
+                f"화면 공유가 너무 많습니다 (최대 {MAX_ACTIVE}개). 안 쓰는 공유를 끊어 주십시오."
             )
         alive[_hash(token)] = share
         _save(alive)
@@ -381,7 +381,7 @@ def _agent_log(pane_id: str) -> tuple[Path | None, str | None]:
     else:
         return None, None
     window, pane = target
-    agent = pane.command if pane.command in tmux_service.AGENTS else window.agent
+    agent = tmux_service.agent_of(pane.command) or window.agent
     if agent not in tmux_service.AGENTS:
         return None, None
     path = transcript_service.find_log(pane.pid, agent, os.path.expanduser(pane.path))

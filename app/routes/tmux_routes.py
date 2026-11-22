@@ -90,7 +90,7 @@ class CreateSessionRequest(BaseModel):
     command: str = Field(default="", max_length=500)
     fork_pane: str | None = Field(default=None, max_length=32)
     # 이어받아 켤 에이전트 (원본과 다르면 대화 기록을 인계 파일로 넘긴다)
-    fork_agent: Literal["claude", "codex"] | None = None
+    fork_agent: Literal["claude", "codex", "gemini"] | None = None
 
 
 class NavigationOrderRequest(BaseModel):
@@ -129,8 +129,8 @@ async def api_create_session(body: CreateSessionRequest):
     logger.info(
         "세션 생성 · %s%s", body.name, " (대화 이어받기)" if body.fork_pane else ""
     )
-    agent = command.strip().split(" ")[0]
-    if agent in tmux_service.AGENTS:
+    agent = tmux_service.agent_of(command.strip().split(" ")[0])
+    if agent:
         # 신뢰 · 권한 질문에 자동으로 "예". 대화를 시작한 폴더와 달라도 지금 폴더에서 이어간다
         agent_restart.watch_startup(pane, agent=agent, current_dir=bool(body.fork_pane))
     return {"pane": pane}
@@ -147,9 +147,7 @@ async def _resolve_log(pane: str):
     if target is None:
         raise KeyError("존재하지 않는 pane 입니다.")
     window, pane_info = target
-    agent = (
-        pane_info.command if pane_info.command in tmux_service.AGENTS else window.agent
-    )
+    agent = tmux_service.agent_of(pane_info.command) or window.agent
     cwd = os.path.expanduser(pane_info.path)
     path = await asyncio.to_thread(
         transcript_service.find_log, pane_info.pid, agent, cwd
@@ -172,8 +170,14 @@ async def api_agent_model(pane: str):
     )
     # Codex 는 화면 아래에 지금 모델을 늘 보여 준다 ("GPT-6-Luna low · ~") — 세션만 바꾼 모델까지 가장 정확하다.
     # Claude 는 답변이 아직 없으면 기록에 모델이 없으므로 기본 설정(settings.json)의 모델을 보여 준다.
-    if agent == "codex":
-        shown = await asyncio.to_thread(tmux_service.codex_footer_model, pane)
+    # Gemini(Antigravity CLI)도 화면 맨 아래에 "Gemini 3.8 Flash · low" 로 보여 준다.
+    if agent in {"codex", "gemini"}:
+        footer = (
+            tmux_service.codex_footer_model
+            if agent == "codex"
+            else tmux_service.gemini_footer_model
+        )
+        shown = await asyncio.to_thread(footer, pane)
         if shown:
             status["model"] = shown
     elif agent == "claude" and not status.get("model"):
@@ -181,6 +185,16 @@ async def api_agent_model(pane: str):
             transcript_service.claude_default_model
         )
     return {"agent": agent, **status}
+
+
+@router.get("/api/agent/models", dependencies=api_auth)
+async def api_agent_models(agent: str):
+    """모델 버튼에 보여 줄 모델 목록. Gemini(Antigravity CLI)만: 그쪽 선택 창은 번호가 없어 목록에서 고르게 한다."""
+    if agent != "gemini":
+        raise HTTPException(status_code=404, detail="모델 목록이 없습니다.")
+    from app.services import gemini_service
+
+    return {"agent": agent, "models": await asyncio.to_thread(gemini_service.models)}
 
 
 class AgentRestartRequest(BaseModel):
@@ -212,6 +226,7 @@ async def api_agent_restart(body: AgentRestartRequest):
 class AgentUpdateAllRequest(BaseModel):
     claude: bool = True
     codex: bool = True
+    gemini: bool = True
 
 
 @router.post("/api/agent/update-all", dependencies=api_auth)
@@ -219,16 +234,21 @@ async def api_agent_update_all(body: AgentUpdateAllRequest):
     """모든 에이전트 창을 업데이트하고 같은 대화로 다시 켠다 (백그라운드, 작업 중인 창은 끝난 뒤)."""
     from app.services import agent_update_all
 
-    if not (body.claude or body.codex):
-        raise HTTPException(status_code=422, detail="업데이트할 에이전트를 고르세요.")
+    if not (body.claude or body.codex or body.gemini):
+        raise HTTPException(
+            status_code=422, detail="업데이트할 에이전트를 선택하십시오."
+        )
     try:
         result = await asyncio.to_thread(
-            agent_update_all.start, body.claude, body.codex
+            agent_update_all.start, body.claude, body.codex, body.gemini
         )
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     logger.info(
-        "모든 에이전트 업데이트 시작 · claude=%s · codex=%s", body.claude, body.codex
+        "모든 에이전트 업데이트 시작 · claude=%s · codex=%s · gemini=%s",
+        body.claude,
+        body.codex,
+        body.gemini,
     )
     return result
 
@@ -242,7 +262,7 @@ async def api_agent_update_all_status():
 
 class AgentSwitchRequest(BaseModel):
     pane: str = Field(min_length=2, max_length=16)
-    to: str = Field(pattern=r"^(claude|codex)$")
+    to: str = Field(pattern=r"^(claude|codex|gemini)$")
     carry: bool = False
 
 
@@ -328,7 +348,7 @@ async def api_transcript_image(name: str):
     """채팅에 사용자가 첨부한 그림 (대화 기록에서 꺼내 둔 캐시 · 이름은 내용 해시)."""
     path = transcript_service.image_path(name)
     if path is None:
-        raise HTTPException(status_code=404, detail="그림을 찾을 수 없어요.")
+        raise HTTPException(status_code=404, detail="그림을 찾을 수 없습니다.")
     ext = name.rsplit(".", 1)[-1]
     media = {"jpg": "image/jpeg"}.get(ext, f"image/{ext}")
     return FileResponse(

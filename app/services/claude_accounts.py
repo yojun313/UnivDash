@@ -467,7 +467,7 @@ def _install(record: dict) -> None:
     text = live.read_text(encoding="utf-8") if live.exists() else None
     credentials = _read_json(live) if text is not None else {}
     if text is not None and credentials is None:
-        raise AccountError("로그인 파일을 읽지 못해 바꾸지 않았어요.")
+        raise AccountError("로그인 파일을 읽지 못해 바꾸지 않았습니다.")
     cfg_path = config_file()
     config = _read_json(cfg_path)
     _backup(text, (config or {}).get("oauthAccount"))
@@ -542,7 +542,7 @@ def switch(account_id: str) -> dict:
             and refresh_until / 1000 < time.time()
         ):
             raise AccountError(
-                "이 계정은 저장된 로그인이 만료됐어요. 계정 추가로 다시 로그인해 주세요."
+                "이 계정은 저장된 로그인이 만료됐습니다. 계정 추가로 다시 로그인해 주십시오."
             )
         has_login = _oauth(_read_json(live_file())) is not None
         active = (
@@ -550,7 +550,7 @@ def switch(account_id: str) -> dict:
         )  # 지금 계정의 최신 토큰을 먼저 저장 (잃으면 그 계정이 로그아웃된다)
         if has_login and active is None:
             raise AccountError(
-                "지금 로그인된 Claude 계정을 확인하지 못해 바꾸지 않았어요 (인터넷 연결을 확인하고 잠시 뒤 다시 시도해 주세요)."
+                "지금 로그인된 Claude 계정을 확인하지 못해 바꾸지 않았습니다 (인터넷 연결을 확인하고 잠시 뒤 다시 시도해 주십시오)."
             )
         if active == account_id:
             return {"email": record.get("email"), "changed": False}
@@ -565,7 +565,7 @@ def remove(account_id: str) -> None:
         path = _profile_path(account_id)
         if account_id == sync_current():
             raise AccountError(
-                "지금 쓰고 있는 계정은 지울 수 없어요. 다른 계정으로 바꾼 뒤 지워 주세요."
+                "지금 쓰고 있는 계정은 지울 수 없습니다. 다른 계정으로 바꾼 뒤 지워 주십시오."
             )
         if not path.exists():
             raise KeyError("없는 계정입니다.")
@@ -577,11 +577,13 @@ def store_login(folder: Path) -> dict:
     with _lock:
         oauth = _oauth(_read_json(folder / ".credentials.json"))
         if not oauth:
-            raise AccountError("로그인 정보를 찾지 못했어요. 다시 시도해 주세요.")
+            raise AccountError("로그인 정보를 찾지 못했습니다. 다시 시도해 주십시오.")
         config = _read_json(folder / ".claude.json")
         ident = _fetch_profile(oauth["accessToken"]) or _from_config(config)
         if not ident:
-            raise AccountError("로그인한 계정을 확인하지 못했어요. 다시 시도해 주세요.")
+            raise AccountError(
+                "로그인한 계정을 확인하지 못했습니다. 다시 시도해 주십시오."
+            )
         account_id = _save(oauth, ident, _snapshot(config, ident), force=True)
         active = sync_current()
         return {
@@ -604,3 +606,55 @@ def cleanup_pending() -> None:
     """서버가 로그인 도중 꺼져 남은 임시 폴더를 지운다."""
     for folder in (_store() / "pending").iterdir():
         discard(folder)
+
+
+# ── 로그아웃: 지금 로그인을 지우고, 보관해 둔 그 계정 정보도 지운다 ─────────────────────
+
+
+def _purge_backups() -> None:
+    for old in (_store() / "backups").glob("*.json"):
+        old.unlink(missing_ok=True)
+
+
+def logout() -> dict:
+    """공식 `claude auth logout` 으로 로그아웃하고, 대시보드에 저장한 그 계정의 로그인 정보 · 백업을 지운다.
+
+    실행 중인 Claude Code 창도 같은 로그인을 쓰므로 함께 로그아웃된다.
+    """
+    import subprocess
+
+    from app.paths import find_command
+    from app.services import claude_login
+
+    command = find_command("claude")
+    if not command:
+        raise AccountError("claude 명령을 찾지 못했습니다.")
+    with _lock:
+        _guard.update(
+            target=None
+        )  # 계정 바꾸기 직후의 되돌리기 감시가 다시 로그인시키지 않게
+        active = sync_current()
+        email = (
+            (_read_json(_profile_path(active)) or {}).get("email") if active else None
+        )
+        if not _oauth(_read_json(live_file())):
+            raise AccountError("로그인된 계정이 없습니다.")
+    try:
+        subprocess.run(
+            [command, "auth", "logout"],
+            env=claude_login._child_env(),
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            timeout=60,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise AccountError("로그아웃 명령을 실행하지 못했습니다.") from error
+    with _lock:
+        if _oauth(_read_json(live_file())):
+            raise AccountError("로그아웃하지 못했습니다. 터미널에서 확인해 주십시오.")
+        if active:
+            _profile_path(active).unlink(missing_ok=True)
+        _purge_backups()
+    _invalidate_usage_cache()
+    return {"email": email}

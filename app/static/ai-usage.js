@@ -31,7 +31,7 @@
           <p class="text-xs font-bold text-white/70">${escapeHtml(window.label)} (5시간)</p>
           <p class="font-mono text-sm font-bold text-emerald-300">제한 없음</p>
         </div>
-        <p class="mt-1.5 text-[10px] text-white/40">이 계정은 지금 5시간 한도가 적용되지 않아요. 주간 한도만 있어요.</p>
+        <p class="mt-1.5 text-[10px] text-white/40">이 계정은 지금 5시간 한도가 적용되지 않습니다. 주간 한도만 있습니다.</p>
       </div>`;
     }
     const color = levelColor(window.remaining_percent);
@@ -56,17 +56,22 @@
 
   const canRelogin = (provider) => (provider.id === 'claude' && !provider.saved) || (provider.id === 'codex' && !provider.account?.startsWith('계정 미확인'));
   // 저장된(지금 로그인되지 않은) Claude 계정은 한도 카드만: 지금 Claude 카드 바로 뒤에 붙인다
-  function limitCards(providers, savedClaude) {
-    const claude = providers.find((p) => p.id === 'claude');
-    const saved = savedClaude.map((a) => ({
-      id: 'claude', saved: true, accountId: a.id, name: 'Claude Code', account: a.email,
-      accent: claude?.accent || '#d97757', limits: a.limits, login_expired: a.login_expired, active: false,
-    }));
-    const index = providers.findIndex((p) => p.id === 'claude');
-    return index < 0 ? [...providers, ...saved] : [...providers.slice(0, index + 1), ...saved, ...providers.slice(index + 1)];
+  // Gemini 도 같다 (지금 Gemini 카드 바로 뒤).
+  function limitCards(providers, savedClaude, savedGemini = []) {
+    let cards = [...providers];
+    for (const [id, name, accent, list] of [['claude', 'Claude Code', '#d97757', savedClaude], ['gemini', 'Gemini', '#4285f4', savedGemini]]) {
+      const current = cards.find((p) => p.id === id && !p.saved);
+      const saved = list.map((a) => ({
+        id, saved: true, accountId: a.id, name, account: a.email,
+        accent: current?.accent || accent, limits: a.limits, login_expired: a.login_expired, active: false,
+      }));
+      const index = cards.findIndex((p) => p.id === id);
+      cards = index < 0 ? [...cards, ...saved] : [...cards.slice(0, index + 1), ...saved, ...cards.slice(index + 1)];
+    }
+    return cards;
   }
-  function renderLimits(providers, savedClaude = []) {
-    $('aiLimits').innerHTML = limitCards(providers, savedClaude).map((provider) => {
+  function renderLimits(providers, savedClaude = [], savedGemini = []) {
+    $('aiLimits').innerHTML = limitCards(providers, savedClaude, savedGemini).map((provider) => {
       const limits = provider.limits;
       const windows = limits?.windows || [];
       const breakdown = (limits?.breakdown || []).filter((row) => row.percent > 0);
@@ -75,14 +80,15 @@
         <article class="glass rounded-2xl p-5 shadow-xl">
           <div class="mb-4 flex items-start justify-between gap-3">
             <div class="flex items-center gap-2.5">
-              <span class="flex h-9 w-9 items-center justify-center rounded-xl text-white" style="background:${provider.accent}"><i class="fas ${provider.id === 'claude' ? 'fa-asterisk' : 'fa-terminal'} text-sm"></i></span>
+              <span class="flex h-9 w-9 items-center justify-center rounded-xl text-white" style="background:${provider.accent}"><i class="fas ${{ claude: 'fa-asterisk', gemini: 'fa-gem' }[provider.id] || 'fa-terminal'} text-sm"></i></span>
               <div>
                 <h3 class="font-bold text-white/90">${escapeHtml(provider.name)}</h3>
                 ${provider.account ? `<p class="ai-account text-[11px] font-semibold text-white/60 break-all"><i class="far fa-user text-[9px] mr-1 opacity-70"></i>${escapeHtml(provider.account)}</p>` : '<p class="text-[11px] text-white/35">로그인 계정 정보 없음</p>'}
                 <div class="ai-account-actions">
                   ${provider.id === 'codex' && provider.active !== false ? '<button type="button" class="ai-accounts-btn" data-codex-accounts><i class="fas fa-right-left"></i> 계정 전환 · 추가</button>' : ''}
                   ${provider.id === 'claude' && !provider.saved ? '<button type="button" class="ai-accounts-btn" data-claude-accounts><i class="fas fa-right-left"></i> 계정 전환 · 추가</button>' : ''}
-                  ${provider.saved && !provider.login_expired ? `<button type="button" class="ai-accounts-btn" data-claude-switch="${escapeHtml(provider.accountId)}" data-email="${escapeHtml(provider.account || '')}"><i class="fas fa-right-left"></i> 이 계정으로 바꾸기</button>` : ''}
+                  ${provider.id === 'gemini' && !provider.saved ? '<button type="button" class="ai-accounts-btn" data-gemini-accounts><i class="fas fa-right-left"></i> 계정 전환 · 추가</button>' : ''}
+                  ${provider.saved && !provider.login_expired ? `<button type="button" class="ai-accounts-btn" data-provider="${provider.id}" data-claude-switch="${escapeHtml(provider.accountId)}" data-email="${escapeHtml(provider.account || '')}"><i class="fas fa-right-left"></i> 이 계정으로 바꾸기</button>` : ''}
                   ${canRelogin(provider) ? `<button type="button" class="ai-accounts-btn" data-relogin="${provider.id}" data-email="${escapeHtml(provider.account || '')}"><i class="fas fa-right-to-bracket"></i> 다시 로그인</button>` : ''}
                 </div>
                 ${provider.active ? '<p class="text-[10px] font-bold text-emerald-400">현재 사용 중</p>' : ''}
@@ -93,16 +99,16 @@
           </div>
           ${provider.saved && provider.login_expired ? `
             <div class="ai-login-alert">
-              <p><i class="fas fa-triangle-exclamation"></i> 저장된 로그인이 만료됐어요.</p>
-              <button type="button" class="btn-glow" data-claude-accounts>계정 추가로 다시 로그인</button>
+              <p><i class="fas fa-triangle-exclamation"></i> 저장된 로그인이 만료됐습니다.</p>
+              <button type="button" class="btn-glow" ${provider.id === 'gemini' ? 'data-gemini-accounts' : 'data-claude-accounts'}>계정 추가로 다시 로그인</button>
             </div>` : provider.login_expired ? `
             <div class="ai-login-alert">
-              <p><i class="fas fa-triangle-exclamation"></i> 로그인이 만료됐어요.</p>
+              <p><i class="fas fa-triangle-exclamation"></i> 로그인이 만료됐습니다.</p>
               <button type="button" class="btn-glow" data-relogin="${provider.id}" data-email="${escapeHtml(provider.account || '')}">다시 로그인</button>
             </div>` : ''}
           ${windows.length ? `<div class="space-y-2.5">${windows.map(renderWindow).join('')}</div>` : provider.login_expired ? '' : `
             <div class="rounded-xl border border-dashed border-white/15 p-4 text-center text-xs text-white/40">
-              ${provider.saved ? '이 계정의 한도를 불러오지 못했어요. 잠시 뒤 새로 고쳐 보세요.' : provider.id === 'claude' && provider.login_stale && !provider.login_expired ? '한도를 읽지 못했어요. 로그인 기한이 지났어요. Claude Code 를 실행하면 대개 자동으로 이어지고, 안 되면 다시 로그인하세요.' : provider.id === 'claude' ? '사용량 서버가 잠시 조회를 막았어요 (요청이 몰리면 생겨요). 잠시 뒤 다시 불러와요.' : provider.account?.startsWith('계정 미확인') ? '이전 기록에는 계정 정보가 없어 한도를 연결할 수 없습니다.' : '이 계정의 한도 정보를 불러오지 못했습니다.'}
+              ${provider.saved ? '이 계정의 한도를 불러오지 못했습니다. 잠시 뒤 새로 고쳐 보십시오.' : provider.id === 'claude' && provider.login_stale && !provider.login_expired ? '한도를 읽지 못했습니다. 로그인 기한이 지났습니다. Claude Code 를 실행하면 대개 자동으로 이어지고, 안 되면 다시 로그인하십시오.' : provider.id === 'claude' ? '사용량 서버가 잠시 조회를 막았습니다 (요청이 몰리면 발생합니다). 잠시 뒤 다시 불러옵니다.' : provider.account?.startsWith('계정 미확인') ? '이전 기록에는 계정 정보가 없어 한도를 연결할 수 없습니다.' : '이 계정의 한도 정보를 불러오지 못했습니다.'}
             </div>`}
           ${breakdown.length ? `
             <div class="mt-4 border-t border-white/10 pt-3">
@@ -151,7 +157,7 @@
       ['출력', (p) => formatNumber(p.output_tokens)],
       ['캐시 읽기', (p) => formatNumber(p.cache_read_tokens)],
       ['캐시 쓰기', (p) => (p.id === 'claude' ? formatNumber(p.cache_write_tokens) : '—')],
-      ['추론 토큰', (p) => (p.id === 'codex' ? formatNumber(p.reasoning_tokens) : '—')],
+      ['추론 토큰', (p) => (p.id === 'codex' || p.id === 'gemini' ? formatNumber(p.reasoning_tokens) : '—')],
       ['캐시 적중률', (p) => percent(p.cache_hit_rate)],
       ['요청 수', (p) => formatNumber(p.requests)],
       ['세션 수', (p) => formatNumber(p.sessions)],
@@ -180,7 +186,9 @@
 
   function renderComposition(providers) {
     $('aiComposition').innerHTML = providers.map((p) => {
-      const parts = p.id === 'claude'
+      const parts = p.id === 'gemini'
+        ? [['입력', p.input_tokens, '#60a5fa'], ['출력', p.output_tokens, '#f472b6'], ['캐시 읽기', p.cache_read_tokens, '#34d399']]
+        : p.id === 'claude'
         ? [['입력', p.input_tokens, '#60a5fa'], ['출력', p.output_tokens, '#f472b6'], ['캐시 읽기', p.cache_read_tokens, '#34d399'], ['캐시 쓰기', p.cache_write_tokens, '#fbbf24']]
         : [['입력(비캐시)', Math.max(p.input_tokens - p.cache_read_tokens, 0), '#60a5fa'], ['출력', p.output_tokens, '#f472b6'], ['캐시 입력', p.cache_read_tokens, '#34d399']];
       const total = parts.reduce((sum, part) => sum + part[1], 0) || 1;
@@ -282,7 +290,7 @@
     const data = state.data;
     if (!data) return;
     const providers = data.providers;
-    renderLimits(providers, data.claude_accounts || []);
+    renderLimits(providers, data.claude_accounts || [], data.gemini_accounts || []);
     renderKpis(providers);
     renderCompare(providers);
     renderComposition(providers);
@@ -341,45 +349,44 @@
     try {
       [data, auto] = await Promise.all([api('/api/accounts/codex'), api('/api/accounts/codex/auto-switch')]);
     } catch (error) { toast(error.message, 'error'); return; }
-    const others = data.accounts.filter((a) => !a.active);
     ui().actionSheet({
       title: 'Codex 계정',
-      subtitle: '고르면 그 계정으로 바뀌어요. 새로 여는 Codex 세션부터 적용돼요.',
+      subtitle: '고르면 그 계정으로 바뀝니다. 새로 여는 Codex 세션부터 적용됩니다.',
       actions: [
         ...data.accounts.map((a) => ({
           icon: 'fa-user', label: a.email, current: a.active, sub: a.active ? '사용 중' : '',
           desc: [planName(a.plan), a.active ? '지금 로그인된 계정' : `저장 ${relativeTime(new Date(a.saved_at * 1000).toISOString())}`].filter(Boolean).join(' · '),
           onClick: () => { if (!a.active) switchCodex(a); },
+          side: logoutSide('codex', 'Codex', a),
         })),
         ...(data.accounts.length ? ['sep'] : []),
         {
           icon: 'fa-shuffle', label: '사용량이 다 떨어지면 자동 전환', sub: auto.enabled ? '켜짐' : '꺼짐',
-          desc: auto.message || (data.accounts.length < 2 ? '계정이 2개 이상일 때 동작해요' : '남은 계정으로 바꾸고 멈춘 창을 이어서 진행해요'),
+          desc: auto.message || (data.accounts.length < 2 ? '계정이 2개 이상일 때 동작합니다' : '남은 계정으로 바꾸고 멈춘 창을 이어서 진행합니다'),
           onClick: () => toggleAutoSwitch(!auto.enabled),
         },
         { icon: 'fa-plus', label: '계정 추가', desc: '다른 ChatGPT 계정으로 로그인 (지금 로그인은 그대로)', onClick: () => addCodexAccount() },
         { icon: 'fa-rotate', label: '모든 Codex 창에 지금 계정 적용', desc: "'다른 계정으로 로그인했다' 토큰 오류가 날 때 · 같은 대화로 다시 켜기", onClick: applyCodexAccount },
-        ...(others.length ? [{ icon: 'fa-trash', label: '저장된 계정 지우기', danger: true, onClick: () => removeCodexMenu(others) }] : []),
       ],
     });
   }
   async function toggleAutoSwitch(enabled) {
     try {
       await api('/api/accounts/codex/auto-switch', { method: 'PUT', body: { enabled } });
-      toast(enabled ? '자동 전환을 켰어요.' : '자동 전환을 껐어요.', 'success');
+      toast(enabled ? '자동 전환을 켰습니다.' : '자동 전환을 껐습니다.', 'success');
     } catch (error) { toast(error.message, 'error'); }
   }
 
   async function switchCodex(account) {
     const ok = await ui().confirmSheet({
       title: 'Codex 계정 바꾸기',
-      message: `${account.email} 로 바꿀까요?\n모든 Codex 창을 잠깐 껐다가 Codex 를 최신으로 업데이트하고, 새 계정으로 같은 대화를 이어서 다시 켜요 (공유 데몬도 다시 시작). 작업 중인 Codex 창이 있으면 모두 끝난 뒤 자동으로 해요. 지금 계정은 목록에 남아 언제든 다시 고를 수 있어요.`,
+      message: `${account.email} 로 바꾸시겠습니까?\n모든 Codex 창을 잠깐 껐다가 Codex 를 최신으로 업데이트하고, 새 계정으로 같은 대화를 이어서 다시 켭니다 (공유 데몬도 다시 시작). 작업 중인 Codex 창이 있으면 모두 끝난 뒤 자동으로 진행합니다. 지금 계정은 목록에 남아 언제든 다시 고를 수 있습니다.`,
       confirmLabel: '바꾸기',
     });
     if (!ok) return;
     try {
       const result = await api('/api/accounts/codex/switch', { method: 'POST', body: { id: account.id } });
-      toast(`Codex 계정을 ${account.email} 로 바꿨어요.`, 'success');
+      toast(`Codex 계정을 ${account.email} 로 바꿨습니다.`, 'success');
       ui().codexAccountChanged(result.limits);
       if (result.applied) window.UnivDash.followCodexApply(result.applied);
     } catch (error) { toast(error.message, 'error'); }
@@ -387,7 +394,7 @@
   async function applyCodexAccount() {
     const ok = await ui().confirmSheet({
       title: '모든 Codex 창에 지금 계정 적용',
-      message: "Codex 창을 모두 잠깐 껐다가 Codex 를 최신으로 업데이트하고, 지금 로그인된 계정으로 같은 대화를 이어서 다시 켜요 (공유 데몬도 다시 시작). 작업 중인 창이 있으면 끝난 뒤 자동으로 해요.\n'다른 계정으로 로그인했다'는 토큰 오류가 날 때 쓰세요.",
+      message: "Codex 창을 모두 잠깐 껐다가 Codex 를 최신으로 업데이트하고, 지금 로그인된 계정으로 같은 대화를 이어서 다시 켭니다 (공유 데몬도 다시 시작). 작업 중인 창이 있으면 끝난 뒤 자동으로 진행합니다.\n'다른 계정으로 로그인했다'는 토큰 오류가 날 때 사용하십시오.",
       confirmLabel: '적용',
     });
     if (!ok) return;
@@ -396,75 +403,52 @@
       window.UnivDash.followCodexApply(result);
     } catch (error) { toast(error.message, 'error'); }
   }
-  function removeCodexMenu(others) {
-    ui().actionSheet({
-      title: '저장된 계정 지우기', subtitle: '지운 계정은 다시 쓰려면 로그인해서 추가해야 해요.',
-      actions: others.map((a) => ({
-        icon: 'fa-trash', danger: true, label: a.email,
-        onClick: async () => {
-          const ok = await ui().confirmSheet({ title: '계정 지우기', message: `${a.email} 의 저장된 로그인 정보를 지울까요?`, confirmLabel: '지우기', danger: true });
-          if (!ok) return;
-          try { await api(`/api/accounts/codex/${a.id}`, { method: 'DELETE' }); toast('지웠어요.', 'success'); load(); } catch (error) { toast(error.message, 'error'); }
-        },
-      })),
-    });
-  }
   // ── Claude Code 계정 여러 개: 전환 · 추가 · 지우기 ──
   // 서버는 계정마다 로그인 토큰 복사본을 보관하고, 전환하면 ~/.claude/.credentials.json 의 로그인만 바꿔 끼운다.
   // 실행 중인 Claude Code 는 파일이 바뀐 것을 알아채고 새 계정으로 이어진다 (토큰은 브라우저로 오지 않는다).
   async function claudeAccounts() {
     let data;
     try { data = await api('/api/accounts/claude'); } catch (error) { toast(error.message, 'error'); return; }
-    const others = data.accounts.filter((a) => !a.active);
     const label = (a) => [a.email, a.org && !a.org.includes(a.email || '\u0000') ? a.org : ''].filter(Boolean).join(' · ');
     ui().actionSheet({
       title: 'Claude Code 계정',
-      subtitle: data.accounts.length ? '고르면 그 계정으로 바뀌어요. 실행 중인 Claude Code 창도 다시 켜지 않고 새 계정으로 이어져요.' : '계정을 추가하면 여기서 바꿀 수 있어요.',
+      subtitle: data.accounts.length ? '고르면 그 계정으로 바뀝니다. 실행 중인 Claude Code 창도 다시 켜지 않고 새 계정으로 이어집니다.' : '계정을 추가하면 여기서 바꿀 수 있습니다.',
       actions: [
         ...data.accounts.map((a) => ({
           icon: 'fa-user', label: label(a) || '이름 없는 계정', current: a.active, sub: a.active ? '사용 중' : a.expired ? '만료' : '',
-          desc: [planName(a.plan), a.active ? '지금 로그인된 계정' : a.expired ? '로그인이 만료됐어요 · 다시 추가하세요' : `저장 ${relativeTime(new Date(a.saved_at * 1000).toISOString())}`].filter(Boolean).join(' · '),
+          desc: [planName(a.plan), a.active ? '지금 로그인된 계정' : a.expired ? '로그인이 만료됐습니다 · 다시 추가하십시오' : `저장 ${relativeTime(new Date(a.saved_at * 1000).toISOString())}`].filter(Boolean).join(' · '),
           onClick: () => { if (!a.active) switchClaude(a); },
+          side: logoutSide('claude', 'Claude Code', a),
         })),
         ...(data.accounts.length ? ['sep'] : []),
         { icon: 'fa-plus', label: '계정 추가', desc: '다른 Claude 계정으로 로그인 (지금 로그인은 그대로)', onClick: () => reloginClaude(true) },
-        ...(others.length ? [{ icon: 'fa-trash', label: '저장된 계정 지우기', danger: true, onClick: () => removeClaudeMenu(others) }] : []),
       ],
     });
   }
   async function switchClaude(account) {
     const ok = await ui().confirmSheet({
       title: 'Claude Code 계정 바꾸기',
-      message: `${account.email} 로 바꿀까요?\n실행 중인 Claude Code 창은 끄지 않아요. 다음 요청부터 새 계정을 써요. 지금 계정은 최신 로그인을 저장해 두므로 언제든 다시 고를 수 있어요.`,
+      message: `${account.email} 로 바꾸시겠습니까?\n실행 중인 Claude Code 창은 끄지 않습니다. 다음 요청부터 새 계정을 사용합니다. 지금 계정은 최신 로그인을 저장해 두므로 언제든 다시 고를 수 있습니다.`,
       confirmLabel: '바꾸기',
     });
     if (!ok) return;
     try {
       const result = await api('/api/accounts/claude/switch', { method: 'POST', body: { id: account.id } });
-      toast(result.changed ? `Claude Code 계정을 ${result.email} 로 바꿨어요.` : '이미 그 계정이에요.', 'success');
+      toast(result.changed ? `Claude Code 계정을 ${result.email} 로 바꿨습니다.` : '이미 그 계정입니다.', 'success');
       refreshAfterLogin();
     } catch (error) { toast(error.message, 'error'); }
   }
-  function removeClaudeMenu(others) {
-    ui().actionSheet({
-      title: '저장된 계정 지우기', subtitle: '지운 계정은 다시 쓰려면 로그인해서 추가해야 해요.',
-      actions: others.map((a) => ({
-        icon: 'fa-trash', danger: true, label: a.email || '이름 없는 계정',
-        onClick: async () => {
-          const ok = await ui().confirmSheet({ title: '계정 지우기', message: `${a.email} 의 저장된 로그인 정보를 지울까요?`, confirmLabel: '지우기', danger: true });
-          if (!ok) return;
-          try { await api(`/api/accounts/claude/${a.id}`, { method: 'DELETE' }); toast('지웠어요.', 'success'); load(); } catch (error) { toast(error.message, 'error'); }
-        },
-      })),
-    });
-  }
-  function reloginClaude(add = false) {
+  // kind: 'claude' (Claude Code) · 'gemini' (Antigravity CLI — 계정 추가만 한다)
+  function reloginClaude(add = false, kind = 'claude') {
+    const who = kind === 'gemini' ? 'Gemini' : 'Claude';        // 계정 이름
+    const product = kind === 'gemini' ? 'Gemini' : 'Claude Code';
+    const site = kind === 'gemini' ? 'Google' : 'Claude';
     let login = null;
     let timer = null;
     let finished = false;
     const body = () => document.getElementById('sheetBody');
     const box = () => body()?.querySelector('.cx-login');
-    const endpoint = () => `/api/accounts/claude/login/${login.id}`;
+    const endpoint = () => `/api/accounts/${kind}/login/${login.id}`;
     const stop = () => { clearInterval(timer); timer = null; finished = true; };
     const retryButton = '<button type="button" class="btn-glow" data-claude-retry>다시 시도</button>';
     const paint = () => {
@@ -472,12 +456,12 @@
       if (!el || !login) return;
       if (login.state === 'done') {
         el.innerHTML = add && !login.live
-          ? `<p class="cx-done"><i class="fas fa-circle-check"></i> ${escapeHtml(login.email || 'Claude')} 계정을 저장했어요.</p><p class="cx-note">지금 쓰는 계정은 그대로예요. 계정 전환에서 골라 바꿀 수 있어요.</p>`
-          : `<p class="cx-done"><i class="fas fa-circle-check"></i> ${escapeHtml(login.email || 'Claude')} 로 로그인했어요.</p><p class="cx-note">${add ? '지금 쓰는 계정과 같은 계정이라 목록의 로그인 정보만 새로 했어요.' : '실행 중인 Claude Code 창에도 곧 적용돼요.'}</p>`;
+          ? `<p class="cx-done"><i class="fas fa-circle-check"></i> ${escapeHtml(login.email || who)} 계정을 저장했습니다.</p><p class="cx-note">지금 사용 중인 계정은 그대로입니다. 계정 전환에서 선택해 바꿀 수 있습니다.</p>`
+          : `<p class="cx-done"><i class="fas fa-circle-check"></i> ${escapeHtml(login.email || who)} (으)로 로그인했습니다.</p><p class="cx-note">${add ? '지금 사용 중인 계정과 같거나 로그인이 비어 있어, 이 계정이 지금 로그인으로 적용됐습니다.' : `실행 중인 ${product} 창에도 곧 적용됩니다.`}</p>`;
         return;
       }
       if (login.state === 'error' || login.state === 'cancelled') {
-        el.innerHTML = `<p class="cx-error"><i class="fas fa-triangle-exclamation"></i> ${escapeHtml(login.error || '로그인이 취소됐어요.')}</p>${retryButton}`;
+        el.innerHTML = `<p class="cx-error"><i class="fas fa-triangle-exclamation"></i> ${escapeHtml(login.error || '로그인이 취소됐습니다.')}</p>${retryButton}`;
         return;
       }
       if (login.state === 'verifying') {
@@ -485,10 +469,10 @@
         return;
       }
       el.innerHTML = `<ol class="cx-steps">
-          <li><span>이 링크를 열고 Claude 계정으로 로그인하세요</span><a href="${escapeHtml(login.url)}" target="_blank" rel="noopener noreferrer" class="cx-link">로그인 페이지 열기 <i class="fas fa-arrow-up-right-from-square"></i></a></li>
-          <li><span>화면에 나온 코드를 복사해 붙여 넣으세요</span>
+          <li><span>이 링크를 열고 ${site} 계정으로 로그인하십시오</span><a href="${escapeHtml(login.url)}" target="_blank" rel="noopener noreferrer" class="cx-link">로그인 페이지 열기 <i class="fas fa-arrow-up-right-from-square"></i></a></li>
+          <li><span>화면에 나온 코드를 복사해 붙여 넣으십시오</span>
             <form class="cx-code-form" data-claude-code><input type="text" class="input-glass" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" placeholder="코드 붙여넣기" aria-label="로그인 코드" required><button type="submit" class="btn-glow">확인</button></form></li>
-        </ol><p class="cx-note">${add ? '추가할 계정으로 로그인하세요. 지금 로그인은 바뀌지 않아요. 로그인하려는 계정이 맞는지 확인하세요.' : '로그인이 끝나기 전에는 지금 로그인이 그대로 유지돼요. 다른 계정으로 로그인하면 Claude Code 전체가 그 계정으로 바뀌어요.'}</p>`;
+        </ol><p class="cx-note">${add ? '추가할 계정으로 로그인하십시오. 지금 로그인은 바뀌지 않습니다. 로그인하려는 계정이 맞는지 확인하십시오.' : '로그인이 끝나기 전에는 지금 로그인이 그대로 유지됩니다. 다른 계정으로 로그인하면 Claude Code 전체가 그 계정으로 바뀝니다.'}</p>`;
     };
     const poll = () => {
       clearInterval(timer);
@@ -498,7 +482,7 @@
           if (['done', 'error', 'cancelled'].includes(login.state)) {
             stop();
             paint();
-            if (login.state === 'done') { toast(add && !login.live ? `${login.email || 'Claude'} 계정을 저장했어요.` : 'Claude Code 에 다시 로그인했어요.', 'success'); refreshAfterLogin(); }
+            if (login.state === 'done') { toast(add && !login.live ? `${login.email || who} 계정을 저장했습니다.` : `${product} 에 로그인했습니다.`, 'success'); refreshAfterLogin(); }
           } else if (login.state === 'verifying') paint();
         } catch (error) { stop(); }
       }, 1500);
@@ -508,7 +492,7 @@
       login = null;
       const el = box();
       if (el) el.innerHTML = '<p class="cx-wait"><i class="fas fa-circle-notch fa-spin"></i> 로그인 링크를 받는 중…</p>';
-      api(add ? '/api/accounts/claude/add' : '/api/accounts/claude/login', { method: 'POST' }).then((result) => {
+      api(add ? `/api/accounts/${kind}/add` : '/api/accounts/claude/login', { method: 'POST' }).then((result) => {
         login = result;
         if (!body()) { api(endpoint(), { method: 'DELETE' }).catch(() => {}); return; }
         paint();
@@ -520,8 +504,8 @@
       });
     };
     ui().infoSheet({
-      title: add ? 'Claude Code 계정 추가' : 'Claude Code 다시 로그인',
-      subtitle: '이 기기(휴대폰 · PC)의 브라우저에서 로그인하고 코드를 붙여 넣으세요.',
+      title: add ? `${product} 계정 추가` : 'Claude Code 다시 로그인',
+      subtitle: '이 기기(휴대폰 · PC)의 브라우저에서 로그인하고 코드를 붙여 넣으십시오.',
       bodyHtml: '<div class="cx-login"></div>',
       onClose: () => { clearInterval(timer); if (login && !finished) api(endpoint(), { method: 'DELETE' }).catch(() => {}); },
     });
@@ -534,7 +518,7 @@
       const input = form.querySelector('input');
       const button = form.querySelector('button');
       const code = input.value.trim();
-      if (!/^[A-Za-z0-9_\-.~#+/=%]{8,2048}$/.test(code)) { toast('코드 형식이 올바르지 않아요. 복사한 코드를 그대로 붙여 넣어 주세요.', 'error'); return; }
+      if (!/^[A-Za-z0-9_\-.~#+/=%]{8,2048}$/.test(code)) { toast('코드 형식이 올바르지 않습니다. 복사한 코드를 그대로 붙여 넣어 주십시오.', 'error'); return; }
       button.disabled = true;
       try {
         login = await api(`${endpoint()}/code`, { method: 'POST', body: { code } });
@@ -546,6 +530,70 @@
     });
     start();
   }
+  // ── Gemini (Antigravity CLI) 계정 여러 개: 전환 · 추가 · 삭제 ──
+  // 서버는 계정마다 로그인 토큰 복사본을 보관하고, 전환하면 Antigravity CLI 의 토큰 파일을 바꿔 끼운다 (토큰은 브라우저로 오지 않는다).
+  // 로그아웃: 지금 로그인을 지우고, 서버에 보관한 그 계정의 로그인 정보도 함께 지운다 (Claude · Codex · Gemini 공용)
+  // 계정 줄 오른쪽의 로그아웃 버튼. 지금 로그인된 계정은 로그아웃(확인 한 번), 저장만 해 둔 계정은 저장된 로그인 정보를 바로 삭제한다.
+  function logoutSide(kind, product, account) {
+    return {
+      icon: 'fa-right-from-bracket', label: '로그아웃',
+      onClick: () => (account.active ? logoutAccount(kind, product, account) : forgetAccount(kind, product, account)),
+    };
+  }
+  async function forgetAccount(kind, product, account) {
+    try {
+      await api(`/api/accounts/${kind}/${account.id}`, { method: 'DELETE' });
+      toast(`${account.email || '선택한 계정'} 의 저장된 ${product} 로그인 정보를 삭제했습니다.`, 'success');
+      refreshAfterLogin();
+      load();
+    } catch (error) { toast(error.message, 'error'); }
+  }
+  async function logoutAccount(kind, product, account) {
+    const ok = await ui().confirmSheet({
+      title: `${product} 로그아웃`,
+      message: `${account.email || '지금 계정'} 에서 로그아웃하고, 이 서버에 저장된 이 계정의 로그인 정보와 백업을 삭제합니다.\n실행 중인 ${product} 창도 더 이상 이 계정을 사용할 수 없으며, 다시 사용하려면 로그인해야 합니다. 저장해 둔 다른 계정은 그대로 남습니다.`,
+      confirmLabel: '로그아웃',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api(`/api/accounts/${kind}/logout`, { method: 'POST' });
+      toast(`${product} 계정에서 로그아웃하고 저장된 정보를 삭제했습니다.`, 'success');
+      refreshAfterLogin();
+      load();
+    } catch (error) { toast(error.message, 'error'); }
+  }
+  async function geminiAccounts() {
+    let data;
+    try { data = await api('/api/accounts/gemini'); } catch (error) { toast(error.message, 'error'); return; }
+    ui().actionSheet({
+      title: 'Gemini 계정',
+      subtitle: data.accounts.length ? '선택하면 그 계정으로 바뀝니다. 쉬고 있는 Gemini 창은 같은 대화로 다시 켜집니다.' : '계정을 추가하면 여기에서 바꿀 수 있습니다.',
+      actions: [
+        ...data.accounts.map((a) => ({
+          icon: a.active ? 'fa-circle-check' : 'fa-user', label: a.email || '이름 없는 계정', desc: [a.plan, a.active ? '현재 사용 중' : ''].filter(Boolean).join(' · '), current: a.active,
+          onClick: () => { if (!a.active) switchGemini(a); },
+          side: logoutSide('gemini', 'Gemini', a),
+        })),
+        ...(data.accounts.length ? ['sep'] : []),
+        { icon: 'fa-plus', label: '계정 추가', desc: '다른 Google 계정으로 로그인 (지금 로그인은 그대로)', onClick: () => reloginClaude(true, 'gemini') },
+      ],
+    });
+  }
+  async function switchGemini(account) {
+    const ok = await ui().confirmSheet({
+      title: 'Gemini 계정 바꾸기',
+      message: `${account.email || '선택한 계정'} (으)로 바꾸시겠습니까?\n쉬고 있는 Gemini 창은 잠깐 껐다가 같은 대화로 다시 켭니다. 작업 중인 창은 그대로 두므로, 끝난 뒤 직접 다시 켜야 새 계정이 적용됩니다.`,
+      confirmLabel: '바꾸기',
+    });
+    if (!ok) return;
+    try {
+      const result = await api('/api/accounts/gemini/switch', { method: 'POST', body: { id: account.id } });
+      const skipped = result.windows?.skipped?.length || 0;
+      toast(result.changed ? `Gemini 계정을 ${result.email || '선택한 계정'} (으)로 바꿨습니다.${skipped ? ` 다시 켜지 못한 창이 ${skipped}개 있습니다.` : ''}` : '이미 그 계정입니다.', skipped ? 'warn' : 'success');
+      refreshAfterLogin();
+    } catch (error) { toast(error.message, 'error'); }
+  }
   // 로그인이 바뀌면 머리글 게이지와 이 페이지를 새로 읽는다
   function refreshAfterLogin() { ui().codexAccountChanged(); }
   function addCodexAccount(relogin = null) {
@@ -555,7 +603,7 @@
     const body = () => document.getElementById('sheetBody');
     ui().infoSheet({
       title: relogin === null ? 'Codex 계정 추가' : 'Codex 다시 로그인',
-      subtitle: relogin === null ? '다른 기기(휴대폰 · PC)의 브라우저에서 로그인하면 여기에 추가돼요.' : `이 기기(휴대폰 · PC)의 브라우저에서 ${relogin || 'ChatGPT 계정'} 으로 로그인하세요.`,
+      subtitle: relogin === null ? '다른 기기(휴대폰 · PC)의 브라우저에서 로그인하면 여기에 추가됩니다.' : `이 기기(휴대폰 · PC)의 브라우저에서 ${relogin || 'ChatGPT 계정'} 으로 로그인하십시오.`,
       bodyHtml: '<div class="cx-login"><p class="cx-wait"><i class="fas fa-circle-notch fa-spin"></i> 로그인 코드를 받는 중…</p></div>',
       onClose: () => { clearInterval(timer); if (login && !finished) api(`/api/accounts/codex/login/${login.id}`, { method: 'DELETE' }).catch(() => {}); },
     });
@@ -564,23 +612,23 @@
       if (!box || !login) return;
       if (login.state === 'done') {
         const message = login.live
-          ? `<p class="cx-done"><i class="fas fa-circle-check"></i> ${escapeHtml(login.email)} 로 다시 로그인했어요.</p><p class="cx-note">실행 중인 Codex 창은 그대로 두고 새 로그인으로 이어져요.</p>`
-          : `<p class="cx-done"><i class="fas fa-circle-check"></i> ${escapeHtml(login.email)} 계정을 저장했어요.</p><p class="cx-note">지금 쓰는 계정과 달라서 바꾸지 않았어요. 계정 목록에서 골라 바꿀 수 있어요.</p>`;
+          ? `<p class="cx-done"><i class="fas fa-circle-check"></i> ${escapeHtml(login.email)} 로 다시 로그인했습니다.</p><p class="cx-note">실행 중인 Codex 창은 그대로 두고 새 로그인으로 이어집니다.</p>`
+          : `<p class="cx-done"><i class="fas fa-circle-check"></i> ${escapeHtml(login.email)} 계정을 저장했습니다.</p><p class="cx-note">지금 쓰는 계정과 달라서 바꾸지 않았습니다. 계정 목록에서 골라 바꿀 수 있습니다.</p>`;
         box.innerHTML = message;
         return;
       }
       if (login.state === 'error' || login.state === 'cancelled') {
-        box.innerHTML = `<p class="cx-error"><i class="fas fa-triangle-exclamation"></i> ${escapeHtml(login.error || '로그인이 취소됐어요.')}</p>`;
+        box.innerHTML = `<p class="cx-error"><i class="fas fa-triangle-exclamation"></i> ${escapeHtml(login.error || '로그인이 취소됐습니다.')}</p>`;
         return;
       }
       const minutes = Math.ceil((login.expires_in || 0) / 60);
       box.innerHTML = `<ol class="cx-steps">
-          <li><span>이 링크를 열고, ${relogin === null ? '추가할 ChatGPT 계정' : escapeHtml(relogin || 'ChatGPT 계정')}으로 로그인하세요</span><a href="${escapeHtml(login.url)}" target="_blank" rel="noopener noreferrer" class="cx-link">${escapeHtml(login.url)} <i class="fas fa-arrow-up-right-from-square"></i></a></li>
-          <li><span>이 코드를 입력하세요 <small>(${minutes}분 안에)</small></span><button type="button" class="cx-code" data-copy-code title="눌러서 복사">${escapeHtml(login.code)} <i class="far fa-copy"></i></button></li>
+          <li><span>이 링크를 열고, ${relogin === null ? '추가할 ChatGPT 계정' : escapeHtml(relogin || 'ChatGPT 계정')}으로 로그인하십시오</span><a href="${escapeHtml(login.url)}" target="_blank" rel="noopener noreferrer" class="cx-link">${escapeHtml(login.url)} <i class="fas fa-arrow-up-right-from-square"></i></a></li>
+          <li><span>이 코드를 입력하십시오 <small>(${minutes}분 안에)</small></span><button type="button" class="cx-code" data-copy-code title="눌러서 복사">${escapeHtml(login.code)} <i class="far fa-copy"></i></button></li>
         </ol><p class="cx-wait"><i class="fas fa-circle-notch fa-spin"></i> 로그인을 기다리는 중…</p>
-        <p class="cx-note">다른 사람이 보내 준 코드라면 입력하지 마세요.</p>`;
+        <p class="cx-note">다른 사람이 보내 준 코드라면 입력하지 마십시오.</p>`;
       box.querySelector('[data-copy-code]').addEventListener('click', async () => {
-        try { await navigator.clipboard.writeText(login.code); toast('코드를 복사했어요.', 'success'); } catch (e) { toast(login.code, 'info'); }
+        try { await navigator.clipboard.writeText(login.code); toast('코드를 복사했습니다.', 'success'); } catch (e) { toast(login.code, 'info'); }
       });
     };
     api('/api/accounts/codex/login', { method: 'POST' }).then((result) => {
@@ -595,7 +643,7 @@
             finished = true;
             paint();
             if (login.state === 'done') {
-              toast(login.live ? `${login.email} 로 다시 로그인했어요.` : `${login.email} 계정을 저장했어요.`, 'success');
+              toast(login.live ? `${login.email} 로 다시 로그인했습니다.` : `${login.email} 계정을 저장했습니다.`, 'success');
               refreshAfterLogin();
             }
           }
@@ -610,8 +658,9 @@
   $('aiLimits').addEventListener('click', (event) => {
     if (event.target.closest('[data-codex-accounts]')) { codexAccounts(); return; }
     if (event.target.closest('[data-claude-accounts]')) { claudeAccounts(); return; }
+    if (event.target.closest('[data-gemini-accounts]')) { geminiAccounts(); return; }
     const pick = event.target.closest('[data-claude-switch]');
-    if (pick) { switchClaude({ id: pick.dataset.claudeSwitch, email: pick.dataset.email }); return; }
+    if (pick) { (pick.dataset.provider === 'gemini' ? switchGemini : switchClaude)({ id: pick.dataset.claudeSwitch, email: pick.dataset.email }); return; }
     const relogin = event.target.closest('[data-relogin]');
     if (!relogin) return;
     if (relogin.dataset.relogin === 'claude') reloginClaude();

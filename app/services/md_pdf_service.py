@@ -121,7 +121,7 @@ def _job(token: str) -> Path:
         raise FsError("잘못된 요청입니다.")
     job = _root() / token
     if not (job / "out.pdf").is_file():
-        raise FsError("PDF 가 만료됐어요. 다시 만들어 주세요.")
+        raise FsError("PDF 가 만료되었습니다. 다시 만들어 주십시오.")
     return job
 
 
@@ -385,10 +385,10 @@ def _source(path: str) -> tuple[Path, str]:
         raise FsError("파일이 아닙니다.")
     kind = source_kind(file)
     if not kind:
-        raise FsError("PDF 로 만들 수 있는 문서가 아니에요.")
+        raise FsError("PDF 로 만들 수 있는 문서가 아닙니다.")
     limit = MAX_SOURCE_BYTES if kind in {"pdf", "office", "hwpx"} else MAX_MD_BYTES
     if file.stat().st_size > limit:
-        raise FsError(f"파일이 너무 커요 (최대 {limit // (1024 * 1024)}MB).")
+        raise FsError(f"파일이 너무 큽니다 (최대 {limit // (1024 * 1024)}MB).")
     return file, kind
 
 
@@ -407,7 +407,7 @@ def _notebook_md(raw: str) -> str:
     try:
         nb = json.loads(raw)
     except ValueError as error:
-        raise FsError("노트북(ipynb)을 읽지 못했어요.") from error
+        raise FsError("노트북(ipynb)을 읽지 못했습니다.") from error
 
     def join(value) -> str:
         return "".join(value) if isinstance(value, list) else (value or "")
@@ -482,7 +482,9 @@ def _table_md(raw: str, delimiter: str) -> str:
     ]
     lines.insert(1, "|" + " --- |" * width)
     note = (
-        f"\n\n*앞 {MAX_TABLE_ROWS}행만 넣었어요.*" if len(rows) > MAX_TABLE_ROWS else ""
+        f"\n\n*앞 {MAX_TABLE_ROWS}행만 넣었습니다.*"
+        if len(rows) > MAX_TABLE_ROWS
+        else ""
     )
     return "\n".join(lines) + note
 
@@ -544,12 +546,12 @@ def _count_pages(pdf: Path) -> int:
     try:
         reader = PdfReader(str(pdf))
         if reader.is_encrypted and not reader.decrypt(""):
-            raise FsError("암호가 걸린 PDF 라 다시 배치할 수 없어요.")
+            raise FsError("암호가 걸린 PDF 라 다시 배치할 수 없습니다.")
         return len(reader.pages)
     except FsError:
         raise
     except Exception as error:  # 깨진 PDF
-        raise FsError("PDF 를 읽지 못했어요.") from error
+        raise FsError("PDF 를 읽지 못했습니다.") from error
 
 
 def _result(token: str, out: Path, file: Path, kind: str, zoom: float | None) -> dict:
@@ -624,13 +626,13 @@ def _chrome_print(job: Path, url: str, file_access: bool) -> Path:
         )
     except subprocess.TimeoutExpired as error:
         shutil.rmtree(job, ignore_errors=True)
-        raise MdPdfError("PDF 를 만드는 데 너무 오래 걸려요 (90초 초과).") from error
+        raise MdPdfError("PDF 를 만드는 데 너무 오래 걸립니다 (90초 초과).") from error
     shutil.rmtree(job / "profile", ignore_errors=True)
     if not out.is_file() or out.stat().st_size == 0:
         shutil.rmtree(job, ignore_errors=True)
         tail = (result.stderr or b"").decode(errors="replace").strip().splitlines()[-1:]
         raise MdPdfError(
-            "PDF 를 만들지 못했어요." + (f" ({tail[0][:200]})" if tail else "")
+            "PDF 를 만들지 못했습니다." + (f" ({tail[0][:200]})" if tail else "")
         )
     return out
 
@@ -649,7 +651,7 @@ def render(
     if kind in {"pdf", "office"}:
         source = file if kind == "pdf" else converted
         if source is None:
-            raise FsError("문서를 변환하지 못했어요.")
+            raise FsError("문서를 변환하지 못했습니다.")
         token, job = _new_job()
         out = job / "out.pdf"
         shutil.copyfile(source, out)
@@ -729,7 +731,7 @@ def page_png(token: str, number: int, width: int, layout: str = "1") -> Path:
             check=False,
         )
         if not target.is_file():
-            raise FsError("페이지를 그리지 못했어요.")
+            raise FsError("페이지를 그리지 못했습니다.")
     return target
 
 
@@ -750,7 +752,9 @@ def save_next_to(token: str, src_path: str, overwrite: bool, layout: str = "1") 
     original = resolve(src_path)
     source_pdf = original.suffix.lower() == ".pdf"
     if source_pdf and layout == "1":
-        raise FsError("원본 PDF 와 같아요. 한 장에 2쪽 이상을 고르면 따로 저장해요.")
+        raise FsError(
+            "원본 PDF 와 같습니다. 한 장에 2쪽 이상을 고르면 따로 저장합니다."
+        )
     source = pdf_file(token, layout)
     target = original.with_name(target_name(original.stem, source_pdf, layout))
     resolve(str(target), must_exist=False)  # 허용 범위 확인

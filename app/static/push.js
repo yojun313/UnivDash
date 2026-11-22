@@ -67,20 +67,20 @@
 
   // 설정 창에 보여 줄 현재 상태
   async function status() {
-    if (!U.settings.get(SETTING)) return { state: 'off', text: '꺼져 있어요. 켜면 이 기기로 알림을 받아요.' };
-    if (!window.isSecureContext) return { state: 'unsupported', text: 'HTTPS 주소로 접속해야 알림을 받을 수 있어요.' };
+    if (!U.settings.get(SETTING)) return { state: 'off', text: '꺼져 있습니다. 켜면 이 기기로 알림을 받습니다.' };
+    if (!window.isSecureContext) return { state: 'unsupported', text: 'HTTPS 주소로 접속해야 알림을 받을 수 있습니다.' };
     if (!supported) {
       return ios && !standalone
-        ? { state: 'unsupported', text: '아이폰 · 아이패드는 Safari 공유 버튼 → "홈 화면에 추가"로 설치한 앱에서 열어야 알림을 받을 수 있어요 (iOS 16.4 이상).' }
-        : { state: 'unsupported', text: '이 브라우저는 푸시 알림을 지원하지 않아요.' };
+        ? { state: 'unsupported', text: '아이폰 · 아이패드는 Safari 공유 버튼 → "홈 화면에 추가"로 설치한 앱에서 열어야 알림을 받을 수 있습니다 (iOS 16.4 이상).' }
+        : { state: 'unsupported', text: '이 브라우저는 푸시 알림을 지원하지 않습니다.' };
     }
-    if (Notification.permission === 'denied') return { state: 'denied', text: '브라우저에서 이 사이트 알림이 차단돼 있어요. 주소창 왼쪽 사이트 설정에서 알림을 허용해 주세요.' };
-    if (Notification.permission === 'default') return { state: 'ask', text: '아직 알림 권한을 허용하지 않았어요. 「테스트 알림」을 누르면 브라우저가 물어봐요.' };
+    if (Notification.permission === 'denied') return { state: 'denied', text: '브라우저에서 이 사이트 알림이 차단돼 있습니다. 주소창 왼쪽 사이트 설정에서 알림을 허용해 주십시오.' };
+    if (Notification.permission === 'default') return { state: 'ask', text: '아직 알림 권한을 허용하지 않았습니다. 「테스트 알림」을 누르면 브라우저가 물어봅니다.' };
     try {
       const { subscribed } = await U.api(`/api/push/status?device=${encodeURIComponent(U.deviceId())}`);
-      if (!subscribed) return { state: 'ask', text: '아직 이 기기가 등록되지 않았어요. 「테스트 알림」을 눌러 주세요.' };
+      if (!subscribed) return { state: 'ask', text: '아직 이 기기가 등록되지 않았습니다. 「테스트 알림」을 눌러 주십시오.' };
     } catch (e) { /* 상태 확인 실패는 무시 */ }
-    return { state: 'on', text: `이 기기(${label()})로 알림을 받고 있어요. 대시보드를 보고 있는 동안에는 화면 안 알림만 떠요.` };
+    return { state: 'on', text: `이 기기(${label()})로 알림을 받고 있습니다. 대시보드를 보고 있는 동안에는 화면 안 알림만 표시됩니다.` };
   }
 
   async function test() {

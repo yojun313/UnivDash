@@ -246,7 +246,7 @@ def build_app(data: dict) -> dict:
         raise ValueError("작업 폴더(cwd)가 존재하지 않습니다.")
     script = str(data.get("script") or "").strip()
     if not script or "\n" in script or len(script) > 500:
-        raise ValueError("실행 파일(script)을 입력하세요.")
+        raise ValueError("실행 파일(script)을 입력하십시오.")
     script_path = Path(script) if Path(script).is_absolute() else cwd / script
     if not script_path.exists() and not shutil.which(script):
         raise ValueError(f"실행 파일을 찾을 수 없습니다: {script}")
@@ -404,7 +404,7 @@ def _app_elements(
         masked[begin] != "{" or masked[stop - 1] != "}" for begin, stop, _ in elements
     ):
         raise EcosystemError(
-            "apps 배열이 단순한 객체 목록이 아니라 자동으로 고칠 수 없습니다. 파일을 직접 수정하세요."
+            "apps 배열이 단순한 객체 목록이 아니라 자동으로 고칠 수 없습니다. 파일을 직접 수정하십시오."
         )
     return elements
 
@@ -419,14 +419,14 @@ def _props(source: str, masked: str, begin: int, stop: int) -> dict[str, dict]:
         match = _KEY.match(source, start)
         if not match or match.end() > end:
             raise EcosystemError(
-                "이 항목에 자동으로 고칠 수 없는 문법(전개 · 메서드 등)이 있습니다. 파일을 직접 수정하세요."
+                "이 항목에 자동으로 고칠 수 없는 문법(전개 · 메서드 등)이 있습니다. 파일을 직접 수정하십시오."
             )
         key = match.group(1)
         if key[0] in "\"'":
             key = key[1:-1]
         if key in props:
             raise EcosystemError(
-                f"'{key}' 속성이 두 번 나옵니다. 파일을 직접 수정하세요."
+                f"'{key}' 속성이 두 번 나옵니다. 파일을 직접 수정하십시오."
             )
         props[key] = {
             "start": start,
@@ -615,7 +615,9 @@ def update_app(name: str, data: dict, path: Path | None = None) -> dict:
         if added:
             remaining = [k for k in props if k not in removed]
             if not remaining:
-                raise EcosystemError("항목을 고칠 수 없습니다. 파일을 직접 수정하세요.")
+                raise EcosystemError(
+                    "항목을 고칠 수 없습니다. 파일을 직접 수정하십시오."
+                )
             last = props[remaining[-1]]
             if multiline and indent is not None:
                 text = "".join(

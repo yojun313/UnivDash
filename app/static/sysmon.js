@@ -83,7 +83,7 @@
     if (on('cpu')) rows.push(line('cpu', 'CPU'));
     if (on('gpu')) {
       if (d.gpus.length) d.gpus.forEach((g, i) => { const n = d.gpus.length > 1 ? g.index : ''; rows.push(line(`gpu${i}-util`, `GPU${n}`), line(`gpu${i}-mem`, `VRAM${n}`)); });
-      else rows.push('<p class="sm-sub" title="nvidia-smi 를 찾지 못했어요.">GPU 없음</p>');
+      else rows.push('<p class="sm-sub" title="nvidia-smi 를 찾지 못했습니다.">GPU 없음</p>');
     }
     if (on('mem')) rows.push(line('mem', 'RAM'));
     if (on('disk')) d.disks.forEach((x, i) => rows.push(line(`disk${i}`, x.mount === '/' ? '디스크' : x.mount.split('/').pop() || x.mount)));
@@ -98,7 +98,7 @@
       if (d.gpus.length) {
         d.gpus.forEach((g, i) => parts.push(item(`gpu${i}`, 'fa-bolt', d.gpus.length > 1 ? `GPU ${g.index} · ${short(g.name)}` : short(g.name),
           line(`gpu${i}-util`, '사용률') + line(`gpu${i}-mem`, 'VRAM') + `<p class="sm-sub" data-sub="gpu${i}"></p>`, `gpu${i}`)));
-      } else parts.push(item('gpu', 'fa-bolt', 'GPU', '<p class="sm-sub">GPU 를 찾지 못했어요 (nvidia-smi).</p>'));
+      } else parts.push(item('gpu', 'fa-bolt', 'GPU', '<p class="sm-sub">GPU 를 찾지 못했습니다 (nvidia-smi).</p>'));
     }
     if (on('mem')) parts.push(item('mem', 'fa-memory', '메모리', line('mem', 'RAM') + '<p class="sm-sub" data-sub="mem"></p>'));
     if (on('disk')) parts.push(item('disk', 'fa-hard-drive', '디스크', d.disks.map((x, i) => line(`disk${i}`, x.mount === '/' ? '/' : x.mount.split('/').pop() || x.mount, x.mount)).join('')));
@@ -178,7 +178,7 @@
       paint(last);
     } catch (error) {
       failures += 1;
-      if (last) paint(last); else el.innerHTML = '<p class="sm-caption"><span>Server</span></p><p class="sm-sub">서버 상태를 불러오지 못했어요.</p>';
+      if (last) paint(last); else el.innerHTML = '<p class="sm-caption"><span>Server</span></p><p class="sm-sub">서버 상태를 불러오지 못했습니다.</p>';
     } finally { busy = false; }
     schedule(failures ? Math.min(30000, interval() * 2 ** Math.min(failures, 4)) : interval());
   }

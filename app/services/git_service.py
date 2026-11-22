@@ -774,7 +774,7 @@ class GitService:
                 staged = [change for change in cls._changes(path) if change["staged"]]
                 if not staged and not amend and operation != "merge":
                     raise ValueError(
-                        "스테이징된 변경사항이 없습니다. 먼저 파일을 스테이징하세요."
+                        "스테이징된 변경사항이 없습니다. 먼저 파일을 스테이징하십시오."
                     )
                 if any(change["conflict"] for change in cls._changes(path)):
                     raise ValueError("해결되지 않은 충돌 파일이 있습니다.")
@@ -788,7 +788,7 @@ class GitService:
             elif amend or operation == "merge":
                 commit.append("--no-edit")
             else:
-                raise ValueError("커밋 메시지를 입력하세요.")
+                raise ValueError("커밋 메시지를 입력하십시오.")
             commands.append(commit)
             if options.get("push_after"):
                 commands.append(
@@ -832,7 +832,7 @@ class GitService:
                 raise ValueError("현재 브랜치 자신은 병합할 수 없습니다.")
             if cls._operation(path):
                 raise ValueError(
-                    "다른 Git 작업이 진행 중입니다. 먼저 완료하거나 중단하세요."
+                    "다른 Git 작업이 진행 중입니다. 먼저 완료하거나 중단하십시오."
                 )
             command = ["merge", "--no-edit"]
             if options.get("squash"):
@@ -874,7 +874,7 @@ class GitService:
                 unpushed = cls._text(path, "rev-list", "--count", f"{upstream}..HEAD")
                 if unpushed == "0":
                     raise ValueError(
-                        "이미 푸시된 커밋입니다. 되돌리려면 Revert를 사용하세요."
+                        "이미 푸시된 커밋입니다. 되돌리려면 Revert를 사용하십시오."
                     )
             return [["reset", "--soft", "HEAD~1"]]
 
@@ -910,7 +910,7 @@ class GitService:
             command = [shutil.which("uvx"), "ruff"]
         else:
             raise RuntimeError(
-                "ruff 를 찾을 수 없습니다. 저장소 .venv 에 ruff 를 설치하거나 uv 를 설치하세요."
+                "ruff 를 찾을 수 없습니다. 저장소 .venv 에 ruff 를 설치하거나 uv 를 설치하십시오."
             )
         args = [*command, "format", "."]
         lock = cls._lock_for(repository.id)

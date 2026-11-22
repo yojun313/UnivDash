@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 
 UPDATE_TIMEOUT = 300
 RUNNING_REASON = {
-    "busy": "작업 중이라 뺐어요",
-    "waiting": "답을 기다리는 중이라 뺐어요",
+    "busy": "작업 중이라 제외했습니다",
+    "waiting": "답을 기다리는 중이라 제외했습니다",
 }
 
 _lock = threading.Lock()
@@ -36,14 +36,15 @@ _job: dict = {
     "since": 0.0,
     "claude": None,
     "codex": None,
+    "gemini": None,
     "error": None,
     "seq": 0,
 }
 
 
-def _update_claude() -> bool | None:
-    """claude 를 최신으로. 명령이 없으면 None."""
-    binary = find_command("claude")
+def _update_claude(command: str = "claude") -> bool | None:
+    """claude(또는 agy)를 최신으로. 명령이 없으면 None."""
+    binary = find_command(command)
     if not binary:
         return None
     from app.services.pty_service import _env  # 대시보드 비밀값을 뺀 환경
@@ -60,7 +61,7 @@ def _update_claude() -> bool | None:
     except (OSError, subprocess.SubprocessError):
         return False
     if result.returncode != 0:
-        logger.warning("claude update 실패: %s", (result.stderr or b"")[-500:])
+        logger.warning("%s update 실패: %s", command, (result.stderr or b"")[-500:])
     return result.returncode == 0
 
 
@@ -246,7 +247,7 @@ def _agent_panes(agent: str) -> list[tuple]:
         (window, pane)
         for window in tmux_service.list_windows()
         for pane in window.panes
-        if pane.command == agent
+        if tmux_service.agent_of(pane.command) == agent
     ]
 
 
@@ -267,7 +268,9 @@ def _restart_idle(agent: str, report: dict) -> None:
             report["skipped"].append(
                 {
                     "window": window.key,
-                    "reason": RUNNING_REASON.get(fresh.status, "쉬고 있지 않아 뺐어요"),
+                    "reason": RUNNING_REASON.get(
+                        fresh.status, "쉬고 있지 않아 제외했습니다"
+                    ),
                     "running": True,
                 }
             )
@@ -287,7 +290,7 @@ def _restart_idle(agent: str, report: dict) -> None:
             report["skipped"].append(
                 {
                     "window": window.key,
-                    "reason": str(error) or "다시 켜지 못했어요.",
+                    "reason": str(error) or "다시 켜지 못했습니다.",
                     "running": False,
                 }
             )
@@ -298,6 +301,13 @@ def _restart_idle(agent: str, report: dict) -> None:
 def _do_claude() -> dict:
     report = {"updated": _update_claude(), "restarted": [], "skipped": []}
     _restart_idle("claude", report)
+    return report
+
+
+def _do_gemini() -> dict:
+    """Gemini(Antigravity CLI): `agy update` 뒤 쉬고 있는 창을 같은 대화로 다시 켠다."""
+    report = {"updated": _update_claude("agy"), "restarted": [], "skipped": []}
+    _restart_idle("gemini", report)
     return report
 
 
@@ -319,7 +329,7 @@ def _do_codex() -> dict:
                 "skipped": [
                     {
                         "window": key,
-                        "reason": "직접 다시 켜야 해요 (이어갈 대화를 찾지 못했거나 셸에서 켠 창이 아님)",
+                        "reason": "직접 다시 켜야 합니다 (이어갈 대화를 찾지 못했거나 셸에서 켠 창이 아님)",
                         "running": False,
                     }
                     for key in result["skipped"]
@@ -335,7 +345,7 @@ def _do_codex() -> dict:
     return report
 
 
-def _worker(seq: int, do_claude: bool, do_codex: bool) -> None:
+def _worker(seq: int, do_claude: bool, do_codex: bool, do_gemini: bool = False) -> None:
     try:
         if do_claude:
             claude = _do_claude()
@@ -349,6 +359,12 @@ def _worker(seq: int, do_claude: bool, do_codex: bool) -> None:
                 if _job["seq"] != seq:
                     return
                 _job["codex"] = codex
+        if do_gemini:
+            gemini = _do_gemini()
+            with _lock:
+                if _job["seq"] != seq:
+                    return
+                _job["gemini"] = gemini
         with _lock:
             if _job["seq"] == seq:
                 _job["state"] = "done"
@@ -356,20 +372,30 @@ def _worker(seq: int, do_claude: bool, do_codex: bool) -> None:
         logger.exception("모든 에이전트 업데이트 실패")
         with _lock:
             if _job["seq"] == seq:
-                _job.update(state="error", error=str(error) or "업데이트하지 못했어요.")
+                _job.update(
+                    state="error", error=str(error) or "업데이트하지 못했습니다."
+                )
 
 
-def start(claude: bool = True, codex: bool = True) -> dict:
+def start(claude: bool = True, codex: bool = True, gemini: bool = False) -> dict:
     with _lock:
         if _job["state"] == "running":
-            raise ValueError("이미 모든 에이전트를 업데이트하는 중이에요.")
+            raise ValueError("이미 모든 에이전트를 업데이트하는 중입니다.")
         _job["seq"] += 1
         _job.update(
-            state="running", since=time.time(), claude=None, codex=None, error=None
+            state="running",
+            since=time.time(),
+            claude=None,
+            codex=None,
+            gemini=None,
+            error=None,
         )
         seq = _job["seq"]
     threading.Thread(
-        target=_worker, args=(seq, claude, codex), daemon=True, name="agent-update-all"
+        target=_worker,
+        args=(seq, claude, codex, gemini),
+        daemon=True,
+        name="agent-update-all",
     ).start()
     return status()
 
@@ -378,5 +404,5 @@ def status() -> dict:
     with _lock:
         return {
             key: _job[key]
-            for key in ("state", "since", "claude", "codex", "error", "seq")
+            for key in ("state", "since", "claude", "codex", "gemini", "error", "seq")
         }

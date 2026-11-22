@@ -43,7 +43,7 @@ def _paths(token: str) -> tuple[Path, Path]:
         and len(token) == 32
         and all(c in "0123456789abcdef" for c in token)
     ):
-        raise ChunkError("업로드를 찾을 수 없어요.", 404)
+        raise ChunkError("업로드를 찾을 수 없습니다.", 404)
     base = _dir()
     return base / f"{token}.part", base / f"{token}.json"
 
@@ -59,10 +59,10 @@ def _read_meta(token: str, user: str) -> dict:
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
         raise ChunkError(
-            "업로드를 찾을 수 없어요 (만료됐거나 취소됐어요).", 404
+            "업로드를 찾을 수 없습니다 (만료되었거나 취소되었습니다).", 404
         ) from error
     if meta.get("user") != user:
-        raise ChunkError("업로드를 찾을 수 없어요.", 404)
+        raise ChunkError("업로드를 찾을 수 없습니다.", 404)
     return meta
 
 
@@ -79,7 +79,7 @@ def check_disk(size: int) -> None:
     free = shutil.disk_usage(_dir()).free
     if size + DISK_MARGIN > free:
         raise ChunkError(
-            f"서버 디스크 공간이 모자라요 (남은 공간 {free // (1024 * 1024)}MB).", 507
+            f"서버 디스크 공간이 부족합니다 (남은 공간 {free // (1024 * 1024)}MB).", 507
         )
 
 
@@ -113,11 +113,13 @@ async def append(user: str, token: str, offset: int, stream) -> int:
 
     lock = _lock(token)
     if not lock.acquire(blocking=False):
-        raise ChunkError("같은 조각을 동시에 보내고 있어요.", 409)
+        raise ChunkError("같은 조각을 동시에 보내고 있습니다.", 409)
     try:
         meta = await asyncio.to_thread(_read_meta, token, user)
         if offset != meta["received"]:
-            raise ChunkError("조각 순서가 맞지 않아요.", 409, received=meta["received"])
+            raise ChunkError(
+                "조각 순서가 맞지 않습니다.", 409, received=meta["received"]
+            )
         part, _ = _paths(token)
         limit = min(CHUNK_BYTES, meta["size"] - offset)
         written = 0
@@ -128,7 +130,7 @@ async def append(user: str, token: str, offset: int, stream) -> int:
             async for chunk in stream:
                 written += len(chunk)
                 if written > limit:
-                    raise ChunkError("조각이 너무 커요.", 413)
+                    raise ChunkError("조각이 너무 큽니다.", 413)
                 await asyncio.to_thread(handle.write, chunk)
         except BaseException:
             handle.truncate(offset)  # 끊긴 조각은 버리고 처음부터 다시 받는다
@@ -147,7 +149,7 @@ def finish(user: str, token: str) -> tuple[dict, Path]:
     """다 받았으면 메타 정보와 조각 파일 경로를 돌려준다 (제자리에 두는 것은 호출한 쪽)."""
     meta = _read_meta(token, user)
     if meta["received"] != meta["size"]:
-        raise ChunkError("아직 다 받지 못했어요.", 409, received=meta["received"])
+        raise ChunkError("아직 다 받지 못했습니다.", 409, received=meta["received"])
     part, _ = _paths(token)
     return meta, part
 

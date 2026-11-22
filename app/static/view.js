@@ -243,7 +243,7 @@
   async function lockedText(response) {
     let wait = Number(response.headers.get('Retry-After')) || 900;
     try { wait = Number((await response.json()).wait) || wait; } catch (e) { /* noop */ }
-    return `코드가 여러 번 틀려 잠시 막혔어요. 약 ${Math.ceil(wait / 60)}분 뒤 다시 넣어 주세요.`;
+    return `코드가 여러 번 틀려 잠시 막혔습니다. 약 ${Math.ceil(wait / 60)}분 뒤 다시 넣어 주십시오.`;
   }
   // 화면 · 채팅 요청 공통: 받은 데이터(JSON)를 돌려준다. 바뀐 게 없으면 'same', 여기서 처리가 끝났으면 null.
   async function fetchData(path, interval) {
@@ -251,12 +251,12 @@
     try {
       response = await call(path);
     } catch (e) {
-      setDot('wait'); meta.textContent = '연결이 끊겼어요 · 다시 시도하는 중'; schedule(3000); return null;
+      setDot('wait'); meta.textContent = '연결이 끊겼습니다 · 다시 시도하는 중'; schedule(3000); return null;
     }
     if (response.status === 204) { setDot('live'); meta.textContent = leftText(); schedule(interval); return 'same'; }
-    if (response.status === 404) { end('공유가 끝났거나 없는 링크예요.'); return null; }
-    if (response.status === 410) { end('공유한 창이 닫혔어요.'); return null; }
-    if (response.status === 403) { askCode('접근 코드가 맞지 않아요. 다시 넣어 주세요.'); return null; }
+    if (response.status === 404) { end('공유가 끝났거나 없는 링크입니다.'); return null; }
+    if (response.status === 410) { end('공유한 창이 닫혔습니다.'); return null; }
+    if (response.status === 403) { askCode('접근 코드가 맞지 않습니다. 다시 넣어 주십시오.'); return null; }
     if (response.status === 429) {
       let state = '';
       try { state = (await response.clone().json()).state; } catch (e) { /* noop */ }
@@ -389,7 +389,7 @@
         file.append(bodyEl);
         if (more) file.append(more);
       }
-      if (d.cut) file.append(el('div', 'vd-cut', '… 길어서 일부만 보여요'));
+      if (d.cut) file.append(el('div', 'vd-cut', '… 길어서 일부만 표시합니다'));
       box.append(file);
     });
     if (item.output && (!diffs.length || item.error)) {
@@ -415,7 +415,7 @@
     }
     if (item.kind === 'assistant') {
       const box = el('div', 'vm');
-      box.append(el('div', 'vm-meta', `${{ claude: 'Claude', codex: 'Codex' }[chat.agent] || 'Agent'} · ${timeOf(item.ts)}`), markdown(item.text || ''));
+      box.append(el('div', 'vm-meta', `${{ claude: 'Claude', codex: 'Codex', gemini: 'Gemini' }[chat.agent] || 'Agent'} · ${timeOf(item.ts)}`), markdown(item.text || ''));
       return box;
     }
     if (item.kind === 'system') return el('div', 'vm-sys', item.text || '');
@@ -478,7 +478,7 @@
     const stick = follow;
     (data.items || []).forEach(upsert);
     (data.related || []).forEach((item) => { if (chat.items.has(item.id)) upsert(item); });
-    setNote(chat.ids.length ? '' : '아직 대화가 없어요.');
+    setNote(chat.ids.length ? '' : '아직 대화가 없습니다.');
     olderBtn.classList.toggle('hidden', !chat.ids.length || chat.ids[0] === 0);
     if (stick) { main.scrollTop = main.scrollHeight; requestAnimationFrame(() => { if (follow) main.scrollTop = main.scrollHeight; }); }
     const newest = chat.ids.length ? chat.ids[chat.ids.length - 1] : -1;
@@ -533,18 +533,18 @@
   // 코드를 확인하고 (맞으면) 보기 시작
   async function open() {
     let response;
-    try { response = await call('/api/view/info'); } catch (e) { setNote('연결하지 못했어요. 잠시 뒤 새로 고쳐 주세요.'); return; }
+    try { response = await call('/api/view/info'); } catch (e) { setNote('연결하지 못했습니다. 잠시 뒤 새로 고쳐 주십시오.'); return; }
     if (response.status === 401) { askCode(''); return; }
-    if (response.status === 403) { askCode('접근 코드가 맞지 않아요.'); return; }
+    if (response.status === 403) { askCode('접근 코드가 맞지 않습니다.'); return; }
     if (response.status === 429) {
       let state = '';
       try { state = (await response.clone().json()).state; } catch (e) { /* noop */ }
       if (state === 'code_locked') { askCode(await lockedText(response), true); return; }
-      if (code) { askCode('잠시 뒤 다시 시도해 주세요.'); return; }
-      setNote('잠시 뒤 새로 고쳐 주세요.');
+      if (code) { askCode('잠시 뒤 다시 시도해 주십시오.'); return; }
+      setNote('잠시 뒤 새로 고쳐 주십시오.');
       return;
     }
-    if (!response.ok) { end('공유가 끝났거나 없는 링크예요.'); return; }
+    if (!response.ok) { end('공유가 끝났거나 없는 링크입니다.'); return; }
     const info = await response.json();
     const title = String(info.title || '터미널 화면');
     $('vwTitle').textContent = title;
@@ -564,13 +564,13 @@
     if (stopped) return;
     tabs.classList.add('hidden');
     forgetBtn.classList.add('hidden');
-    askCode('기억해 둔 코드를 지웠어요. 다시 보려면 코드를 넣어 주세요.');
+    askCode('기억해 둔 코드를 지웠습니다. 다시 보려면 코드를 넣어 주십시오.');
   });
 
   codeForm.addEventListener('submit', (event) => {
     event.preventDefault();
     const value = codeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (value.length !== 12) { codeErr.textContent = '코드는 12자리예요 (예: ABCD-EFGH-JKLM).'; return; }
+    if (value.length !== 12) { codeErr.textContent = '코드는 12자리입니다 (예: ABCD-EFGH-JKLM).'; return; }
     code = value;
     codeBtn.disabled = true;
     codeErr.textContent = '';
@@ -602,6 +602,6 @@
   window.addEventListener('resize', applyFit);
   document.addEventListener('visibilitychange', () => { if (!document.hidden && !stopped && !paused && code) tick(); });
 
-  if (!TOKEN.test(token)) end('링크가 올바르지 않아요. 받은 주소 전체를 그대로 열어 주세요.');
+  if (!TOKEN.test(token)) end('링크가 올바르지 않습니다. 받은 주소 전체를 그대로 열어 주십시오.');
   else open();
 })();

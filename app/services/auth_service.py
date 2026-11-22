@@ -94,21 +94,21 @@ def verify_password_hash(password: str, encoded: str) -> bool:
 def config_problem() -> str | None:
     """로그인을 막아야 하는 설정 문제 (없으면 None). 로그인 화면에 그대로 보여줄 수 있는 문구."""
     if not _username():
-        return "서버 .env 에 ADMIN_USER 를 설정하세요."
+        return "서버 .env 에 ADMIN_USER 를 설정하십시오."
     if _password_hash():
         if not _password_hash().startswith("pbkdf2_sha256$"):
-            return "ADMIN_PASS_HASH 형식이 올바르지 않습니다. tools/security.py hash-password 로 만드세요."
+            return "ADMIN_PASS_HASH 형식이 올바르지 않습니다. tools/security.py hash-password 로 만드십시오."
     else:
         password = _plain_password()
         if not password:
-            return "서버 .env 에 ADMIN_PASS(또는 ADMIN_PASS_HASH)를 설정하세요."
+            return "서버 .env 에 ADMIN_PASS(또는 ADMIN_PASS_HASH)를 설정하십시오."
         if password.lower() in WEAK_PASSWORDS:
-            return "ADMIN_PASS 가 너무 흔한 비밀번호입니다. 다른 값으로 바꾸세요."
+            return "ADMIN_PASS 가 너무 흔한 비밀번호입니다. 다른 값으로 바꾸십시오."
     secret = _totp_secret()
     if secret:
         try:
             if len(_b32decode(secret)) < 10:
-                return "ADMIN_TOTP_SECRET 이 너무 짧습니다. tools/security.py totp 로 다시 만드세요."
+                return "ADMIN_TOTP_SECRET 이 너무 짧습니다. tools/security.py totp 로 다시 만드십시오."
         except ValueError:
             return "ADMIN_TOTP_SECRET 형식이 올바르지 않습니다 (Base32)."
     return None

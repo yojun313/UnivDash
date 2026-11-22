@@ -32,12 +32,15 @@ logger = logging.getLogger(__name__)
 AGENT_INSTALLERS = {
     "claude": "https://claude.ai/install.sh",
     "codex": "https://chatgpt.com/codex/install.sh",
+    # Gemini: Antigravity CLI (명령 이름은 agy)
+    "agy": "https://antigravity.google/cli/install.sh",
 }
 INSTALLER_HOSTS = {
     "claude.ai",
     "downloads.claude.ai",
     "chatgpt.com",
     "releases.openai.com",
+    "antigravity.google",
 }
 INSTALL_TIMEOUT = 10 * 60
 MAX_SCRIPT = 2 * 1024 * 1024
@@ -437,12 +440,10 @@ def chrome_missing_message() -> str:
     with _chrome_lock:
         installing, error = _chrome_state["installing"], _chrome_state["error"]
     if installing:
-        return (
-            "PDF 에 필요한 Chrome 을 설치하는 중이에요. 1~2분 뒤에 다시 시도해 주세요."
-        )
+        return "PDF 에 필요한 Chrome 을 설치하는 중입니다. 1~2분 뒤에 다시 시도해 주십시오."
     if error:
-        return f"PDF 에 필요한 Chrome 을 설치하지 못했어요. ({error})"
-    return "서버에 Chrome/Chromium 이 없어 PDF 를 만들 수 없어요."
+        return f"PDF 에 필요한 Chrome 을 설치하지 못했습니다. ({error})"
+    return "서버에 Chrome/Chromium 이 없어 PDF 를 만들 수 없습니다."
 
 
 def chrome_needs_no_sandbox(binary: str) -> bool:

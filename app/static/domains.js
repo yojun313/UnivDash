@@ -108,7 +108,7 @@
         ${actions}
       </div>` : '';
     const empty = group.id
-      ? '이 폴더에 담긴 도메인이 없습니다. 도메인을 끌어다 놓거나 폴더 이동 버튼을 쓰세요.'
+      ? '이 폴더에 담긴 도메인이 없습니다. 도메인을 끌어다 놓거나 폴더 이동 버튼을 쓰십시오.'
       : '모든 도메인이 폴더에 들어가 있습니다.';
     const body = collapsed ? '' : (visible.map((domain) => domainRow(domain, Boolean(group.id))).join('')
       || (query ? '' : `<p class="dom-empty">${empty}</p>`));
@@ -185,14 +185,14 @@
   }
   function requireHelper() {
     if (state.helper.ready) return true;
-    toast('먼저 Nginx 헬퍼를 설치해 주세요.', 'error');
+    toast('먼저 Nginx 헬퍼를 설치해 주십시오.', 'error');
     return false;
   }
   function selfWarning(form, domain) {
     const warning = form.querySelector('.dom-self-warning');
     const self = domain === location.hostname;
     warning.classList.toggle('hidden', !self);
-    warning.textContent = self ? '지금 이 대시보드에 접속 중인 도메인입니다. 진행하면 이 주소로 접속하지 못하게 될 수 있어요.' : '';
+    warning.textContent = self ? '지금 이 대시보드에 접속 중인 도메인입니다. 진행하면 이 주소로 접속하지 못하게 될 수 있습니다.' : '';
   }
   const formValues = (form) => Object.fromEntries(new FormData(form).entries());
 
@@ -243,7 +243,7 @@
   changePassForm.addEventListener('submit', (event) => {
     event.preventDefault();
     if (changePassForm.next.value !== changePassForm.confirm.value) {
-      toast('새 비밀번호 두 칸이 서로 달라요.', 'error');
+      toast('새 비밀번호 두 칸이 서로 다릅니다.', 'error');
       return;
     }
     submitting(changePassForm, async () => {
@@ -252,7 +252,7 @@
         body: { current: changePassForm.current.value, new: changePassForm.next.value },
       });
       closeChangePass();
-      toast('변경 비밀번호를 바꿨어요.');
+      toast('변경 비밀번호를 바꿨습니다.');
     });
   });
 
@@ -288,7 +288,7 @@
     socket.onclose = () => {
       if (!finished) {
         title.textContent = '연결 끊김';
-        addLine('연결이 끊겼어요. 서버에서는 작업이 끝까지 진행됩니다. 잠시 뒤 목록을 확인해 주세요.', 'text-amber-300');
+        addLine('연결이 끊겼습니다. 서버에서는 작업이 끝까지 진행됩니다. 잠시 뒤 목록을 확인해 주십시오.', 'text-amber-300');
       }
       close.classList.remove('hidden');
       close.focus();
@@ -339,13 +339,13 @@
 
   async function deletePath(domain, path) {
     if (!requireHelper()) return;
-    if (!confirm(`${routeOf(domain, path)} 경로를 삭제할까요?`)) return;
+    if (!confirm(`${routeOf(domain, path)} 경로를 삭제하시겠습니까?`)) return;
     const passphrase = await askPassphrase();
     if (passphrase === null) return;
     try {
       const result = await api('/api/domains/paths/delete', { method: 'POST', body: { domain, path, passphrase } });
       if (result.requires_full_delete) {
-        toast('마지막 경로예요. 지우려면 도메인 전체를 삭제해야 합니다.');
+        toast('마지막 경로입니다. 지우려면 도메인 전체를 삭제해야 합니다.');
         openDelete(domain);
         return;
       }
@@ -355,7 +355,7 @@
 
   async function deleteFolder(id) {
     const folder = state.folders.find((item) => item.id === id);
-    if (!folder || !confirm(`'${folder.name}' 폴더를 삭제할까요?\n\n안에 있던 도메인은 미분류로 이동하며, nginx 설정과 인증서는 그대로입니다.`)) return;
+    if (!folder || !confirm(`'${folder.name}' 폴더를 삭제하시겠습니까?\n\n안에 있던 도메인은 미분류로 이동하며, nginx 설정과 인증서는 그대로입니다.`)) return;
     try {
       await api(`/api/domains/folders/${encodeURIComponent(id)}`, { method: 'DELETE' });
       await load();
@@ -519,7 +519,7 @@
     const email = form.email.value.trim();
     submitting(form, async () => {
       await api('/api/domains/rename/check', { method: 'POST', body: { old_domain: oldDomain, new_domain: newDomain } });
-      if (!confirm(`${oldDomain} → ${newDomain}\n\n경로와 포트는 유지되고, 새 도메인으로 SSL 인증서를 다시 발급합니다. 진행할까요?`)) return;
+      if (!confirm(`${oldDomain} → ${newDomain}\n\n경로와 포트는 유지되고, 새 도메인으로 SSL 인증서를 다시 발급합니다. 진행하시겠습니까?`)) return;
       const passphrase = await askPassphrase();
       if (passphrase === null) return;
       closeModals();

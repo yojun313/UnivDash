@@ -56,7 +56,7 @@ async def login(
     if retry_after:
         return _login_page(
             request,
-            f"로그인 시도가 너무 많습니다. {retry_after}초 후 다시 시도하세요.",
+            f"로그인 시도가 너무 많습니다. {retry_after}초 후 다시 시도하십시오.",
             status_code=429,
             headers={"Retry-After": str(retry_after)},
         )

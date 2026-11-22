@@ -75,7 +75,7 @@ def _bad(error: Exception):
     if isinstance(error, FsError):
         raise HTTPException(status_code=400, detail=str(error)) from error
     raise HTTPException(
-        status_code=400, detail="공유할 수 없는 파일이나 폴더예요."
+        status_code=400, detail="공유할 수 없는 파일이나 폴더입니다."
     ) from error
 
 
@@ -100,11 +100,11 @@ def _run_job(job: dict, real, body: ShareRequest) -> None:
             require_code=body.require_code,
         )
     except (FsError, OSError) as error:
-        job.update(state="error", error=str(error) or "공유 링크를 만들지 못했어요.")
+        job.update(state="error", error=str(error) or "공유 링크를 만들지 못했습니다.")
         return
     except Exception:
         logger.exception("공유 링크 만들기 실패 · %s", real)
-        job.update(state="error", error="공유 링크를 만들지 못했어요.")
+        job.update(state="error", error="공유 링크를 만들지 못했습니다.")
         return
     job.update(_link(token, code, share))
 
@@ -139,7 +139,8 @@ async def create_share(body: ShareRequest):
         _jobs.pop(job_id, None)
     if sum(job["state"] == "running" for job in _jobs.values()) >= JOBS_MAX:
         raise HTTPException(
-            status_code=429, detail="묶는 중인 공유가 있어요. 잠시 뒤 다시 시도하세요."
+            status_code=429,
+            detail="묶는 중인 공유가 있습니다. 잠시 뒤 다시 시도하십시오.",
         )
     job_id = secrets.token_urlsafe(18)
     job = {
@@ -174,7 +175,7 @@ _JOB_FIELDS = (
 async def share_job(job_id: str):
     job = _jobs.get(job_id)
     if job is None:
-        raise HTTPException(status_code=404, detail="작업을 찾을 수 없어요.")
+        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
     job["seen"] = time.monotonic()
     result = {key: job[key] for key in _JOB_FIELDS if key in job}
     if job["state"] != "running":
@@ -198,7 +199,7 @@ async def list_shares():
 @router.delete("/api/shares/{share_id}", dependencies=api_auth)
 async def revoke_share(share_id: str):
     if not await asyncio.to_thread(share_service.revoke, share_id[:64]):
-        raise HTTPException(status_code=404, detail="이미 없는 링크예요.")
+        raise HTTPException(status_code=404, detail="이미 없는 링크입니다.")
     return {"ok": True}
 
 
@@ -394,7 +395,7 @@ async def _notify(share: dict) -> None:
     try:
         await push_service.send(
             {
-                "title": "공유 링크로 받아 갔어요",
+                "title": "공유 링크로 받아 갔습니다",
                 "body": f"{share['name']} · {count}",
                 "tag": f"univdash-share-{share['id']}",
                 "url": "/explorer",
@@ -409,8 +410,8 @@ async def _notify_lock(share: dict) -> None:
     try:
         await push_service.send(
             {
-                "title": "공유 링크 접근 코드가 여러 번 틀렸어요",
-                "body": f"{share['name']} · 15분 동안 막았어요. 모르는 사람이면 링크를 끊으세요.",
+                "title": "공유 링크 접근 코드가 여러 번 틀렸습니다",
+                "body": f"{share['name']} · 15분 동안 막았습니다. 모르는 사람이면 링크를 끊으십시오.",
                 "tag": f"univdash-share-lock-{share['id']}",
                 "url": "/explorer",
             },
