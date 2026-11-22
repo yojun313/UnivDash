@@ -212,7 +212,6 @@
  "완료되었습니다.": "Done.",
  "명령이 실패했습니다.": "The command failed.",
  "현재 브랜치는 삭제할 수 없습니다.": "The current branch cannot be deleted.",
- "ruff 를 찾을 수 없습니다. 저장소 .venv 에 ruff 를 설치하거나 uv 를 설치하십시오.": "ruff was not found. Install ruff in the repository .venv or install uv.",
  "커밋을 찾을 수 없습니다.": "Commit not found.",
  "등록되지 않은 Git 저장소입니다.": "This Git repository is not registered.",
  "해결되지 않은 충돌 파일이 있습니다.": "There are unresolved conflict files.",
@@ -306,5 +305,6 @@
  "git 저장소가 아닙니다.": "Not a git repository.",
  "uv 를 찾을 수 없습니다.": "uv was not found.",
  "이미 uv sync 가 실행 중입니다.": "uv sync is already running.",
- "프로세스를 찾을 수 없습니다.": "Process not found."
+ "프로세스를 찾을 수 없습니다.": "Process not found.",
+ "ruff 를 찾을 수 없습니다. UnivDash 폴더에서 uv sync 를 다시 실행하십시오.": "ruff was not found. Run uv sync again in the UnivDash folder."
 }

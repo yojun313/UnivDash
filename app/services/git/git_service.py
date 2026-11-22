@@ -907,20 +907,23 @@ class GitService:
         """`ruff format .` at the repository top level (tidy the code before a commit). Returns the summary as the terminal shows it."""
         repository = cls._get_repository(repository_id)
         root = repository.path
-        local = root / ".venv" / "bin" / "ruff"
+        # UnivDash ships its own ruff (a regular dependency), so the repository being formatted does not need
+        # ruff installed. It still runs in the repository folder, so that project's own ruff settings
+        # (pyproject.toml / ruff.toml) apply. The other places are only fallbacks for unusual installs.
         bundled = Path(sys.executable).with_name("ruff")
-        if local.exists():
+        local = root / ".venv" / "bin" / "ruff"
+        if bundled.is_file() and os.access(bundled, os.X_OK):
+            command = [str(bundled)]
+        elif local.is_file() and os.access(local, os.X_OK):
             command = [str(local)]
         elif shutil.which("ruff"):
             command = [shutil.which("ruff")]
-        elif bundled.exists():
-            command = [str(bundled)]
         elif shutil.which("uvx"):
             command = [shutil.which("uvx"), "ruff"]
         else:
             raise RuntimeError(
                 _(
-                    "ruff 를 찾을 수 없습니다. 저장소 .venv 에 ruff 를 설치하거나 uv 를 설치하십시오."
+                    "ruff 를 찾을 수 없습니다. UnivDash 폴더에서 uv sync 를 다시 실행하십시오."
                 )
             )
         args = [*command, "format", "."]

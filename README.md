@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://yojun313.github.io/UnivDash/">Website</a> ·
+  <a href="https://www.yojun.dev/UnivDash/">Website</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#features">Features</a> ·
   <a href="#configuration">Configuration</a> ·
@@ -129,7 +129,7 @@ On a desktop it runs in any modern browser. On iPhone or iPad, open the site in 
 
 | | |
 |---|---|
-| **Git** | Repositories discovered under your folders. Diffs, staging, commit / amend, push, pull (rebase), branches, merges, stashes, revert, scheduled fast-forward pulls, and commit messages drafted by a model you configure. |
+| **Git** | Repositories discovered under your folders. Diffs, staging, commit / amend, push, pull (rebase), branches, merges, stashes, revert, scheduled fast-forward pulls, commit messages drafted by a model you configure, and one-click `ruff format` with the ruff bundled in UnivDash (the repository needs nothing installed; its own ruff settings still apply). |
 | **Server** | CPU per core, GPU, memory, disk and network; PM2 processes with logs, restart and `ecosystem.config.js` editing. |
 | **Domains** | nginx reverse-proxy domains and certbot certificates through one small root helper with a single sudo rule. |
 | **Explorer** | A file tree over your server with upload, download, rename, move and trash. Viewer and editor tabs for code, Markdown, images, video, PDF, Office and HWP documents, and Jupyter notebooks; Markdown exports to PDF. |
