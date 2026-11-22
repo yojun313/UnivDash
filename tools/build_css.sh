@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Tailwind CSS 빌드 → app/static/vendor/tailwind.css
-# Tailwind 독립 실행 CLI(v3.4.17)가 없으면 내려받는다.
+# Build Tailwind CSS → app/static/vendor/tailwind.css
+# Downloads the Tailwind standalone CLI (v3.4.17) if it is missing.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 BIN=.tools/tailwindcss

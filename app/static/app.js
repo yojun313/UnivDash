@@ -1,8 +1,8 @@
 // ============================================================================
-// UnivDash 클라이언트
-// - Workspace: 창 목록 + 터미널 화면 + 프롬프트/키 입력 (모바일 우선)
-// - 창 정리: 폴더, 순서(드래그), 숨김, 표시 이름
-// 서버와는 /ws 하나로 실시간 통신하고, 정리 설정만 REST(/api/preferences)로 저장한다.
+// UnivDash client
+// - Workspace: window list + terminal screen + prompt/key input (mobile first)
+// - Window organization: folders, order (drag), hiding, display names
+// Talks to the server in real time over a single /ws; only the organization settings are saved over REST (/api/preferences).
 // ============================================================================
 (function () {
   'use strict';
@@ -12,14 +12,14 @@
   const page = document.body.dataset.page;
   const desktopQuery = window.matchMedia('(min-width: 1024px)');
   const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
-  const SOLO = document.documentElement.classList.contains('ws-solo');   // 탭 하나만 띄운 팝업 창 (theme-boot.js)
+  const SOLO = document.documentElement.classList.contains('ws-solo');   // popup window showing a single tab (theme-boot.js)
 
   const store = {
     get(key, fallback) {
       try { const raw = localStorage.getItem(`univdash-${key}`); return raw === null ? fallback : JSON.parse(raw); } catch (e) { return fallback; }
     },
     set(key, value) {
-      try { localStorage.setItem(`univdash-${key}`, JSON.stringify(value)); } catch (e) { /* 저장 불가 환경 */ }
+      try { localStorage.setItem(`univdash-${key}`, JSON.stringify(value)); } catch (e) { /* storage unavailable */ }
     },
   };
 
@@ -36,16 +36,16 @@
   function timeAgo(epochSeconds) {
     if (!epochSeconds) return '';
     const diff = Math.max(0, Date.now() / 1000 - epochSeconds);
-    if (diff < 45) return '방금';
-    if (diff < 3600) return `${Math.round(diff / 60)}분 전`;
-    if (diff < 86400) return `${Math.round(diff / 3600)}시간 전`;
-    return `${Math.round(diff / 86400)}일 전`;
+    if (diff < 45) return t('방금');
+    if (diff < 3600) return t('{n}분 전', { n: Math.round(diff / 60) });
+    if (diff < 86400) return t('{n}시간 전', { n: Math.round(diff / 3600) });
+    return t('{n}일 전', { n: Math.round(diff / 86400) });
   }
 
-  // 안드로이드는 진동, 아이폰은 시스템 햅틱 (common.js · 사용자 탭 안에서만 울린다)
+  // Android vibrates, iPhone uses the system haptic (common.js · fires only inside a user tap)
   const vibrate = (ms = 8) => window.UnivDash.haptic(ms);
 
-  // ── 토스트 ──────────────────────────────────────────────────────────
+  // ── Toast ──────────────────────────────────────────────────────────
   function toast(message, kind = 'info', action = null, timeout = 3200) {
     const host = $('#toastHost');
     if (!host) return;
@@ -65,7 +65,7 @@
     setTimeout(() => el.remove(), timeout);
   }
 
-  // ── 뷰포트: 모바일 키보드가 올라와도 입력창이 보이도록 실제 보이는 높이를 쓴다 ──────
+  // ── Viewport: use the actually visible height so the input stays visible when the mobile keyboard is up ──────
   const isEditable = (el) => !!el && (el.tagName === 'TEXTAREA' || el.isContentEditable
     || (el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit', 'file', 'range'].includes(el.type)));
   let lastViewportHeight = 0;
@@ -75,15 +75,15 @@
     const root = document.documentElement;
     const typing = coarsePointer && isEditable(document.activeElement);
     const visible = vv ? vv.height : window.innerHeight;
-    // 평소에는 앱 영역 전체(100%)를 쓴다. 키보드가 떠 있으면(입력칸 포커스 또는 보이는 영역이 줄어듦)
-    // iOS 는 레이아웃 크기를 그대로 둔 채 보이는 영역만 줄이므로 그 영역에 맞춰 입력창이 키보드 위에 오게 한다.
+    // Normally use the whole app area (100%). While the keyboard is up (an input is focused or the visible area shrank),
+    // iOS keeps the layout size and only shrinks the visible area, so fit to that area to keep the input above the keyboard.
     const keyboard = !!vv && (typing || window.innerHeight - vv.height > 80);
     root.style.setProperty('--app-h', keyboard ? `${Math.round(visible)}px` : '100%');
     root.style.setProperty('--vv-top', keyboard ? `${Math.round(vv.offsetTop)}px` : '0px');
     root.classList.toggle('kb-open', typing);
-    // 문서 자체는 스크롤되지 않게 (iOS 가 입력창을 보이려고 페이지를 밀어 올리는 것 되돌리기)
+    // Keep the document itself from scrolling (undo iOS pushing the page up to reveal the input)
     if (window.scrollY || window.scrollX) window.scrollTo(0, 0);
-    // 키보드로 화면이 줄어들면 입력 중인 칸이 가려지지 않게 스크롤 컨테이너 안에서 보이게 한다
+    // When the keyboard shrinks the screen, scroll the focused field into view inside its scroll container
     if (visible < lastViewportHeight && typing) {
       const el = document.activeElement;
       requestAnimationFrame(() => el.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
@@ -95,27 +95,27 @@
   window.visualViewport?.addEventListener('scroll', syncViewport);
   window.addEventListener('scroll', () => { if (window.scrollY) window.scrollTo(0, 0); }, { passive: true });
 
-  // 휴대폰: 키보드가 떠 있는 동안 표시(탭바 숨김), 확대 제스처 · 두 번 탭 확대 막기
+  // Phone: flag while the keyboard is up (hides the tab bar), block pinch zoom · double-tap zoom
   if (coarsePointer) {
-    // 키보드가 올라오고 내려가는 애니메이션 동안 resize 가 안 오는 경우가 있어 몇 번 다시 잰다
+    // resize sometimes does not fire during the keyboard show/hide animation, so measure again a few times
     const resyncSoon = () => [0, 100, 300, 600].forEach((ms) => setTimeout(syncViewport, ms));
     document.addEventListener('focusin', resyncSoon);
     document.addEventListener('focusout', resyncSoon);
     window.addEventListener('orientationchange', resyncSoon);
     ['gesturestart', 'gesturechange', 'gestureend'].forEach((type) => document.addEventListener(type, (event) => event.preventDefault(), { passive: false }));
-    // 두 손가락 핀치만 막는다. 두 번 탭 확대는 CSS touch-action: manipulation 이 막으므로
-    // 빠른 연속 탭(Esc 두 번 등)은 그대로 전달된다.
+    // Only block two-finger pinch. Double-tap zoom is blocked by CSS touch-action: manipulation,
+    // so quick repeated taps (Esc twice, etc.) still go through.
     document.addEventListener('touchmove', (event) => { if (event.touches.length > 1) event.preventDefault(); }, { passive: false });
   }
   window.addEventListener('resize', syncViewport);
 
-  // ── 사이드바 (모바일 슬라이드 + 데스크톱 접기) ─────────────────────────────
+  // ── Sidebar (mobile slide-in + desktop collapse) ─────────────────────────────
   const sidebar = $('#sidebar');
   const sidebarOverlay = $('#sidebarOverlay');
   const sidebarMenuButton = $('#sidebarMenuButton');
   const mdQuery = window.matchMedia('(min-width: 768px)');
-  // 입력창 안내 문구: 넓은 화면에서는 창 이름을 함께, 모바일에서는 짧게
-  const promptPlaceholder = (w) => (w && mdQuery.matches ? `${displayName(w)} · 프롬프트 입력` : '프롬프트 입력');
+  // Input placeholder: with the window name on wide screens, short on mobile
+  const promptPlaceholder = (w) => (w && mdQuery.matches ? t('{name} · 프롬프트 입력', { name: displayName(w) }) : t('프롬프트 입력'));
 
   function setSidebarOpen(isOpen) {
     sidebar.classList.toggle('-translate-x-full', !isOpen);
@@ -123,16 +123,16 @@
     sidebarMenuButton.setAttribute('aria-expanded', String(isOpen));
   }
   if (store.get('sidebar-collapsed', false)) document.documentElement.classList.add('sidebar-collapsed');
-  // 휴대폰: 상단 ☰ 로 서랍 열기 / 데스크톱: 사이드바 아래 버튼으로 아이콘만 남기고 접기
+  // Phone: open the drawer with the top ☰ / desktop: collapse to icons with the button at the bottom of the sidebar
   sidebarMenuButton.addEventListener('click', () => setSidebarOpen(true));
   $('#sidebarCollapseBtn')?.addEventListener('click', () => {
     const collapsed = document.documentElement.classList.toggle('sidebar-collapsed');
     store.set('sidebar-collapsed', collapsed);
-    $('#sidebarCollapseBtn').setAttribute('aria-label', collapsed ? '사이드바 펼치기' : '사이드바 접기');
+    $('#sidebarCollapseBtn').setAttribute('aria-label', collapsed ? t('사이드바 펼치기') : t('사이드바 접기'));
     requestAnimationFrame(() => terminal?.refit());
   });
   $('#closeSidebarBtn').addEventListener('click', () => setSidebarOpen(false));
-  // 단축키: 데스크톱은 접기 / 펼치기, 휴대폰은 서랍 열기 / 닫기
+  // Shortcut: collapse / expand on desktop, open / close the drawer on phones
   window.UnivDashKeys?.register('app.sidebar', () => {
     if (mdQuery.matches) $('#sidebarCollapseBtn')?.click();
     else setSidebarOpen(sidebarMenuButton.getAttribute('aria-expanded') !== 'true');
@@ -140,8 +140,9 @@
   sidebarOverlay.addEventListener('click', () => setSidebarOpen(false));
   $$('.sidebar-link').forEach((link) => link.addEventListener('click', () => { if (!mdQuery.matches) setSidebarOpen(false); }));
 
-  // 사이드바 메뉴 순서는 브라우저가 아니라 서버 환경설정에 저장해 기기 간 공유한다.
-  const primaryNav = $('#sidebar nav[aria-label="대시보드 메뉴"]');
+  // The sidebar menu order is saved in the server preferences, not the browser, so devices share it.
+  // (Found by its items rather than its aria-label, which changes with the interface language.)
+  const primaryNav = $('#sidebar nav [data-nav-key]')?.closest('nav');
   if (primaryNav) {
     let draggedNavItem = null;
     let savedNavOrder = [];
@@ -157,7 +158,7 @@
       try {
         const saved = await api('PUT', '/api/navigation-order', { order });
         if (state.prefs) state.prefs.nav_order = saved.order;
-        toast('메뉴 순서를 모든 기기에 저장했습니다.', 'ok');
+        toast(t('메뉴 순서를 모든 기기에 저장했습니다.'), 'ok');
       } catch (error) {
         savedNavOrder.forEach((key) => {
           const item = primaryNav.querySelector(`[data-nav-key="${CSS.escape(key)}"]`);
@@ -168,7 +169,7 @@
           const item = tabbar.querySelector(`[data-nav-key="${CSS.escape(key)}"]`);
           if (item) tabbar.appendChild(item);
         });
-        toast(`메뉴 순서를 저장하지 못했습니다:${error.message}`, 'error');
+        toast(t('메뉴 순서를 저장하지 못했습니다:{error}', { error: error.message }), 'error');
       }
     };
     primaryNav.addEventListener('click', (event) => {
@@ -209,15 +210,15 @@
     });
   }
 
-  // ── 시트(하단 시트 / 모달) ────────────────────────────────────────────
+  // ── Sheet (bottom sheet / modal) ────────────────────────────────────────────
   const sheetOverlay = $('#sheetOverlay');
   let sheetBody = $('#sheetBody');
   let sheetOnClose = null;
 
   let sheetReturnFocus = null;
   function openSheet(html, onMount, onClose) {
-    if (sheetOverlay.hidden) sheetReturnFocus = document.activeElement;   // 닫으면 원래 자리로 초점을 돌려준다 (단축키가 이어지게)
-    // 시트마다 새 요소로 바꾼다 — onMount 가 body 에 단 리스너가 다음 시트까지 남아 한 번 눌러도 여러 번 실행되지 않게
+    if (sheetOverlay.hidden) sheetReturnFocus = document.activeElement;   // return focus to where it was on close (so shortcuts keep working)
+    // Swap in a fresh element for every sheet — so listeners onMount put on the body do not survive into the next sheet and fire several times per click
     const fresh = sheetBody.cloneNode(false);
     sheetBody.replaceWith(fresh);
     sheetBody = fresh;
@@ -243,7 +244,7 @@
     return `<div class="sheet-head"><h3>${escapeHtml(title)}</h3>${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ''}</div>`;
   }
 
-  // actions: [{icon, label, sub, danger, current, onClick}] 또는 'sep'
+  // actions: [{icon, label, sub, danger, current, onClick}] or 'sep'
   function actionSheet({ title, subtitle, actions }) {
     const items = actions.map((action, index) => {
       if (action === 'sep') return '<div class="sheet-sep"></div>';
@@ -252,12 +253,12 @@
             ? `<span class="block truncate">${escapeHtml(action.label)}</span><span class="block text-[11px] font-medium opacity-55 mt-0.5">${escapeHtml(action.desc)}</span>`
             : escapeHtml(action.label)}</span>
           ${action.sub ? `<span class="sub">${escapeHtml(action.sub)}</span>` : ''}</button>`;
-      // side: 줄 오른쪽에 따로 붙는 버튼 (예: 계정마다 로그아웃) — { icon, label, onClick }
+      // side: a separate button at the right of the row (e.g. sign out per account) — { icon, label, onClick }
       if (!action.side) return row;
       return `<div class="sheet-row">${row}<button type="button" class="sheet-side" data-side="${index}" title="${escapeHtml(action.side.label)}" aria-label="${escapeHtml(`${action.label} ${action.side.label}`)}"><i class="fas ${action.side.icon || 'fa-xmark'}"></i><span>${escapeHtml(action.side.label)}</span></button></div>`;
     }).join('');
     openSheet(`${sheetHead(title, subtitle)}<div class="sheet-actions">${items}</div>
-      <div class="sheet-buttons"><button type="button" class="sheet-cancel" data-close>닫기</button></div>`, (body) => {
+      <div class="sheet-buttons"><button type="button" class="sheet-cancel" data-close>${t('닫기')}</button></div>`, (body) => {
       body.querySelector('[data-close]').addEventListener('click', closeSheet);
       body.querySelectorAll('.sheet-action').forEach((button) => {
         button.addEventListener('click', () => {
@@ -277,14 +278,14 @@
   }
 
   // fields: [{name, label, value, placeholder, maxlength, autocomplete}]
-  function formSheet({ title, subtitle, fields = [], extraHtml = '', submitLabel = '저장', onMount, onSubmit }) {
+  function formSheet({ title, subtitle, fields = [], extraHtml = '', submitLabel = t('저장'), onMount, onSubmit }) {
     const inputs = fields.map((field) => `
       <label>${escapeHtml(field.label)}
         <input name="${field.name}" value="${escapeHtml(field.value ?? '')}" placeholder="${escapeHtml(field.placeholder ?? '')}"
           maxlength="${field.maxlength || 100}" autocomplete="off" autocapitalize="off" spellcheck="false" ${field.inputmode ? `inputmode="${field.inputmode}"` : ''}>
       </label>`).join('');
     openSheet(`${sheetHead(title, subtitle)}<form class="sheet-form-wrap"><div class="sheet-form">${inputs}${extraHtml}</div>
-      <div class="sheet-buttons"><button type="button" class="sheet-cancel" data-close>취소</button><button type="submit" class="btn-glow">${escapeHtml(submitLabel)}</button></div></form>`, (body) => {
+      <div class="sheet-buttons"><button type="button" class="sheet-cancel" data-close>${t('취소')}</button><button type="submit" class="btn-glow">${escapeHtml(submitLabel)}</button></div></form>`, (body) => {
       const form = body.querySelector('form');
       body.querySelector('[data-close]').addEventListener('click', closeSheet);
       onMount?.(body);
@@ -297,7 +298,7 @@
           const keepOpen = await onSubmit(values, body);
           if (!keepOpen) closeSheet();
         } catch (error) {
-          toast(error.message || '처리하지 못했습니다.', 'error');
+          toast(error.message || t('처리하지 못했습니다.'), 'error');
         } finally {
           submit.disabled = false;
         }
@@ -307,15 +308,15 @@
     });
   }
 
-  // check: {label, desc, checked} 를 주면 체크박스 한 줄을 보여 주고, 확인할 때 고른 값을 check.checked 에 적는다
-  function confirmSheet({ title, message, confirmLabel = '확인', danger = false, check = null }) {
+  // check: given {label, desc, checked}, shows one checkbox row and writes the chosen value to check.checked on confirm
+  function confirmSheet({ title, message, confirmLabel = t('확인'), danger = false, check = null }) {
     return new Promise((resolve) => {
       let answered = false;
       let keyHandler = null;
       const checkHtml = check ? `<div class="sheet-form sheet-check"><label class="check-row"><input type="checkbox" data-check${check.checked ? ' checked' : ''}>
           <span>${escapeHtml(check.label)}${check.desc ? `<small>${escapeHtml(check.desc)}</small>` : ''}</span></label></div>` : '';
       openSheet(`${sheetHead(title, message)}${checkHtml}<div class="sheet-buttons">
-          <button type="button" class="sheet-cancel" data-no>취소</button>
+          <button type="button" class="sheet-cancel" data-no>${t('취소')}</button>
           <button type="button" class="${danger ? 'sheet-danger' : 'btn-glow'}" data-yes>${escapeHtml(confirmLabel)}</button></div>`, (body) => {
         const yes = body.querySelector('[data-yes]');
         body.querySelector('[data-no]').addEventListener('click', () => closeSheet());
@@ -323,7 +324,7 @@
           if (check) check.checked = body.querySelector('[data-check]').checked;
           answered = true; closeSheet(); resolve(true);
         });
-        // Enter = 확인 · Esc = 취소 (확인 버튼에 초점을 두어 키보드로 바로 누를 수 있게)
+        // Enter = confirm · Esc = cancel (focus the confirm button so the keyboard can press it right away)
         keyHandler = (event) => {
           if (event.isComposing || event.repeat) return;
           if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); yes.click(); }
@@ -338,17 +339,17 @@
     });
   }
 
-  // 다른 페이지 스크립트(server.js 등)도 같은 시트 · 토스트를 쓰도록 공개한다.
-  // 정보만 보여주는 시트 (bodyHtml 은 호출한 쪽에서 escape 한 HTML). onMount 로 나중에 값을 채울 수 있다.
+  // Exposed so other page scripts (server.js, etc.) use the same sheets · toasts.
+  // A sheet that only shows information (bodyHtml is HTML already escaped by the caller). onMount can fill in values later.
   function infoSheet({ title, subtitle, bodyHtml, onMount, onClose }) {
     openSheet(`${sheetHead(title, subtitle)}<div class="sheet-info">${bodyHtml}</div>
-      <div class="sheet-buttons"><button type="button" class="sheet-cancel" data-close>닫기</button></div>`, (body) => {
+      <div class="sheet-buttons"><button type="button" class="sheet-cancel" data-close>${t('닫기')}</button></div>`, (body) => {
       body.querySelector('[data-close]').addEventListener('click', closeSheet);
       onMount?.(body);
     }, onClose);
   }
   function codexAccountChanged(limits = null) {
-    try { localStorage.setItem('univdash-codex-account-changed', String(Date.now())); } catch (e) { /* 저장 불가 환경 */ }
+    try { localStorage.setItem('univdash-codex-account-changed', String(Date.now())); } catch (e) { /* storage unavailable */ }
     window.dispatchEvent(new CustomEvent('univdash:codex-account-changed', { detail: { limits } }));
   }
   window.addEventListener('storage', (event) => {
@@ -372,42 +373,42 @@
       body: body ? JSON.stringify(body) : undefined,
       credentials: 'same-origin',
     });
-    if (response.status === 401) { location.href = '/login'; throw new Error('로그인이 필요합니다.'); }
+    if (response.status === 401) { location.href = '/login'; throw new Error(t('로그인이 필요합니다.')); }
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.detail || '요청이 실패했습니다.');
+    if (!response.ok) throw new Error(data.detail || t('요청이 실패했습니다.'));
     return data;
   }
 
-  // ── 상태 ─────────────────────────────────────────────────────────────
+  // ── State ─────────────────────────────────────────────────────────────
   const STATUS = {
-    busy: { label: '작업 중', icon: 'fa-circle-notch fa-spin' },
-    waiting: { label: '응답 필요', icon: 'fa-hand' },
-    idle: { label: '대기', icon: 'fa-check' },
-    shell: { label: '셸', icon: 'fa-terminal' },
-    dead: { label: '종료됨', icon: 'fa-power-off' },
+    busy: { label: t('작업 중'), icon: 'fa-circle-notch fa-spin' },
+    waiting: { label: t('응답 필요'), icon: 'fa-hand' },
+    idle: { label: t('대기'), icon: 'fa-check' },
+    shell: { label: t('셸'), icon: 'fa-terminal' },
+    dead: { label: t('종료됨'), icon: 'fa-power-off' },
   };
   const FOLDER_COLORS = ['blue', 'purple', 'emerald', 'amber', 'rose', 'cyan', 'slate'];
-  // Workspace 목록 정렬. 폴더 구분은 유지하고 각 폴더(와 '폴더 없음') 안에서 정렬한다.
+  // Workspace list sorting. Folder grouping is kept; sorting happens inside each folder (and 'No folder').
   const SORTS = {
-    status: { label: '상태순', icon: 'fa-bolt', desc: '안 읽은 답변 → 작업 중 → 응답 필요 → 대기 중 에이전트 → 셸' },
-    activity: { label: '최근 활동순', icon: 'fa-clock', desc: '마지막 출력이 최근인 창부터' },
-    name: { label: '이름순', icon: 'fa-arrow-down-a-z', desc: '표시 이름 가나다/ABC 순' },
-    manual: { label: '직접 지정', icon: 'fa-hand-pointer', desc: '⋯ 메뉴의 위로 · 아래로 이동으로 정한 순서' },
+    status: { label: t('상태순'), icon: 'fa-bolt', desc: t('안 읽은 답변 → 작업 중 → 응답 필요 → 대기 중 에이전트 → 셸') },
+    activity: { label: t('최근 활동순'), icon: 'fa-clock', desc: t('마지막 출력이 최근인 창부터') },
+    name: { label: t('이름순'), icon: 'fa-arrow-down-a-z', desc: t('표시 이름 가나다/ABC 순') },
+    manual: { label: t('직접 지정'), icon: 'fa-hand-pointer', desc: t('⋯ 메뉴의 위로 · 아래로 이동으로 정한 순서') },
   };
   const STATUS_RANK = { busy: 0, waiting: 1, idle: 2, shell: 3, dead: 4 };
   const sortMode = () => (SORTS[state.prefs.sort] ? state.prefs.sort : 'status');
   const unreadActivity = (w) => w.agent ? (w.reply_activity ?? w.activity) : w.activity;
-  // 에이전트가 답을 마쳤는데(작업 중이 아님) 그 뒤로 이 창을 보지 않았다
+  // The agent finished its reply (not working) and this window has not been looked at since
   const hasUnreadReply = (w) => !!w.agent && (w.status === 'idle' || w.status === 'waiting')
     && !isWindowVisible(w.key) && unreadActivity(w) > (state.seen[w.key] || 0);
 
-  // 같은 순위끼리는 직접 지정한 순서를 유지한다 (Array.prototype.sort 는 안정 정렬).
+  // Ties keep the manual order (Array.prototype.sort is stable).
   function sortWindows(windows) {
     const mode = sortMode();
     if (mode === 'manual') return windows;
     const sorted = [...windows];
     if (mode === 'status') {
-      // 답변이 끝났는데(대기 · 응답 필요) 아직 안 읽은 창이 맨 위, 그중 최근 것 먼저
+      // Windows whose reply finished (idle · needs answer) but is still unread go on top, most recent first
       const rank = (w) => (hasUnreadReply(w) ? -1 : (STATUS_RANK[w.status] ?? 9));
       sorted.sort((a, b) => rank(a) - rank(b) || (rank(a) === -1 ? b.activity - a.activity : 0));
     }
@@ -430,13 +431,13 @@
   };
 
   const byKey = () => new Map(state.windows.map((w) => [w.key, w]));
-  // 창 설명: 직접 적은 것이 있으면 그것, 없으면 에이전트가 붙인 작업 제목
+  // Window description: the hand-written one if any, otherwise the task title set by the agent
   const windowNote = (w) => state.prefs.notes?.[w.key] || w.title || '';
   const displayName = (w) => state.prefs.aliases[w.key] || (w.index === 0 && !state.windows.some((o) => o.session === w.session && o.key !== w.key) ? w.session : `${w.session}:${w.index} ${w.name}`);
   const isHidden = (key) => state.prefs.hidden.includes(key);
   const folderOf = (key) => state.prefs.folders.find((f) => f.items.includes(key)) || null;
 
-  // 폴더들 → 폴더 밖 창 순서. includeHidden=false 면 숨긴 창 제외.
+  // Folders first → then windows outside folders. includeHidden=false leaves out hidden windows.
   function buildGroups(includeHidden) {
     const map = byKey();
     const placed = new Set();
@@ -456,7 +457,7 @@
     return groups;
   }
 
-  // ── 정리 설정 저장 ─────────────────────────────────────────────────────
+  // ── Saving organization settings ─────────────────────────────────────────────────────
   let saveTimer = null;
   let saveChain = Promise.resolve();
   function savePrefs() {
@@ -464,7 +465,7 @@
     saveTimer = setTimeout(() => {
       const snapshot = JSON.parse(JSON.stringify(state.prefs));
       saveChain = saveChain.then(() => api('PUT', '/api/preferences', snapshot))
-        .catch((error) => toast(`설정 저장 실패: ${error.message}`, 'error'));
+        .catch((error) => toast(t('설정 저장 실패: {error}', { error: error.message }), 'error'));
     }, 250);
   }
   function commitPrefs() { savePrefs(); renderAll(true); }
@@ -477,14 +478,14 @@
     if (folderId) {
       state.prefs.folders.find((f) => f.id === folderId)?.items.push(key);
     } else {
-      // 폴더 밖 목록의 현재 표시 순서를 저장해 두고 맨 끝에 붙인다.
+      // Save the current display order of the list outside folders and append at the very end.
       const rootGroup = buildGroups(true).at(-1);
       state.prefs.order = [...rootGroup.windows.map((w) => w.key).filter((k) => k !== key), key, ...state.prefs.order.filter((k) => !existingKeys().has(k))];
     }
     commitPrefs();
   }
 
-  // 지금 보이는 정렬 순서를 직접 지정 순서로 굳힌다 (다른 정렬에서 위/아래 이동할 때)
+  // Freeze the currently shown sort order as the manual order (when moving up/down under another sort)
   function adoptDisplayOrder() {
     if (sortMode() === 'manual') return;
     const exist = existingKeys();
@@ -494,7 +495,7 @@
       else state.prefs.order = [...keys, ...state.prefs.order.filter((k) => !exist.has(k))];
     });
     state.prefs.sort = 'manual';
-    toast('정렬 기준을 직접 지정으로 바꿨습니다.', 'info');
+    toast(t('정렬 기준을 직접 지정으로 바꿨습니다.'), 'info');
   }
 
   function moveWithinGroup(key, delta) {
@@ -523,7 +524,7 @@
     const hidden = isHidden(key);
     state.prefs.hidden = hidden ? state.prefs.hidden.filter((k) => k !== key) : [...state.prefs.hidden, key];
     commitPrefs();
-    toast(hidden ? '다시 목록에 표시합니다.' : '목록에서 숨겼습니다.', 'ok', hidden ? null : { label: '되돌리기', onClick: () => toggleHidden(key) });
+    toast(hidden ? t('다시 목록에 표시합니다.') : t('목록에서 숨겼습니다.'), 'ok', hidden ? null : { label: t('되돌리기'), onClick: () => toggleHidden(key) });
   }
 
   function newFolderId() { return `f${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; }
@@ -532,10 +533,10 @@
     let color = folder?.color || FOLDER_COLORS[state.prefs.folders.length % FOLDER_COLORS.length];
     const swatches = FOLDER_COLORS.map((c) => `<button type="button" class="color-swatch fb-${c} fc-${c} ${c === color ? 'on' : ''}" data-color="${c}" aria-label="${c}"></button>`).join('');
     formSheet({
-      title: folder ? '폴더 편집' : '새 폴더',
-      fields: [{ name: 'name', label: '폴더 이름', value: folder?.name || '', placeholder: '예: 회사 프로젝트', maxlength: 40 }],
-      extraHtml: `<label>색상<div class="color-row">${swatches}</div></label>`,
-      submitLabel: folder ? '저장' : '만들기',
+      title: folder ? t('폴더 편집') : t('새 폴더'),
+      fields: [{ name: 'name', label: t('폴더 이름'), value: folder?.name || '', placeholder: t('예: 회사 프로젝트'), maxlength: 40 }],
+      extraHtml: `<label>${t('색상')}<div class="color-row">${swatches}</div></label>`,
+      submitLabel: folder ? t('저장') : t('만들기'),
       onMount(body) {
         body.querySelectorAll('.color-swatch').forEach((button) => button.addEventListener('click', () => {
           color = button.dataset.color;
@@ -544,7 +545,7 @@
       },
       onSubmit(values) {
         const name = values.name.trim();
-        if (!name) throw new Error('폴더 이름을 입력하십시오.');
+        if (!name) throw new Error(t('폴더 이름을 입력하십시오.'));
         if (folder) {
           folder.name = name;
           folder.color = color;
@@ -558,14 +559,16 @@
     });
   }
 
-  // 이름 변경 = 실제 tmux 세션 이름 변경. 폴더 · 순서 · 숨김 · 읽음 표시 · 입력 중이던 내용도 새 이름으로 옮긴다.
+  // Rename = renaming the actual tmux session. Folder · order · hidden · read marks · drafts move to the new name too.
   function renameForm(w) {
     const siblings = state.windows.filter((o) => o.session === w.session).length;
     formSheet({
-      title: '이름 변경',
-      subtitle: `tmux 세션 이름을 바꿉니다${siblings > 1 ? ` (이 세션의 창 ${siblings}개 모두 적용)` : ''}. 공백 · : · . 은 쓸 수 없습니다.`,
-      fields: [{ name: 'name', label: 'tmux 세션 이름', value: w.session, placeholder: w.session, maxlength: 50 }],
-      submitLabel: '변경',
+      title: t('이름 변경'),
+      subtitle: siblings > 1
+        ? t('tmux 세션 이름을 바꿉니다 (이 세션의 창 {count}개 모두 적용). 공백 · : · . 은 쓸 수 없습니다.', { count: siblings })
+        : t('tmux 세션 이름을 바꿉니다. 공백 · : · . 은 쓸 수 없습니다.'),
+      fields: [{ name: 'name', label: t('tmux 세션 이름'), value: w.session, placeholder: w.session, maxlength: 50 }],
+      submitLabel: t('변경'),
       onMount(body) {
         const field = body.querySelector('input[name="name"]');
         setTimeout(() => { field.focus(); field.select(); }, 30);
@@ -583,19 +586,19 @@
     });
   }
 
-  // 작업 폴더 바꾸기: 세션의 기본 폴더를 바꾸고, 돌고 있는 Claude · Codex 는 새 폴더에서 같은 대화로 다시 켠다
+  // Change working folder: changes the session's default folder and restarts running Claude · Codex in the new folder with the same conversation
   function moveSessionForm(w) {
     const siblings = state.windows.filter((o) => o.session === w.session);
     const agents = siblings.filter((o) => o.agent).length;
     const busy = siblings.filter((o) => o.agent && (o.status === 'busy' || o.status === 'waiting'));
     formSheet({
-      title: '작업 폴더 바꾸기',
-      subtitle: `${w.session} 세션을 다른 폴더로 옮깁니다. 지금 폴더: ${w.path}`,
-      fields: [{ name: 'path', label: '새 작업 폴더', value: w.path, placeholder: '~/project', maxlength: 1024 }],
+      title: t('작업 폴더 바꾸기'),
+      subtitle: t('{session} 세션을 다른 폴더로 옮깁니다. 지금 폴더: {path}', { session: w.session, path: w.path }),
+      fields: [{ name: 'path', label: t('새 작업 폴더'), value: w.path, placeholder: '~/project', maxlength: 1024 }],
       extraHtml: `${folderPickerHtml()}
-        <p class="text-[12px] opacity-70 leading-relaxed">${agents ? `Claude · Codex · Gemini ${agents}개는 잠깐 꺼졌다가 새 폴더에서 <b>같은 대화</b>로 다시 켜집니다 (입력창에 써 둔 글은 사라질 수 있습니다). ` : ''}셸만 있는 창은 새 폴더로 이동만 하고, 서버처럼 다른 프로그램이 돌고 있는 창은 그대로 둡니다. 파일은 옮기지 않습니다.</p>
-        ${busy.length ? `<p class="text-[12px] text-amber-500"><i class="fas fa-triangle-exclamation mr-1"></i>${escapeHtml(busy.map(displayName).join(', '))} 이(가) 작업 중이거나 응답을 기다려서 지금은 옮길 수 없습니다.</p>` : ''}`,
-      submitLabel: '옮기기',
+        <p class="text-[12px] opacity-70 leading-relaxed">${agents ? `${t('Claude · Codex · Gemini {count}개는 잠깐 꺼졌다가 새 폴더에서 <b>같은 대화</b>로 다시 켜집니다 (입력창에 써 둔 글은 사라질 수 있습니다).', { count: agents })} ` : ''}${t('셸만 있는 창은 새 폴더로 이동만 하고, 서버처럼 다른 프로그램이 돌고 있는 창은 그대로 둡니다. 파일은 옮기지 않습니다.')}</p>
+        ${busy.length ? `<p class="text-[12px] text-amber-500"><i class="fas fa-triangle-exclamation mr-1"></i>${t('{names} 이(가) 작업 중이거나 응답을 기다려서 지금은 옮길 수 없습니다.', { names: escapeHtml(busy.map(displayName).join(', ')) })}</p>` : ''}`,
+      submitLabel: t('옮기기'),
       onMount(body) {
         const path = body.querySelector('input[name="path"]');
         mountFolderPicker(body, path);
@@ -604,27 +607,29 @@
       async onSubmit(values) {
         const target = values.path.trim();
         if (!target || target === w.path) return;
-        toast(`${w.session} 세션을 옮기는 중…`, 'info', null, 3000);
+        toast(t('{session} 세션을 옮기는 중…', { session: w.session }), 'info', null, 3000);
         const result = await api('POST', '/api/sessions/move', { session: w.session_id, path: target });
         const parts = [];
-        if (result.agents.length) parts.push(`에이전트 ${result.agents.length}개 다시 켬`);
-        if (result.shells) parts.push(`셸 ${result.shells}개 이동`);
-        if (result.skipped.length) parts.push(`그대로 둔 창: ${result.skipped.join(', ')}`);
+        if (result.agents.length) parts.push(t('에이전트 {count}개 다시 켬', { count: result.agents.length }));
+        if (result.shells) parts.push(t('셸 {count}개 이동', { count: result.shells }));
+        if (result.skipped.length) parts.push(t('그대로 둔 창: {names}', { names: result.skipped.join(', ') }));
         toast(`${result.session} → ${result.path}${parts.length ? ` · ${parts.join(' · ')}` : ''}`, 'ok', null, 6000);
-        if (result.failed.length) toast(`다시 켜지 못한 창: ${result.failed.join(' / ')}`, 'error', null, 10000);
+        if (result.failed.length) toast(t('다시 켜지 못한 창: {names}', { names: result.failed.join(' / ') }), 'error', null, 10000);
         await refreshState();
         socket.poke();
       },
     });
   }
 
-  // 창 이름 아래 설명을 직접 적는다 (비우면 에이전트가 붙인 작업 제목으로 돌아간다)
+  // Write the description under the window name by hand (leaving it empty goes back to the task title set by the agent)
   function noteForm(w) {
     formSheet({
-      title: '설명 변경',
-      subtitle: `${displayName(w)} 아래에 보일 설명입니다. 비워 두면 에이전트가 붙인 작업 제목${w.title ? ` ("${w.title}")` : ''}을 그대로 보여 줍니다.`,
-      fields: [{ name: 'note', label: '설명', value: state.prefs.notes?.[w.key] || '', placeholder: w.title || '예: hw2 풀이 중', maxlength: 120 }],
-      submitLabel: '저장',
+      title: t('설명 변경'),
+      subtitle: w.title
+        ? t('{name} 아래에 보일 설명입니다. 비워 두면 에이전트가 붙인 작업 제목 ("{title}")을 그대로 보여 줍니다.', { name: displayName(w), title: w.title })
+        : t('{name} 아래에 보일 설명입니다. 비워 두면 에이전트가 붙인 작업 제목을 그대로 보여 줍니다.', { name: displayName(w) }),
+      fields: [{ name: 'note', label: t('설명'), value: state.prefs.notes?.[w.key] || '', placeholder: w.title || t('예: hw2 풀이 중'), maxlength: 120 }],
+      submitLabel: t('저장'),
       onMount(body) {
         const field = body.querySelector('input[name="note"]');
         setTimeout(() => { field.focus(); field.select(); }, 30);
@@ -634,7 +639,7 @@
         state.prefs.notes = { ...(state.prefs.notes || {}) };
         if (note) state.prefs.notes[w.key] = note; else delete state.prefs.notes[w.key];
         commitPrefs();
-        toast(note ? '설명을 바꿨습니다.' : '자동 설명으로 되돌렸습니다.', 'ok');
+        toast(note ? t('설명을 바꿨습니다.') : t('자동 설명으로 되돌렸습니다.'), 'ok');
       },
     });
   }
@@ -654,22 +659,22 @@
   function folderPicker(w) {
     const current = folderOf(w.key);
     actionSheet({
-      title: '폴더로 이동',
+      title: t('폴더로 이동'),
       subtitle: displayName(w),
       actions: [
         ...state.prefs.folders.map((folder) => ({
           icon: `fa-folder fc-${folder.color}`, label: folder.name, current: current?.id === folder.id,
-          sub: current?.id === folder.id ? '현재' : `${folder.items.length}`,
+          sub: current?.id === folder.id ? t('현재') : `${folder.items.length}`,
           onClick: () => moveToFolder(w.key, folder.id),
         })),
-        { icon: 'fa-inbox', label: '폴더 없음', current: !current, sub: !current ? '현재' : '', onClick: () => moveToFolder(w.key, null) },
+        { icon: 'fa-inbox', label: t('폴더 없음'), current: !current, sub: !current ? t('현재') : '', onClick: () => moveToFolder(w.key, null) },
         'sep',
-        { icon: 'fa-folder-plus', label: '새 폴더 만들어 이동', onClick: () => folderForm({ onCreated: (folder) => { folder.items.push(w.key); } }) },
+        { icon: 'fa-folder-plus', label: t('새 폴더 만들어 이동'), onClick: () => folderForm({ onCreated: (folder) => { folder.items.push(w.key); } }) },
       ],
     });
   }
 
-  // 폴더 메뉴: 편집(이름 · 색) · 순서 · 접기 · 삭제 (예전 '창 정리' 탭 기능)
+  // Folder menu: edit (name · color) · order · collapse · delete (what the old 'window organization' tab did)
   function moveFolder(folder, delta) {
     const list = state.prefs.folders;
     const index = list.indexOf(folder);
@@ -679,7 +684,7 @@
     commitPrefs();
   }
   async function deleteFolder(folder) {
-    const ok = await confirmSheet({ title: '폴더 삭제', message: `'${folder.name}' 폴더를 삭제합니다. 안에 있던 창은 '폴더 없음'으로 옮겨집니다.`, confirmLabel: '삭제', danger: true });
+    const ok = await confirmSheet({ title: t('폴더 삭제'), message: t("'{name}' 폴더를 삭제합니다. 안에 있던 창은 '폴더 없음'으로 옮겨집니다.", { name: folder.name }), confirmLabel: t('삭제'), danger: true });
     if (!ok) return;
     const rootKeys = buildGroups(true).at(-1).windows.map((x) => x.key);
     state.prefs.order = [...rootKeys, ...folder.items, ...state.prefs.order.filter((k) => !rootKeys.includes(k) && !folder.items.includes(k))];
@@ -690,26 +695,26 @@
     const folders = state.prefs.folders;
     const allCollapsed = folders.length && folders.every((f) => f.collapsed);
     actionSheet({
-      title: folder.name, subtitle: `창 ${folder.items.filter((k) => existingKeys().has(k)).length}개`,
+      title: folder.name, subtitle: t('창 {count}개', { count: folder.items.filter((k) => existingKeys().has(k)).length }),
       actions: [
-        { icon: 'fa-pen', label: '이름 · 색 바꾸기', onClick: () => folderForm({ folder }) },
-        { icon: folder.collapsed ? 'fa-folder-open' : 'fa-folder', label: folder.collapsed ? '펼치기' : '접기', onClick: () => { folder.collapsed = !folder.collapsed; commitPrefs(); } },
-        { icon: 'fa-arrow-up', label: '폴더를 위로', onClick: () => moveFolder(folder, -1) },
-        { icon: 'fa-arrow-down', label: '폴더를 아래로', onClick: () => moveFolder(folder, 1) },
-        { icon: 'fa-folder-plus', label: '새 폴더', onClick: () => folderForm() },
-        { icon: 'fa-down-left-and-up-right-to-center', label: allCollapsed ? '모든 폴더 펼치기' : '모든 폴더 접기', onClick: () => { folders.forEach((f) => { f.collapsed = !allCollapsed; }); commitPrefs(); } },
+        { icon: 'fa-pen', label: t('이름 · 색 바꾸기'), onClick: () => folderForm({ folder }) },
+        { icon: folder.collapsed ? 'fa-folder-open' : 'fa-folder', label: folder.collapsed ? t('펼치기') : t('접기'), onClick: () => { folder.collapsed = !folder.collapsed; commitPrefs(); } },
+        { icon: 'fa-arrow-up', label: t('폴더를 위로'), onClick: () => moveFolder(folder, -1) },
+        { icon: 'fa-arrow-down', label: t('폴더를 아래로'), onClick: () => moveFolder(folder, 1) },
+        { icon: 'fa-folder-plus', label: t('새 폴더'), onClick: () => folderForm() },
+        { icon: 'fa-down-left-and-up-right-to-center', label: allCollapsed ? t('모든 폴더 펼치기') : t('모든 폴더 접기'), onClick: () => { folders.forEach((f) => { f.collapsed = !allCollapsed; }); commitPrefs(); } },
         'sep',
-        { icon: 'fa-trash-can', label: '폴더 삭제', danger: true, onClick: () => deleteFolder(folder) },
+        { icon: 'fa-trash-can', label: t('폴더 삭제'), danger: true, onClick: () => deleteFolder(folder) },
       ],
     });
   }
 
-  // ── 에이전트 바꾸기 (Claude ↔ Codex) · 셸만 있는 창에서 켜기 ──
-  // 서버가 지금 에이전트를 Ctrl+C 로 끄고 같은 셸에서 다른 에이전트를 켠다.
-  // '대화 넘기기'를 고르면 지금 대화 기록을 파일로 만들어 새 에이전트가 첫 지시로 읽고 이어 간다.
+  // ── Switch agent (Claude ↔ Codex) · start one in a shell-only window ──
+  // The server stops the current agent with Ctrl+C and starts another agent in the same shell.
+  // With 'hand over the conversation', the current transcript is written to a file that the new agent reads as its first instruction and continues from.
   const AGENT_NAMES = { claude: 'Claude', codex: 'Codex', gemini: 'Gemini' };
   const AGENT_IDS = Object.keys(AGENT_NAMES);
-  // 에이전트 → tmux 에 보이는 실행 파일 이름 (Gemini 는 Antigravity CLI · agy)
+  // Agent → executable name shown in tmux (Gemini is the Antigravity CLI · agy)
   const AGENT_BINS = { claude: 'claude', codex: 'codex', gemini: 'agy' };
   const isAgent = (agent) => AGENT_IDS.includes(agent);
   const CARRY_KEY = 'univdash-agent-carry';
@@ -719,61 +724,69 @@
     if (w.status === 'dead') return [];
     if (!w.agent) {
       if (w.status !== 'shell') return [];
-      return AGENT_IDS.map((to) => ({ icon: 'fa-robot', label: `${AGENT_NAMES[to]} 켜기`, desc: '이 창의 셸에서 새 대화로 시작', onClick: () => switchAgent(w, to) }));
+      return AGENT_IDS.map((to) => ({ icon: 'fa-robot', label: t('{agent} 켜기', { agent: AGENT_NAMES[to] }), desc: t('이 창의 셸에서 새 대화로 시작'), onClick: () => switchAgent(w, to) }));
     }
-    return [{ icon: 'fa-shuffle', label: '다른 에이전트로 바꾸기', desc: `${AGENT_NAMES[w.agent] || w.agent} 를 끄고 ${otherAgents(w.agent).map((id) => AGENT_NAMES[id]).join(' · ')} 중 하나를 켭니다`, onClick: () => pickAgentSwitch(w) }];
+    return [{ icon: 'fa-shuffle', label: t('다른 에이전트로 바꾸기'), desc: t('{from} 를 끄고 {others} 중 하나를 켭니다', { from: AGENT_NAMES[w.agent] || w.agent, others: otherAgents(w.agent).map((id) => AGENT_NAMES[id]).join(' · ') }), onClick: () => pickAgentSwitch(w) }];
   }
-  // 바꿀 에이전트를 여러 선택지 중에서 고른다
+  // Pick the agent to switch to from the available choices
   function pickAgentSwitch(w) {
     if (!w?.agent) return;
     const from = AGENT_NAMES[w.agent] || w.agent;
     actionSheet({
-      title: '에이전트 바꾸기',
-      subtitle: `${displayName(w)} 창의 ${from} 를 끄고 켤 에이전트를 선택하십시오.`,
-      actions: otherAgents(w.agent).map((to) => ({ icon: 'fa-robot', label: AGENT_NAMES[to], desc: `${from} 를 끄고 ${AGENT_NAMES[to]} 를 켭니다 (지금 대화를 넘겨줄 수 있습니다)`, onClick: () => switchAgent(w, to) })),
+      title: t('에이전트 바꾸기'),
+      subtitle: t('{name} 창의 {from} 를 끄고 켤 에이전트를 선택하십시오.', { name: displayName(w), from }),
+      actions: otherAgents(w.agent).map((to) => ({ icon: 'fa-robot', label: AGENT_NAMES[to], desc: t('{from} 를 끄고 {to} 를 켭니다 (지금 대화를 넘겨줄 수 있습니다)', { from, to: AGENT_NAMES[to] }), onClick: () => switchAgent(w, to) })),
     });
   }
   async function switchAgent(w, to) {
     const from = w.agent ? (AGENT_NAMES[w.agent] || w.agent) : null;
-    if (w.status === 'busy') { toast(`${from} 가 작업 중입니다. 끝난 뒤에 바꿀 수 있습니다.`, 'warn'); return; }
-    // 대화 넘기기: 마지막으로 고른 값을 기억한다
+    if (w.status === 'busy') { toast(t('{from} 가 작업 중입니다. 끝난 뒤에 바꿀 수 있습니다.', { from }), 'warn'); return; }
+    // Hand over the conversation: remember the last choice
     const check = from ? {
-      label: `지금 ${from} 대화를 ${AGENT_NAMES[to]} 에게 넘기기`,
-      desc: `지금까지의 대화 전체를 기록으로 만들어 ${AGENT_NAMES[to]} 가 새 대화에서 읽고 이어 갑니다.`,
+      label: t('지금 {from} 대화를 {to} 에게 넘기기', { from, to: AGENT_NAMES[to] }),
+      desc: t('지금까지의 대화 전체를 기록으로 만들어 {to} 가 새 대화에서 읽고 이어 갑니다.', { to: AGENT_NAMES[to] }),
       checked: false,
     } : null;
     if (from) {
-      try { check.checked = localStorage.getItem(CARRY_KEY) === '1'; } catch (e) { /* 저장 불가 */ }
+      try { check.checked = localStorage.getItem(CARRY_KEY) === '1'; } catch (e) { /* storage unavailable */ }
       const ok = await confirmSheet({
-        title: `${AGENT_NAMES[to]}로 바꾸기`,
-        message: `${displayName(w)} 창의 ${from} 를 끄고 ${AGENT_NAMES[to]} 를 켭니다.\n넘기지 않으면 이 창에서 ${AGENT_NAMES[to]} 로 하던 대화를(없으면 이 폴더의 최근 대화를) 이어서 켭니다. 지금 ${from} 대화도 기억해 두어, 다시 ${from} 로 바꾸면 이어집니다.`,
-        confirmLabel: '바꾸기',
+        title: t('{to}로 바꾸기', { to: AGENT_NAMES[to] }),
+        message: t('{name} 창의 {from} 를 끄고 {to} 를 켭니다.\n넘기지 않으면 이 창에서 {to} 로 하던 대화를(없으면 이 폴더의 최근 대화를) 이어서 켭니다. 지금 {from} 대화도 기억해 두어, 다시 {from} 로 바꾸면 이어집니다.', { name: displayName(w), from, to: AGENT_NAMES[to] }),
+        confirmLabel: t('바꾸기'),
         check,
       });
       if (!ok) return;
-      try { localStorage.setItem(CARRY_KEY, check.checked ? '1' : '0'); } catch (e) { /* 저장 불가 */ }
+      try { localStorage.setItem(CARRY_KEY, check.checked ? '1' : '0'); } catch (e) { /* storage unavailable */ }
     }
     const carry = !!check?.checked;
     const pane = agentPaneOf(w);
     try {
-      toast(`${AGENT_NAMES[to]} 를 켜는 중…`, 'info', null, 2000);
+      toast(t('{to} 를 켜는 중…', { to: AGENT_NAMES[to] }), 'info', null, 2000);
       const result = await api('POST', '/api/agent/switch', { pane, to, carry });
-      const how = { window: '이 창에서 하던 대화를 이어서', folder: '이 폴더의 최근 대화를 이어서', new: '새 대화로', carried: `${from} 대화를 넘겨받은 새 대화로` }[result.resumed] || '';
-      toast(`${displayName(w)} · ${AGENT_NAMES[to]} 로 바꿨습니다 (${how} 켰습니다).${result.resumed === 'new' && to !== 'gemini' ? ' 켜지면 모델 선택이 채팅 아래에 표시됩니다.' : ''}`, 'ok', null, 5000);
+      const names = { name: displayName(w), from, to: AGENT_NAMES[to] };
+      const done = {
+        window: t('{name} · {to} 로 바꿨습니다 (이 창에서 하던 대화를 이어서 켰습니다).', names),
+        folder: t('{name} · {to} 로 바꿨습니다 (이 폴더의 최근 대화를 이어서 켰습니다).', names),
+        new: t('{name} · {to} 로 바꿨습니다 (새 대화로 켰습니다).', names),
+        carried: t('{name} · {to} 로 바꿨습니다 ({from} 대화를 넘겨받은 새 대화로 켰습니다).', names),
+      }[result.resumed] || t('{name} · {to} 로 바꿨습니다.', names);
+      toast(`${done}${result.resumed === 'new' && to !== 'gemini' ? ` ${t('켜지면 모델 선택이 채팅 아래에 표시됩니다.')}` : ''}`, 'ok', null, 5000);
       window.dispatchEvent(new CustomEvent('univdash:agent-switched', { detail: { pane, to } }));
     } catch (error) { toast(error.message, 'error'); }
   }
 
   async function killWindow(w) {
     const ok = await confirmSheet({
-      title: 'tmux 창 종료',
-      message: `${displayName(w)} (${w.session}:${w.index}) 창을 종료합니다. 실행 중인 ${w.agent || '프로그램'}도 함께 종료됩니다.`,
-      confirmLabel: '종료', danger: true,
+      title: t('tmux 창 종료'),
+      message: w.agent
+        ? t('{name} ({target}) 창을 종료합니다. 실행 중인 {agent}도 함께 종료됩니다.', { name: displayName(w), target: `${w.session}:${w.index}`, agent: w.agent })
+        : t('{name} ({target}) 창을 종료합니다. 실행 중인 프로그램도 함께 종료됩니다.', { name: displayName(w), target: `${w.session}:${w.index}` }),
+      confirmLabel: t('종료'), danger: true,
     });
     if (!ok) return;
     try {
       await api('POST', '/api/windows/kill', { window: w.id });
-      toast('창을 종료했습니다.', 'ok');
+      toast(t('창을 종료했습니다.'), 'ok');
       if (state.selectedKey === w.key) workspace?.closeTerm();
     } catch (error) { toast(error.message, 'error'); }
   }
@@ -785,51 +798,51 @@
       title: displayName(w),
       subtitle: `${w.session}:${w.index} · ${w.path}`,
       actions: [
-        ...(page === 'workspace' && state.selectedKey !== w.key ? [{ icon: 'fa-terminal', label: '열기', onClick: () => workspace.select(w.key) }] : []),
-        { icon: 'fa-pen', label: '이름 변경 (tmux 세션)', onClick: () => renameForm(w) },
-        { icon: 'fa-comment-dots', label: '설명 변경', sub: state.prefs.notes?.[w.key] ? '직접 적음' : '자동', onClick: () => noteForm(w) },
-        { icon: 'fa-folder-open', label: '폴더로 이동', sub: folder ? folder.name : '없음', onClick: () => folderPicker(w) },
-        { icon: 'fa-right-left', label: '작업 폴더 바꾸기', sub: w.path, onClick: () => moveSessionForm(w) },
-        ...(wsFiles ? [{ icon: 'fa-folder-tree', label: '작업 폴더 파일 보기', sub: w.path, onClick: () => wsFiles.reveal(w.path) }] : []),
-        { icon: 'fa-arrow-up', label: '위로 이동', sub: sortMode() === 'manual' ? '' : '직접 지정으로 전환', onClick: () => moveWithinGroup(w.key, -1) },
-        { icon: 'fa-arrow-down', label: '아래로 이동', onClick: () => moveWithinGroup(w.key, 1) },
-        ...(folder ? [{ icon: 'fa-sliders', label: `'${folder.name}' 폴더 관리`, onClick: () => folderMenu(folder) }] : []),
-        { icon: hidden ? 'fa-eye' : 'fa-eye-slash', label: hidden ? '다시 표시' : '목록에서 숨기기', onClick: () => toggleHidden(w.key) },
+        ...(page === 'workspace' && state.selectedKey !== w.key ? [{ icon: 'fa-terminal', label: t('열기'), onClick: () => workspace.select(w.key) }] : []),
+        { icon: 'fa-pen', label: t('이름 변경 (tmux 세션)'), onClick: () => renameForm(w) },
+        { icon: 'fa-comment-dots', label: t('설명 변경'), sub: state.prefs.notes?.[w.key] ? t('직접 적음') : t('자동'), onClick: () => noteForm(w) },
+        { icon: 'fa-folder-open', label: t('폴더로 이동'), sub: folder ? folder.name : t('없음'), onClick: () => folderPicker(w) },
+        { icon: 'fa-right-left', label: t('작업 폴더 바꾸기'), sub: w.path, onClick: () => moveSessionForm(w) },
+        ...(wsFiles ? [{ icon: 'fa-folder-tree', label: t('작업 폴더 파일 보기'), sub: w.path, onClick: () => wsFiles.reveal(w.path) }] : []),
+        { icon: 'fa-arrow-up', label: t('위로 이동'), sub: sortMode() === 'manual' ? '' : t('직접 지정으로 전환'), onClick: () => moveWithinGroup(w.key, -1) },
+        { icon: 'fa-arrow-down', label: t('아래로 이동'), onClick: () => moveWithinGroup(w.key, 1) },
+        ...(folder ? [{ icon: 'fa-sliders', label: t("'{name}' 폴더 관리", { name: folder.name }), onClick: () => folderMenu(folder) }] : []),
+        { icon: hidden ? 'fa-eye' : 'fa-eye-slash', label: hidden ? t('다시 표시') : t('목록에서 숨기기'), onClick: () => toggleHidden(w.key) },
         ...(agentSwitchActions(w).length ? ['sep', ...agentSwitchActions(w)] : []),
         'sep',
-        { icon: 'fa-eye', label: '읽기 전용으로 화면 공유', sub: '로그인 없이 보기만', onClick: () => viewShareForm(w) },
-        { icon: 'fa-link', label: '공유 중인 화면 관리', onClick: () => viewSharesSheet() },
+        { icon: 'fa-eye', label: t('읽기 전용으로 화면 공유'), sub: t('로그인 없이 보기만'), onClick: () => viewShareForm(w) },
+        { icon: 'fa-link', label: t('공유 중인 화면 관리'), onClick: () => viewSharesSheet() },
         'sep',
-        { icon: 'fa-trash-can', label: 'tmux 창 종료', danger: true, onClick: () => killWindow(w) },
+        { icon: 'fa-trash-can', label: t('tmux 창 종료'), danger: true, onClick: () => killWindow(w) },
       ],
     });
   }
 
-  // ── 화면 공유 (읽기 전용): 링크를 받은 사람은 이 창 화면을 보기만 한다. 입력 · 키 · 크기 바꾸기는 할 수 없다 ──
-  const VIEW_TIMES = [[15, '15분'], [30, '30분'], [60, '1시간'], [180, '3시간'], [720, '12시간'], [1440, '1일'], [4320, '3일'], [10080, '7일']];
-  const VIEW_HISTORY = [[0, '지금 화면만'], [300, '최근 300줄까지'], [2000, '최근 2000줄까지']];
-  const viewWhen = (t) => new Date(t * 1000).toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  // ── Screen sharing (read-only): whoever gets the link can only watch this window's screen. No input · keys · resizing ──
+  const VIEW_TIMES = [[15, t('15분')], [30, t('30분')], [60, t('1시간')], [180, t('3시간')], [720, t('12시간')], [1440, t('1일')], [4320, t('3일')], [10080, t('7일')]];
+  const VIEW_HISTORY = [[0, t('지금 화면만')], [300, t('최근 300줄까지')], [2000, t('최근 2000줄까지')]];
+  const viewWhen = (epoch) => new Date(epoch * 1000).toLocaleString(t.locale, { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   function viewLeft(share) {
     const minutes = Math.max(0, Math.ceil((share.expires * 1000 - Date.now()) / 60000));
-    return minutes >= 1440 ? `${Math.floor(minutes / 1440)}일 ${Math.floor((minutes % 1440) / 60)}시간 남음`
-      : minutes >= 60 ? `${Math.floor(minutes / 60)}시간 ${minutes % 60}분 남음` : `${minutes}분 남음`;
+    return minutes >= 1440 ? t('{days}일 {hours}시간 남음', { days: Math.floor(minutes / 1440), hours: Math.floor((minutes % 1440) / 60) })
+      : minutes >= 60 ? t('{hours}시간 {minutes}분 남음', { hours: Math.floor(minutes / 60), minutes: minutes % 60 }) : t('{minutes}분 남음', { minutes });
   }
   async function copyLink(link) {
-    try { await navigator.clipboard.writeText(link); toast('공유 링크를 복사했습니다.', 'ok', null, 1500); } catch (e) { toast('복사하지 못했습니다. 링크를 길게 눌러 복사하십시오.', 'error'); }
+    try { await navigator.clipboard.writeText(link); toast(t('공유 링크를 복사했습니다.'), 'ok', null, 1500); } catch (e) { toast(t('복사하지 못했습니다. 링크를 길게 눌러 복사하십시오.'), 'error'); }
   }
   function viewShareForm(w) {
     const pane = agentPaneOf(w);
-    if (!pane) { toast('공유할 화면을 찾지 못했습니다.', 'error'); return; }
+    if (!pane) { toast(t('공유할 화면을 찾지 못했습니다.'), 'error'); return; }
     const opts = (list, value) => list.map(([v, label]) => `<option value="${v}"${v === value ? ' selected' : ''}>${label}</option>`).join('');
     formSheet({
-      title: '읽기 전용으로 화면 공유', subtitle: `${displayName(w)} · ${w.session}:${w.index}`, submitLabel: '링크 만들기',
-      fields: [{ name: 'title', label: '보는 사람에게 보일 이름', value: displayName(w), maxlength: 60 }],
-      extraHtml: `<label>볼 수 있는 시간<select name="minutes">${opts(VIEW_TIMES, 60)}</select></label>
-        ${w.agent ? `<label>보여 줄 것<select name="chat"><option value="1" selected>채팅 + 터미널 (대화 기록 전체)</option><option value="0">터미널만</option></select></label>` : ''}
-        <label>터미널에 보여 줄 범위<select name="history">${opts(VIEW_HISTORY, 0)}</select></label>
-        ${w.agent ? `<p class="text-[11px] opacity-60 leading-5"><i class="fas fa-comments mr-1"></i>채팅을 함께 공유하면 이 창의 ${AGENT_NAMES[w.agent] || 'Claude'} 대화 기록을 <b>처음부터 전부</b> 볼 수 있습니다 (프롬프트 · 답변 · 실행한 명령과 결과 · 코드 수정 내용 포함). 첨부한 그림은 보내지 않습니다.</p>` : ''}
-        <p class="text-[11px] opacity-60 leading-5"><i class="fas fa-key mr-1"></i>링크와 함께 <b>접근 코드</b>가 만들어집니다. 코드를 받은 사람만 볼 수 있습니다 (화면 공유는 코드가 항상 필요합니다).</p>
-        <p class="text-[11px] opacity-60 leading-5"><i class="fas fa-shield-halved mr-1"></i>링크와 코드를 받은 사람은 로그인 없이 이 창의 화면을 <b>보기만</b> 할 수 있습니다. 입력 · 키 · 창 크기 바꾸기는 아예 할 수 없고, 다른 창이나 파일도 볼 수 없습니다. 화면에 찍힌 API 키 · 토큰 같은 값은 가려서 보내지만 모든 비밀을 알아보지는 못하니, 비밀이 화면에 나오지 않게 조심하십시오. 창을 닫거나 시간이 지나면 링크가 끊깁니다.</p>`,
+      title: t('읽기 전용으로 화면 공유'), subtitle: `${displayName(w)} · ${w.session}:${w.index}`, submitLabel: t('링크 만들기'),
+      fields: [{ name: 'title', label: t('보는 사람에게 보일 이름'), value: displayName(w), maxlength: 60 }],
+      extraHtml: `<label>${t('볼 수 있는 시간')}<select name="minutes">${opts(VIEW_TIMES, 60)}</select></label>
+        ${w.agent ? `<label>${t('보여 줄 것')}<select name="chat"><option value="1" selected>${t('채팅 + 터미널 (대화 기록 전체)')}</option><option value="0">${t('터미널만')}</option></select></label>` : ''}
+        <label>${t('터미널에 보여 줄 범위')}<select name="history">${opts(VIEW_HISTORY, 0)}</select></label>
+        ${w.agent ? `<p class="text-[11px] opacity-60 leading-5"><i class="fas fa-comments mr-1"></i>${t('채팅을 함께 공유하면 이 창의 {agent} 대화 기록을 <b>처음부터 전부</b> 볼 수 있습니다 (프롬프트 · 답변 · 실행한 명령과 결과 · 코드 수정 내용 포함). 첨부한 그림은 보내지 않습니다.', { agent: AGENT_NAMES[w.agent] || 'Claude' })}</p>` : ''}
+        <p class="text-[11px] opacity-60 leading-5"><i class="fas fa-key mr-1"></i>${t('링크와 함께 <b>접근 코드</b>가 만들어집니다. 코드를 받은 사람만 볼 수 있습니다 (화면 공유는 코드가 항상 필요합니다).')}</p>
+        <p class="text-[11px] opacity-60 leading-5"><i class="fas fa-shield-halved mr-1"></i>${t('링크와 코드를 받은 사람은 로그인 없이 이 창의 화면을 <b>보기만</b> 할 수 있습니다. 입력 · 키 · 창 크기 바꾸기는 아예 할 수 없고, 다른 창이나 파일도 볼 수 없습니다. 화면에 찍힌 API 키 · 토큰 같은 값은 가려서 보내지만 모든 비밀을 알아보지는 못하니, 비밀이 화면에 나오지 않게 조심하십시오. 창을 닫거나 시간이 지나면 링크가 끊깁니다.')}</p>`,
       async onSubmit(values) {
         const result = await api('POST', '/api/view-shares', {
           pane, title: String(values.title || '').trim(), minutes: Number(values.minutes) || 60, history: Number(values.history) || 0,
@@ -843,32 +856,32 @@
   function viewShareResult({ url, code, share }) {
     const link = `${location.origin}${url}`;
     infoSheet({
-      title: '화면 공유 링크를 만들었습니다', subtitle: share.title,
+      title: t('화면 공유 링크를 만들었습니다'), subtitle: share.title,
       bodyHtml: `<div class="share-box">${accessCodeHtml(code)}
-        <div class="share-link mt-3"><input readonly value="${escapeHtml(link)}" aria-label="공유 링크" spellcheck="false">
-          <button type="button" class="btn-glow" data-copy><i class="fas fa-copy mr-1"></i>링크 복사</button>
-          ${navigator.share ? '<button type="button" class="sheet-cancel" data-send><i class="fas fa-share-nodes mr-1"></i>보내기</button>' : ''}</div>
-        <p class="text-[12px] opacity-75 leading-5 mt-3">${escapeHtml(viewWhen(share.expires))}까지 볼 수 있습니다 ·${escapeHtml(VIEW_HISTORY.find(([v]) => v === share.history)?.[1] || '')}</p>
-        <p class="text-[11px] opacity-60 leading-5 mt-1"><i class="fas fa-triangle-exclamation mr-1"></i>링크와 코드는 지금만 표시됩니다. 링크만으로는 열리지 않고 코드가 꼭 있어야 합니다. 코드는 링크와 다른 방법(직접 말하기 · 다른 메신저)으로 볼 사람에게만 전달하십시오. 창 메뉴 › 공유 중인 화면 관리에서 언제든 끊을 수 있습니다.</p></div>`,
+        <div class="share-link mt-3"><input readonly value="${escapeHtml(link)}" aria-label="${t('공유 링크')}" spellcheck="false">
+          <button type="button" class="btn-glow" data-copy><i class="fas fa-copy mr-1"></i>${t('링크 복사')}</button>
+          ${navigator.share ? `<button type="button" class="sheet-cancel" data-send><i class="fas fa-share-nodes mr-1"></i>${t('보내기')}</button>` : ''}</div>
+        <p class="text-[12px] opacity-75 leading-5 mt-3">${t('{when}까지 볼 수 있습니다', { when: escapeHtml(viewWhen(share.expires)) })} ·${escapeHtml(VIEW_HISTORY.find(([v]) => v === share.history)?.[1] || '')}</p>
+        <p class="text-[11px] opacity-60 leading-5 mt-1"><i class="fas fa-triangle-exclamation mr-1"></i>${t('링크와 코드는 지금만 표시됩니다. 링크만으로는 열리지 않고 코드가 꼭 있어야 합니다. 코드는 링크와 다른 방법(직접 말하기 · 다른 메신저)으로 볼 사람에게만 전달하십시오. 창 메뉴 › 공유 중인 화면 관리에서 언제든 끊을 수 있습니다.')}</p></div>`,
       onMount(body) {
         const input = body.querySelector('.share-link input');
         input.addEventListener('focus', () => input.select());
         mountAccessCode(body, code);
         body.querySelector('[data-copy]').addEventListener('click', () => copyLink(link));
-        // 보내기에는 링크만 싣는다 (코드는 따로 전달)
+        // Sharing sends the link only (the code is passed on separately)
         body.querySelector('[data-send]')?.addEventListener('click', () => navigator.share({ title: share.title, url: link }).catch(() => {}));
       },
     });
   }
-  // 접근 코드 상자 (화면 공유 · 파일 공유 공용) — explorer.js 도 window.UnivDashAccessCode 로 쓴다
+  // Access code box (shared by screen sharing · file sharing) — explorer.js also uses it through window.UnivDashAccessCode
   function accessCodeHtml(code) {
-    return `<div class="access-code"><div class="ac-label"><i class="fas fa-key mr-1"></i>접근 코드 <span>· 볼 사람에게 직접 전달하십시오</span></div>
+    return `<div class="access-code"><div class="ac-label"><i class="fas fa-key mr-1"></i>${t('접근 코드')} <span>· ${t('볼 사람에게 직접 전달하십시오')}</span></div>
         <div class="ac-row"><code class="ac-value">${escapeHtml(code)}</code>
-        <button type="button" class="sheet-cancel" data-copy-code><i class="fas fa-copy mr-1"></i>코드 복사</button></div></div>`;
+        <button type="button" class="sheet-cancel" data-copy-code><i class="fas fa-copy mr-1"></i>${t('코드 복사')}</button></div></div>`;
   }
   function mountAccessCode(body, code) {
     body.querySelector('[data-copy-code]')?.addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(code); toast('접근 코드를 복사했습니다.', 'ok', null, 1500); } catch (e) { toast('복사하지 못했습니다. 코드를 직접 적어 전달하십시오.', 'error'); }
+      try { await navigator.clipboard.writeText(code); toast(t('접근 코드를 복사했습니다.'), 'ok', null, 1500); } catch (e) { toast(t('복사하지 못했습니다. 코드를 직접 적어 전달하십시오.'), 'error'); }
     });
   }
   window.UnivDashAccessCode = { html: accessCodeHtml, mount: mountAccessCode };
@@ -878,20 +891,20 @@
     const windowOf = (pane) => state.windows.find((w) => w.panes.some((p) => p.id === pane));
     const rows = list.map((s) => {
       const w = windowOf(s.pane);
-      const where = w ? displayName(w) : '닫힌 창';
-      const status = !s.pane_alive ? '창이 닫혀 볼 수 없음' : s.watching ? `지금 ${s.watching}곳에서 보는 중` : '보는 사람 없음';
+      const where = w ? displayName(w) : t('닫힌 창');
+      const status = !s.pane_alive ? t('창이 닫혀 볼 수 없음') : s.watching ? t('지금 {count}곳에서 보는 중', { count: s.watching }) : t('보는 사람 없음');
       return `<li class="share-row" data-view-share="${escapeHtml(s.id)}">
           <i class="fas ${s.pane_alive ? 'fa-eye' : 'fa-eye-slash'} opacity-70"></i>
-          <div class="min-w-0 flex-1"><div class="truncate font-semibold">${escapeHtml(s.title)}${s.chat ? '<span class="share-tag"><i class="fas fa-comments"></i> 채팅 포함</span>' : ''}</div>
+          <div class="min-w-0 flex-1"><div class="truncate font-semibold">${escapeHtml(s.title)}${s.chat ? `<span class="share-tag"><i class="fas fa-comments"></i> ${t('채팅 포함')}</span>` : ''}</div>
             <div class="truncate text-[11px] opacity-60">${escapeHtml(where)} · ${escapeHtml(VIEW_HISTORY.find(([v]) => v === s.history)?.[1] || '')}</div>
-            <div class="text-[11px] opacity-75">${escapeHtml(viewLeft(s))} · ${escapeHtml(status)} · ${Number(s.opens) || 0}번 열림</div></div>
-          <button type="button" class="sheet-danger" data-revoke>끊기</button></li>`;
+            <div class="text-[11px] opacity-75">${escapeHtml(viewLeft(s))} · ${escapeHtml(status)} · ${t('{count}번 열림', { count: Number(s.opens) || 0 })}</div></div>
+          <button type="button" class="sheet-danger" data-revoke>${t('끊기')}</button></li>`;
     }).join('');
     infoSheet({
-      title: '공유 중인 화면', subtitle: list.length ? `${list.length}개 · 시간이 지나면 저절로 끊깁니다` : '',
+      title: t('공유 중인 화면'), subtitle: list.length ? t('{count}개 · 시간이 지나면 저절로 끊깁니다', { count: list.length }) : '',
       bodyHtml: `<div class="share-box">${list.length ? `<ul class="share-list">${rows}</ul>
-          <div class="sheet-buttons" style="padding:12px 0 0"><button type="button" class="sheet-danger" data-revoke-all>모두 끊기</button></div>`
-        : '<p class="opacity-70 text-sm">공유 중인 화면이 없습니다. 창 메뉴 › 읽기 전용으로 화면 공유에서 만들 수 있습니다.</p>'}</div>`,
+          <div class="sheet-buttons" style="padding:12px 0 0"><button type="button" class="sheet-danger" data-revoke-all>${t('모두 끊기')}</button></div>`
+        : `<p class="opacity-70 text-sm">${t('공유 중인 화면이 없습니다. 창 메뉴 › 읽기 전용으로 화면 공유에서 만들 수 있습니다.')}</p>`}</div>`,
       onMount(body) {
         body.querySelectorAll('[data-revoke]').forEach((button) => button.addEventListener('click', async () => {
           const row = button.closest('[data-view-share]');
@@ -899,7 +912,7 @@
           try {
             await api('DELETE', `/api/view-shares/${encodeURIComponent(row.dataset.viewShare)}`);
             row.remove();
-            toast('공유를 끊었습니다. 이제 볼 수 없습니다.', 'ok');
+            toast(t('공유를 끊었습니다. 이제 볼 수 없습니다.'), 'ok');
           } catch (error) { button.disabled = false; toast(error.message, 'error'); }
         }));
         const all = body.querySelector('[data-revoke-all]');
@@ -908,37 +921,37 @@
           try {
             const { revoked } = await api('DELETE', '/api/view-shares');
             closeSheet();
-            toast(`화면 공유 ${revoked}개를 모두 끊었습니다.`, 'ok');
+            toast(t('화면 공유 {count}개를 모두 끊었습니다.', { count: revoked }), 'ok');
           } catch (error) { all.disabled = false; toast(error.message, 'error'); }
         });
       },
     });
   }
 
-  // ── 작업 폴더 고르기 (새 세션 · 작업 폴더 바꾸기 공용) ──
+  // ── Working folder picker (shared by new session · change working folder) ──
   function folderPickerHtml() {
     return `<div class="fp">
           <div class="fp-actions">
-            <button type="button" class="fp-toggle" data-fp-toggle><i class="fas fa-folder-open"></i> 폴더 고르기</button>
+            <button type="button" class="fp-toggle" data-fp-toggle><i class="fas fa-folder-open"></i> ${t('폴더 고르기')}</button>
             ${store.get('recent-session-paths', []).slice(0, 5).map((p) => `<button type="button" class="fp-chip" data-fp-recent="${escapeHtml(p)}" title="${escapeHtml(p)}">${escapeHtml(p.replace(/\/+$/, '').split('/').pop() || p)}</button>`).join('')}
           </div>
           <div class="fp-panel hidden">
             <div class="fp-head">
-              <button type="button" class="fp-btn" data-fp-up title="상위 폴더" aria-label="상위 폴더"><i class="fas fa-arrow-turn-up"></i></button>
-              <button type="button" class="fp-btn" data-fp-home title="홈 폴더" aria-label="홈 폴더"><i class="fas fa-house"></i></button>
+              <button type="button" class="fp-btn" data-fp-up title="${t('상위 폴더')}" aria-label="${t('상위 폴더')}"><i class="fas fa-arrow-turn-up"></i></button>
+              <button type="button" class="fp-btn" data-fp-home title="${t('홈 폴더')}" aria-label="${t('홈 폴더')}"><i class="fas fa-house"></i></button>
               <span class="fp-where">~</span>
-              <button type="button" class="fp-btn" data-fp-dot title="숨김 폴더 보기" aria-label="숨김 폴더 보기"><i class="fas fa-eye-slash"></i></button>
+              <button type="button" class="fp-btn" data-fp-dot title="${t('숨김 폴더 보기')}" aria-label="${t('숨김 폴더 보기')}"><i class="fas fa-eye-slash"></i></button>
             </div>
-            <div class="fp-search"><i class="fas fa-magnifying-glass"></i><input type="search" data-fp-q placeholder="홈 폴더 아래에서 폴더 찾기 (예: csed/week)" maxlength="200" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
-              <button type="button" class="fp-btn hidden" data-fp-clear title="검색 지우기" aria-label="검색 지우기"><i class="fas fa-xmark"></i></button></div>
+            <div class="fp-search"><i class="fas fa-magnifying-glass"></i><input type="search" data-fp-q placeholder="${t('홈 폴더 아래에서 폴더 찾기 (예: csed/week)')}" maxlength="200" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
+              <button type="button" class="fp-btn hidden" data-fp-clear title="${t('검색 지우기')}" aria-label="${t('검색 지우기')}"><i class="fas fa-xmark"></i></button></div>
             <div class="fp-list"></div>
-            <button type="button" class="fp-pick" data-fp-pick><i class="fas fa-check"></i> <span>이 폴더로</span></button>
+            <button type="button" class="fp-pick" data-fp-pick><i class="fas fa-check"></i> <span>${t('이 폴더로')}</span></button>
           </div>
         </div>`;
   }
-  // 항상 홈에서 시작 — 폴더를 눌러 들어가거나, 이름으로 찾기. 고른 폴더는 path 입력칸에 들어간다.
+  // Always starts at home — tap a folder to enter it, or find one by name. The chosen folder goes into the path input.
   function mountFolderPicker(body, path) {
-    // ── 작업 폴더 고르기 (항상 홈에서 시작 — 폴더를 눌러 들어가거나, 이름으로 찾기) ──
+    // ── Working folder picker (always starts at home — tap a folder to enter it, or find one by name) ──
     const panel = body.querySelector('.fp-panel');
     const listEl = body.querySelector('.fp-list');
     let home = '';
@@ -952,18 +965,18 @@
     let searchTimer = 0;
     const folderRow = (e, sub = '') => `<div class="fp-row" data-fp-dir="${escapeHtml(e.path)}">
         <i class="fas fa-folder"></i><span class="fp-name">${escapeHtml(e.name)}${sub ? `<small class="fp-sub">${escapeHtml(sub)}</small>` : ''}</span>
-        <button type="button" class="fp-use" data-fp-use="${escapeHtml(e.path)}" title="이 폴더 선택" aria-label="${escapeHtml(e.name)} 선택"><i class="fas fa-check"></i></button>
+        <button type="button" class="fp-use" data-fp-use="${escapeHtml(e.path)}" title="${t('이 폴더 선택')}" aria-label="${t('{name} 선택', { name: escapeHtml(e.name) })}"><i class="fas fa-check"></i></button>
         <i class="fas fa-chevron-right fp-go"></i></div>`;
     async function search(query) {
       const mine = ++searchSeq;
-      listEl.innerHTML = '<div class="fp-note"><i class="fas fa-circle-notch fa-spin"></i> 찾는 중…</div>';
+      listEl.innerHTML = `<div class="fp-note"><i class="fas fa-circle-notch fa-spin"></i> ${t('찾는 중…')}</div>`;
       try {
         const data = await api('GET', `/api/fs/search-dirs?root=${encodeURIComponent(home || '~')}&q=${encodeURIComponent(query)}&hidden=${showDot ? 'true' : 'false'}`);
         if (mine !== searchSeq) return;
         const parentOf = (p) => tilde(p.replace(/\/[^/]+$/, '')) || '/';
         listEl.innerHTML = data.results.length
-          ? data.results.map((e) => folderRow(e, parentOf(e.path))).join('') + (data.truncated ? '<div class="fp-note">결과가 많아 일부만 표시됩니다. 더 자세히 입력해 보십시오.</div>' : '')
-          : `<div class="fp-note">'${escapeHtml(query)}' 폴더를 찾지 못했습니다.</div>`;
+          ? data.results.map((e) => folderRow(e, parentOf(e.path))).join('') + (data.truncated ? `<div class="fp-note">${t('결과가 많아 일부만 표시됩니다. 더 자세히 입력해 보십시오.')}</div>` : '')
+          : `<div class="fp-note">${t("'{query}' 폴더를 찾지 못했습니다.", { query: escapeHtml(query) })}</div>`;
       } catch (error) {
         if (mine === searchSeq) listEl.innerHTML = `<div class="fp-note error">${escapeHtml(error.message)}</div>`;
       }
@@ -981,7 +994,7 @@
       if (!query.replace(/\//g, '')) { searchSeq += 1; if (current) browse(current.path); return; }
       searchTimer = setTimeout(() => search(query), 250);
     });
-    // 폼 안이라 Enter 가 '만들기' 를 누르지 않게 — 결과가 하나면 바로 그 폴더로 들어간다
+    // Inside a form, so keep Enter from pressing 'Create' — with a single result, enter that folder right away
     qInput.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter' || event.isComposing) return;
       event.preventDefault();
@@ -991,7 +1004,7 @@
     clearBtn.addEventListener('click', () => { clearSearch(); if (current) browse(current.path); qInput.focus(); });
     async function browse(dir) {
       clearSearch();
-      listEl.innerHTML = '<div class="fp-note"><i class="fas fa-circle-notch fa-spin"></i> 불러오는 중…</div>';
+      listEl.innerHTML = `<div class="fp-note"><i class="fas fa-circle-notch fa-spin"></i> ${t('불러오는 중…')}</div>`;
       try {
         const data = await api('GET', `/api/fs/list?path=${encodeURIComponent(dir)}`);
         if (!home && dir === '~') home = data.path;
@@ -999,11 +1012,11 @@
         body.querySelector('.fp-where').textContent = tilde(data.path);
         body.querySelector('[data-fp-up]').disabled = !data.parent;
         body.querySelector('[data-fp-dot]').classList.toggle('on', showDot);
-        body.querySelector('.fp-pick span').textContent = `이 폴더로: ${tilde(data.path)}`;
+        body.querySelector('.fp-pick span').textContent = t('이 폴더로: {path}', { path: tilde(data.path) });
         const dirs = data.entries.filter((e) => e.type === 'dir' && (showDot || !e.name.startsWith('.')))
           .sort((a, b) => a.name.localeCompare(b.name, 'ko', { numeric: true, sensitivity: 'base' }));
         listEl.innerHTML = dirs.length ? dirs.map((e) => folderRow(e)).join('')
-          : '<div class="fp-note">하위 폴더가 없습니다.</div>';
+          : `<div class="fp-note">${t('하위 폴더가 없습니다.')}</div>`;
       } catch (error) {
         listEl.innerHTML = `<div class="fp-note error">${escapeHtml(error.message)}</div>`;
       }
@@ -1011,7 +1024,7 @@
     body.querySelector('[data-fp-toggle]').addEventListener('click', async () => {
       const open = panel.classList.toggle('hidden') === false;
       if (!open) return;
-      await browse('~');   // 항상 홈에서 시작
+      await browse('~');   // always start at home
       if (!coarsePointer) qInput.focus();
     });
     body.querySelector('[data-fp-up]').addEventListener('click', () => { if (current?.parent) browse(current.parent); });
@@ -1036,8 +1049,8 @@
     }));
   }
 
-  // ── 새 세션 ──────────────────────────────────────────────────────────
-  // 새 세션을 넣을 사이드바 폴더: 만든 창이 목록에 나타나면 옮긴다 (다른 페이지에서 만들어 이동해도 이어지게 저장)
+  // ── New session ──────────────────────────────────────────────────────────
+  // Sidebar folder for the new session: move the created window once it shows up in the list (stored so it survives creating it on another page and navigating)
   const PENDING_GROUP_TTL = 60000;
   function placePendingGroup(windows) {
     const pending = store.get('pending-session-group', null);
@@ -1052,36 +1065,36 @@
     const folders = state.prefs.folders;
     if (!folders.length) return '';
     const last = store.get('new-session-group', '');
-    return `<label>사이드바 폴더<select name="group">
-      <option value="">폴더 없음</option>
+    return `<label>${t('사이드바 폴더')}<select name="group">
+      <option value="">${t('폴더 없음')}</option>
       ${folders.map((f) => `<option value="${escapeHtml(f.id)}" ${f.id === last ? 'selected' : ''}>${escapeHtml(f.name)}</option>`).join('')}
     </select></label>`;
   }
 
   function newSessionForm(startPath) {
-    // Codex 는 권한을 "Full access"(샌드박스 없음 · 승인 안 물음)로 켠다
-    // Gemini 는 Antigravity CLI(agy)를 권한 확인 없이 켠다
+    // Codex starts with "Full access" permissions (no sandbox · never asks for approval)
+    // Gemini starts the Antigravity CLI (agy) without permission prompts
     const presets = { claude: 'claude --dangerously-skip-permissions', codex: 'codex --sandbox danger-full-access --ask-for-approval never', gemini: 'agy --dangerously-skip-permissions', shell: '', custom: '' };
-    const permNote = (p) => ({ claude: 'Claude 는 권한 확인 없이 켭니다 (Bypass permissions)', codex: 'Codex 는 권한 Full access 로 켭니다 (샌드박스 없음 · 승인 묻지 않음)', gemini: 'Gemini 는 Antigravity CLI 를 권한 확인 없이 켭니다' }[p] || '');
+    const permNote = (p) => ({ claude: t('Claude 는 권한 확인 없이 켭니다 (Bypass permissions)'), codex: t('Codex 는 권한 Full access 로 켭니다 (샌드박스 없음 · 승인 묻지 않음)'), gemini: t('Gemini 는 Antigravity CLI 를 권한 확인 없이 켭니다') }[p] || '');
     let preset = store.get('new-session-preset', 'claude');
     if (!(preset in presets)) preset = 'claude';
     formSheet({
-      title: '새 tmux 세션',
-      subtitle: '분리(detached) 세션을 만들고 시작 명령을 실행합니다.',
+      title: t('새 tmux 세션'),
+      subtitle: t('분리(detached) 세션을 만들고 시작 명령을 실행합니다.'),
       fields: [
-        { name: 'name', label: '세션 이름', placeholder: '예: my-project', maxlength: 50 },
-        { name: 'path', label: '작업 폴더', value: typeof startPath === 'string' ? startPath : '~', placeholder: '~/project', maxlength: 1024 },
+        { name: 'name', label: t('세션 이름'), placeholder: t('예: my-project'), maxlength: 50 },
+        { name: 'path', label: t('작업 폴더'), value: typeof startPath === 'string' ? startPath : '~', placeholder: '~/project', maxlength: 1024 },
       ],
       extraHtml: `${folderPickerHtml()}
         ${sessionGroupHtml()}
-        <label>시작 명령<div class="seg" role="radiogroup">
-          ${['claude', 'codex', 'gemini', 'shell', 'custom'].map((p) => `<button type="button" data-preset="${p}" class="${p === preset ? 'on' : ''}">${{ claude: 'Claude', codex: 'Codex', gemini: 'Gemini', shell: '셸만', custom: '직접' }[p]}</button>`).join('')}
+        <label>${t('시작 명령')}<div class="seg" role="radiogroup">
+          ${['claude', 'codex', 'gemini', 'shell', 'custom'].map((p) => `<button type="button" data-preset="${p}" class="${p === preset ? 'on' : ''}">${{ claude: 'Claude', codex: 'Codex', gemini: 'Gemini', shell: t('셸만'), custom: t('직접') }[p]}</button>`).join('')}
         </div></label>
         <p data-codex-note class="text-[11px] opacity-60 -mt-1 ${isAgent(preset) ? '' : 'hidden'}"><i class="fas fa-unlock mr-1"></i><span data-perm-text>${permNote(preset)}</span></p>
-        <label data-fork class="hidden">이어받을 대화 (선택)<select name="fork"></select></label>
+        <label data-fork class="hidden">${t('이어받을 대화 (선택)')}<select name="fork"></select></label>
         <p data-fork-note class="text-[11px] opacity-60 -mt-1 hidden"><i class="fas fa-code-branch mr-1"></i><span data-fork-text></span></p>
-        <label data-custom class="${preset === 'custom' ? '' : 'hidden'}">명령어<input name="command" maxlength="500" placeholder="예: claude --continue" autocomplete="off" autocapitalize="off" spellcheck="false"></label>`,
-      submitLabel: '만들기',
+        <label data-custom class="${preset === 'custom' ? '' : 'hidden'}">${t('명령어')}<input name="command" maxlength="500" placeholder="${t('예: claude --continue')}" autocomplete="off" autocapitalize="off" spellcheck="false"></label>`,
+      submitLabel: t('만들기'),
       onMount(body) {
         const name = body.querySelector('input[name="name"]');
         const path = body.querySelector('input[name="path"]');
@@ -1095,7 +1108,7 @@
 
         mountFolderPicker(body, path);
 
-        // 다른 창의 대화 이어받기: Claude · Codex 창 모두 (같은 에이전트 창이 먼저)
+        // Continue another window's conversation: both Claude · Codex windows (same-agent windows first)
         const forkField = body.querySelector('[data-fork]');
         const forkSelect = forkField.querySelector('select');
         const forkNote = body.querySelector('[data-fork-note]');
@@ -1106,21 +1119,21 @@
           const source = state.windows.find((w) => agentPaneOf(w) === forkSelect.value);
           forkNote.classList.toggle('hidden', !source);
           if (!source) return;
-          // Gemini 는 대화를 복제해 켜는 기능이 없어 같은 Gemini 끼리도 기록을 넘겨준다
+          // Gemini cannot start from a cloned conversation, so even Gemini → Gemini hands over the transcript
           body.querySelector('[data-fork-text]').textContent = source.agent === preset && preset !== 'gemini'
-            ? '선택한 창의 지금까지 대화를 복사해 시작합니다. 원래 창은 그대로 유지됩니다.'
-            : `선택한 ${AGENT_NAMES[source.agent]} 창의 대화 기록을 파일로 넘겨, 새 ${AGENT_NAMES[preset]} 가 읽고 맥락을 정리한 뒤 다음 지시를 기다립니다. 원래 창은 그대로 유지됩니다.`;
+            ? t('선택한 창의 지금까지 대화를 복사해 시작합니다. 원래 창은 그대로 유지됩니다.')
+            : t('선택한 {from} 창의 대화 기록을 파일로 넘겨, 새 {to} 가 읽고 맥락을 정리한 뒤 다음 지시를 기다립니다. 원래 창은 그대로 유지됩니다.', { from: AGENT_NAMES[source.agent], to: AGENT_NAMES[preset] });
         };
         const renderForkSources = () => {
           const sources = forkSources();
           const picked = forkSelect.value;
-          forkSelect.innerHTML = `<option value="">새 대화로 시작</option>${sources.map((w) => `<option value="${escapeHtml(agentPaneOf(w))}">${escapeHtml(`${w.agent === preset ? '' : `[${AGENT_NAMES[w.agent]}] `}${displayName(w)} (${w.session}:${w.index})`)}</option>`).join('')}`;
+          forkSelect.innerHTML = `<option value="">${t('새 대화로 시작')}</option>${sources.map((w) => `<option value="${escapeHtml(agentPaneOf(w))}">${escapeHtml(`${w.agent === preset ? '' : `[${AGENT_NAMES[w.agent]}] `}${displayName(w)} (${w.session}:${w.index})`)}</option>`).join('')}`;
           if (sources.some((w) => agentPaneOf(w) === picked)) forkSelect.value = picked;
           forkField.classList.toggle('hidden', !sources.length || !isAgent(preset));
           renderForkNote();
         };
         renderForkSources();
-        // 대화만 이어받는다: 세션 이름 · 작업 폴더는 원본과 상관없이 사용자가 정한 대로
+        // Only the conversation is carried over: session name · working folder stay as the user set them, regardless of the source
         forkSelect.addEventListener('change', renderForkNote);
         body.querySelectorAll('[data-preset]').forEach((button) => button.addEventListener('click', () => {
           preset = button.dataset.preset;
@@ -1142,56 +1155,58 @@
         const group = state.prefs.folders.some((f) => f.id === values.group) ? values.group : '';
         if (state.prefs.folders.length) store.set('new-session-group', group);
         store.set('pending-session-group', group && result.pane ? { pane: result.pane, folder: group, at: Date.now() } : null);
-        toast(`${values.name} 세션을 만들었습니다.`, 'ok');
+        toast(t('{name} 세션을 만들었습니다.', { name: values.name }), 'ok');
         state.pendingPane = result.pane;
         socket.poke();
         if (page !== 'workspace') setTimeout(() => { location.href = '/'; }, 400);
       },
     });
   }
-  // "+ 새 세션": tmux 세션(에이전트용) 또는 Terminal
+  // "+ New session": a tmux session (for agents) or a Terminal
   function newChooser() {
     actionSheet({
-      title: '새로 열기',
+      title: t('새로 열기'),
       actions: [
-        { icon: 'fa-layer-group', label: 'tmux 세션', desc: 'Claude Code · Codex · Gemini 등을 띄워 두고 휴대폰에서도 이어서 쓰기', onClick: () => newSessionForm() },
-        { icon: 'fa-terminal', label: 'Terminal', desc: '셸 하나를 탭으로 바로 열기 (탭을 닫으면 끝남)', onClick: () => { if (window.UnivDashWs?.newTerminal) window.UnivDashWs.newTerminal(); else location.href = '/?newterm=1'; } },
+        { icon: 'fa-layer-group', label: t('tmux 세션'), desc: t('Claude Code · Codex · Gemini 등을 띄워 두고 휴대폰에서도 이어서 쓰기'), onClick: () => newSessionForm() },
+        { icon: 'fa-terminal', label: 'Terminal', desc: t('셸 하나를 탭으로 바로 열기 (탭을 닫으면 끝남)'), onClick: () => { if (window.UnivDashWs?.newTerminal) window.UnivDashWs.newTerminal(); else location.href = '/?newterm=1'; } },
         'sep',
-        { icon: 'fa-clock-rotate-left', label: '이전 세션 복구', desc: '저장된 시점을 골라 지금 없는 세션을 다시 열기 (에이전트는 이전 대화로)', onClick: () => openRestore() },
+        { icon: 'fa-clock-rotate-left', label: t('이전 세션 복구'), desc: t('저장된 시점을 골라 지금 없는 세션을 다시 열기 (에이전트는 이전 대화로)'), onClick: () => openRestore() },
       ],
     });
   }
 
-  // ── 이전 세션 복구: 서버가 세션 목록이 바뀔 때마다 남긴 기록에서 지금 없는 세션만 다시 만든다 ──
-  const restoreTime = (t) => new Date(t * 1000).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  const nameList = (names, max = 6) => names.slice(0, max).join(', ') + (names.length > max ? ` 외 ${names.length - max}개` : '');
+  // ── Restore previous sessions: from the records the server keeps whenever the session list changes, recreate only the sessions that are missing now ──
+  const restoreTime = (epoch) => new Date(epoch * 1000).toLocaleString(t.locale, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const nameList = (names, max = 6) => (names.length > max
+    ? t('{names} 외 {count}개', { names: names.slice(0, max).join(', '), count: names.length - max })
+    : names.join(', '));
   async function openRestore() {
     let data;
     try { data = await api('GET', '/api/tmux/snapshots'); } catch (error) { toast(error.message, 'error'); return; }
-    if (data.job?.running) { toast('지금 세션을 복구하는 중입니다. 잠시만 기다려 주십시오.', 'info'); return; }
-    if (!data.snapshots.length) { toast('아직 저장된 세션 기록이 없습니다.', 'info'); return; }
+    if (data.job?.running) { toast(t('지금 세션을 복구하는 중입니다. 잠시만 기다려 주십시오.'), 'info'); return; }
+    if (!data.snapshots.length) { toast(t('아직 저장된 세션 기록이 없습니다.'), 'info'); return; }
     actionSheet({
-      title: '이전 세션 복구',
-      subtitle: '시점을 선택하면 그때 있었고 지금은 없는 세션만 다시 만듭니다. 에이전트는 이전 대화로 이어서 켜집니다.',
+      title: t('이전 세션 복구'),
+      subtitle: t('시점을 선택하면 그때 있었고 지금은 없는 세션만 다시 만듭니다. 에이전트는 이전 대화로 이어서 켜집니다.'),
       actions: data.snapshots.slice(0, 20).map((row) => ({
         icon: row.missing.length ? 'fa-clock-rotate-left' : 'fa-circle-check',
-        label: `${restoreTime(row.at)} · 세션 ${row.count}개`,
-        desc: row.missing.length ? `없는 세션 ${row.missing.length}개: ${nameList(row.missing)}` : '이 시점의 세션은 모두 열려 있습니다',
+        label: t('{when} · 세션 {count}개', { when: restoreTime(row.at), count: row.count }),
+        desc: row.missing.length ? t('없는 세션 {count}개: {names}', { count: row.missing.length, names: nameList(row.missing) }) : t('이 시점의 세션은 모두 열려 있습니다'),
         onClick: () => confirmRestore(row),
       })),
     });
   }
   async function confirmRestore(row) {
-    if (!row.missing.length) { toast('이 시점의 세션은 모두 열려 있습니다.', 'info'); return; }
+    if (!row.missing.length) { toast(t('이 시점의 세션은 모두 열려 있습니다.'), 'info'); return; }
     const ok = await confirmSheet({
-      title: `세션 ${row.missing.length}개 복구`,
-      message: `${restoreTime(row.at)} 기록에서 ${nameList(row.missing, 12)}을(를) 다시 만듭니다.${row.missing_agents ? ` 에이전트 ${row.missing_agents}개는 이전 대화로 이어서 켜집니다.` : ''} 지금 열려 있는 세션은 건드리지 않습니다.`,
-      confirmLabel: '복구',
+      title: t('세션 {count}개 복구', { count: row.missing.length }),
+      message: `${t('{when} 기록에서 {names}을(를) 다시 만듭니다.', { when: restoreTime(row.at), names: nameList(row.missing, 12) })}${row.missing_agents ? ` ${t('에이전트 {count}개는 이전 대화로 이어서 켜집니다.', { count: row.missing_agents })}` : ''} ${t('지금 열려 있는 세션은 건드리지 않습니다.')}`,
+      confirmLabel: t('복구'),
     });
     if (!ok) return;
     try {
       const result = await api('POST', '/api/tmux/snapshots/restore', { id: row.id, sessions: row.missing });
-      toast(`세션 ${result.started.length}개를 복구하고 있습니다. 에이전트는 차례로 켜집니다.`, 'ok', null, 6000);
+      toast(t('세션 {count}개를 복구하고 있습니다. 에이전트는 차례로 켜집니다.', { count: result.started.length }), 'ok', null, 6000);
       store.set('restore-dismissed', row.id);
       window.dispatchEvent(new CustomEvent('univdash:restore'));
     } catch (error) {
@@ -1206,7 +1221,7 @@
   window.UnivDashUI.openRestore = openRestore;
   $$('[data-new-session]').forEach((button) => button.addEventListener('click', () => { if (!mdQuery.matches) setSidebarOpen(false); newChooser(); }));
 
-  // 단축키 (keys.js · 기본: t 새 Terminal · t t 새 tmux 세션)
+  // Shortcuts (keys.js · default: t new Terminal · t t new tmux session)
   function openTerminalShortcut() {
     if (window.UnivDashWs?.newTerminal) window.UnivDashWs.newTerminal();
     else location.href = '/?newterm=1';
@@ -1215,7 +1230,7 @@
   window.UnivDashKeys?.register('app.newSession', () => newSessionForm());
   window.UnivDashUI.newSession = newSessionForm;
 
-  // ── 실시간 연결 ──────────────────────────────────────────────────────
+  // ── Live connection ──────────────────────────────────────────────────────
   const socket = (() => {
     let ws = null;
     let retry = 0;
@@ -1225,7 +1240,7 @@
     const handlers = {};
 
     function setConn(status) {
-      const text = { live: 'Live · 실시간 연결됨', connecting: '연결 중...', offline: '연결 끊김 · 재시도 중' }[status];
+      const text = { live: t('Live · 실시간 연결됨'), connecting: t('연결 중...'), offline: t('연결 끊김 · 재시도 중') }[status];
       $$('.conn-dot').forEach((dot) => { dot.className = `conn-dot h-2 w-2 rounded-full ${status === 'live' ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.6)]' : status === 'connecting' ? 'bg-amber-400' : 'bg-red-500'}`; });
       $$('.conn-label').forEach((label) => { label.textContent = text; });
       $$('.conn-badge').forEach((badge) => {
@@ -1262,15 +1277,15 @@
       ws.onclose = (event) => { if (ws === sock) closed(event); };
     }
     function closed(event) {
-      pending.forEach((entry) => { clearTimeout(entry.timer); entry.reject(new Error('연결이 끊어졌습니다.')); });
+      pending.forEach((entry) => { clearTimeout(entry.timer); entry.reject(new Error(t('연결이 끊어졌습니다.'))); });
       pending.clear();
       if (event.code === 1008) { location.href = '/login'; return; }
       setConn('offline');
       retry = Math.min(retry + 1, 5);
       reconnectTimer = setTimeout(connect, [0, 800, 1500, 3000, 6000, 10000][retry]);
     }
-    // 끊겼는데 브라우저가 모르는 연결 (휴대폰 잠자기 · 네트워크 전환 · 프록시가 조용히 끊음): readyState 는 OPEN 인데
-    // 아무것도 오지 않아 채팅 · 진행 상황이 멈춘다. 조용하면 ping 을 보내고, 답이 없으면 버리고 새로 연결한다.
+    // A connection that is dead without the browser knowing (phone sleep · network switch · proxy dropping it silently): readyState is OPEN
+    // but nothing arrives, so chat · progress freeze. When it is quiet send a ping; with no answer, drop it and reconnect.
     let lastRecv = 0;
     let pingAt = 0;
     function checkAlive(now = Date.now()) {
@@ -1279,7 +1294,7 @@
         if (now - pingAt < PONG_TIMEOUT) return;
         const dead = ws;
         ws = null;
-        try { dead.close(); } catch (e) { /* 이미 닫힘 */ }
+        try { dead.close(); } catch (e) { /* already closed */ }
         retry = 0;
         closed({ code: 0 });
         return;
@@ -1293,13 +1308,13 @@
 
     function send(message, { ack = false } = {}) {
       if (!ws || ws.readyState !== WebSocket.OPEN) {
-        if (ack) return Promise.reject(new Error('서버와 연결되어 있지 않습니다. 잠시 후 다시 시도하십시오.'));
+        if (ack) return Promise.reject(new Error(t('서버와 연결되어 있지 않습니다. 잠시 후 다시 시도하십시오.')));
         return Promise.resolve();
       }
       if (!ack) { ws.send(JSON.stringify(message)); return Promise.resolve(); }
       const id = ++seq;
       return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => { pending.delete(id); reject(new Error('응답 시간이 초과되었습니다.')); }, 10000);
+        const timer = setTimeout(() => { pending.delete(id); reject(new Error(t('응답 시간이 초과되었습니다.'))); }, 10000);
         pending.set(id, { resolve, reject, timer });
         ws.send(JSON.stringify({ ...message, id }));
       });
@@ -1308,7 +1323,7 @@
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') {
         retry = 0;
-        // 다시 보게 되면 연결이 살아 있는지 바로 확인한다 (잠자기 뒤 죽은 연결이 OPEN 으로 남는 경우)
+        // On becoming visible again, check right away that the connection is alive (a dead connection can stay OPEN after sleep)
         if (ws && ws.readyState === WebSocket.OPEN) { lastRecv = 0; pingAt = 0; checkAlive(); } else connect();
         refreshState();
       }
@@ -1322,7 +1337,7 @@
     };
   })();
 
-  // ── 공통 렌더링 ──────────────────────────────────────────────────────
+  // ── Shared rendering ──────────────────────────────────────────────────────
   let lastStatuses = new Map();
   const doneTimers = new Map();
   function onWindows(windows) {
@@ -1331,12 +1346,12 @@
     state.windows = windows;
     state.windowsLoaded = true;
 
-    // 처음 보는 창은 읽은 것으로 간주, 선택된 창은 계속 읽음 처리
+    // Windows seen for the first time count as read; the selected window keeps being marked read
     windows.forEach((w) => {
       if (state.seen[w.key] == null || isWindowVisible(w.key)) markSeen(w.key, unreadActivity(w));
     });
 
-    // 에이전트 상태 변화 알림 (보고 있지 않은 창만)
+    // Notify on agent status changes (only for windows not being watched)
     if (previous.size) {
       windows.forEach((w) => {
         const before = previous.get(w.key);
@@ -1346,17 +1361,17 @@
         if (!before || before === w.status || isHidden(w.key) || w.starting) return;
         const watching = w.key === state.selectedKey && isTermVisible() && document.visibilityState === 'visible';
         if (watching || !window.UnivDash.settings.get('notify-agents')) return;
-        const open = page === 'workspace' ? { label: '열기', onClick: () => workspace.select(w.key) } : null;
-        if (w.status === 'waiting') { toast(`${displayName(w)} · 응답이 필요합니다`, 'warn', open, 6000); vibrate([20, 60, 20]); }
+        const open = page === 'workspace' ? { label: t('열기'), onClick: () => workspace.select(w.key) } : null;
+        if (w.status === 'waiting') { toast(t('{name} · 응답이 필요합니다', { name: displayName(w) }), 'warn', open, 6000); vibrate([20, 60, 20]); }
         else if (before === 'busy' && w.status === 'idle' && !w.compacted) {
-          // 로그가 몇 초 늦게 기록된다: 잠시 뒤에도 대기 중이고 압축만 끝난 게 아니면 알린다
+          // The log is written a few seconds late: notify if it is still idle a moment later and not merely done compacting
           clearTimeout(doneTimers.get(w.key));
           doneTimers.set(w.key, setTimeout(() => {
             doneTimers.delete(w.key);
             const now = state.windows.find((x) => x.key === w.key);
             if (!now || now.status !== 'idle' || now.compacted) return;
             if (w.key === state.selectedKey && isTermVisible() && document.visibilityState === 'visible') return;
-            toast(`${displayName(now)} · 작업 완료`, 'ok', open, 5000); vibrate(15);
+            toast(t('{name} · 작업 완료', { name: displayName(now) }), 'ok', open, 5000); vibrate(15);
           }, 5000));
         }
       });
@@ -1410,14 +1425,14 @@
     if (page === 'workspace') workspace.renderList();
   }
 
-  // ── 읽음 상태: 서버에 모아 모든 기기가 공유 (PC 에서 본 창은 휴대폰에서도 읽음) ──
+  // ── Read state: collected on the server and shared by all devices (a window seen on the PC is read on the phone too) ──
   const seenOutbox = {};
   let seenTimer = null;
   function markSeen(key, activity) {
     if (activity == null || (state.seen[key] ?? -Infinity) >= activity) return;
     state.seen[key] = activity;
     store.set('seen', state.seen);
-    // 분할 창을 열 때 이미 그려진 점도 바로 지운다.
+    // Also remove dots already drawn, right away, when a split pane is opened.
     $$('.win-item').forEach((item) => { if (item.dataset.key === key) item.querySelector('.unread-dot')?.remove(); });
     $$('.wt-term').forEach((item) => { if (item.dataset.id === `term:${key}`) item.querySelector('.tt-unread')?.remove(); });
     renderStats();
@@ -1426,7 +1441,7 @@
     seenTimer = setTimeout(flushSeen, 300);
   }
   function flushSeen() {
-    if (!Object.keys(seenOutbox).length || !socket.open) return;   // 끊겨 있으면 다시 연결될 때 보낸다
+    if (!Object.keys(seenOutbox).length || !socket.open) return;   // when disconnected, sent on reconnect
     socket.send({ t: 'seen', items: { ...seenOutbox } });
     Object.keys(seenOutbox).forEach((key) => delete seenOutbox[key]);
   }
@@ -1436,7 +1451,7 @@
     for (const [key, value] of Object.entries(remote)) {
       if (typeof value === 'number' && value > (state.seen[key] ?? -Infinity)) { state.seen[key] = value; changed = true; }
     }
-    // 이 기기에만 있는 읽음 기록(서버가 모르는 것)은 서버로 올린다
+    // Read marks only this device has (unknown to the server) are uploaded to the server
     for (const [key, value] of Object.entries(state.seen)) {
       if (typeof value === 'number' && value > (remote[key] ?? -Infinity)) seenOutbox[key] = value;
     }
@@ -1463,14 +1478,14 @@
     return w.agent ? `<span class="agent-pill agent-${w.agent}">${escapeHtml(w.agent)}</span>` : '';
   }
 
-  // 길게 누르기 → 메뉴 (iOS 는 contextmenu 이벤트가 없어서 직접 구현)
+  // Long press → menu (implemented by hand because iOS has no contextmenu event)
   function attachLongPress(root, selector, onLongPress) {
     let timer = null;
     let start = null;
     let fired = false;
     root.addEventListener('pointerdown', (event) => {
       const target = event.target.closest(selector);
-      // 마우스는 오른쪽 클릭으로 메뉴를 열고, 누른 채 끌기는 드래그(분할로 열기)라서 길게 누르기는 터치에서만
+      // The mouse opens the menu with a right click and press-and-drag is a drag (open as split), so long press is touch only
       if (!target || event.button > 0 || event.target.closest('button') || event.pointerType === 'mouse') return;
       fired = false;
       start = { x: event.clientX, y: event.clientY };
@@ -1496,8 +1511,8 @@
   }
 
   // ════════════════════════════════════════════════════════════════════
-  // 터미널 렌더러 (ANSI SGR → HTML). 라이트 모드에서는 프로그램이 어두운 배경을 가정하고 고른 색을
-  // 밝은 배경에서도 읽히게 고친다 (VS Code 터미널의 '최소 대비'처럼: 너무 밝은 글자는 어둡게, 어두운 배경은 밝게).
+  // Terminal renderer (ANSI SGR → HTML). In light mode, colors that programs picked assuming a dark background
+  // are fixed to stay readable on a light one (like VS Code terminal's 'minimum contrast': too-bright text darker, dark backgrounds lighter).
   // ════════════════════════════════════════════════════════════════════
   const PALETTE = ['#1f2430', '#f07178', '#a6da95', '#eed49f', '#7aa2f7', '#c6a0f6', '#7dcfff', '#cad3f5',
     '#5b6078', '#ff8a92', '#b8f0a8', '#ffe0a8', '#9ab8ff', '#dcb8ff', '#a4e0ff', '#ffffff'];
@@ -1536,7 +1551,7 @@
     const hue = (t) => { t = (t + 1) % 1; return t < 1 / 6 ? p + (q - p) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p; };
     return [hue(h + 1 / 3), hue(h), hue(h - 1 / 3)].map((v) => Math.round(v * 255));
   }
-  // 라이트 모드용 색 보정 (결과는 캐시)
+  // Color correction for light mode (results are cached)
   function adapt(color, kind) {
     if (!lightTerm || !color) return color;
     const key = kind + color;
@@ -1548,13 +1563,13 @@
       const bgLum = luminance(rgbOf('#f8fafc'));
       const contrast = (c) => (bgLum + 0.05) / (luminance(c) + 0.05);
       if (contrast(rgb) < 4.5) {
-        l = Math.min(l, 1 - l);                 // 밝은 색은 명도를 뒤집고
+        l = Math.min(l, 1 - l);                 // flip the lightness of bright colors
         let next = fromHsl([h, s, l]);
-        while (contrast(next) < 4.5 && l > 0.05) { l -= 0.04; next = fromHsl([h, s, l]); }   // 그래도 흐리면 더 어둡게
+        while (contrast(next) < 4.5 && l > 0.05) { l -= 0.04; next = fromHsl([h, s, l]); }   // still too faint → darker
         out = `rgb(${next.join(',')})`;
       }
     } else if (l < 0.45) {
-      out = `rgb(${fromHsl([h, Math.min(s, 0.6), Math.max(0.86, 1 - l * 0.5)]).join(',')})`;   // 어두운 배경 → 옅은 같은 색조
+      out = `rgb(${fromHsl([h, Math.min(s, 0.6), Math.max(0.86, 1 - l * 0.5)]).join(',')})`;   // dark background → pale tint of the same hue
     }
     adaptCache.set(key, out);
     return out;
@@ -1627,7 +1642,7 @@
   const SGR = /\x1b\[([0-9;:]*)m/g;
   const RULE_LINE = /^\s*[─━═╌┄\-]{12,}\s*$/;
 
-  // 한 줄을 HTML 로. st 는 줄 사이에 이어지는 SGR 상태. cursorCol 이 있으면 그 칸에 커서를 그린다.
+  // One line to HTML. st is the SGR state carried across lines. With cursorCol, the cursor is drawn at that column.
   function renderLine(raw, st, { cursorCol = null, collapseSpaces = false } = {}) {
     const line = raw.replace(OTHER_ESCAPES, '');
     let html = '';
@@ -1676,12 +1691,12 @@
   }
 
   const plainText = (raw) => raw.replace(OTHER_ESCAPES, '').replace(SGR, '');
-  // 화면에 들어가는 터미널 칸 수 (tmux 창 크기를 보고 있는 화면에 맞추기 위해).
-  // 글자 폭은 실제 터미널 요소 안에서 잰다 (글꼴 대체 · 확대 배율까지 반영). 패딩: 좌우 12px · 위 12px · 아래 16px
+  // Number of terminal cells that fit on screen (to match the tmux window size to the screen being viewed).
+  // Character width is measured inside the real terminal element (reflects font fallback · zoom). Padding: 12px left/right · 12px top · 16px bottom
   function termGrid(scrollEl, screenEl, font) {
     const width = scrollEl.clientWidth - 24;
     const height = scrollEl.clientHeight - 28;
-    if (width < 100 || height < 80) return null;   // 숨겨져 있거나 너무 작으면 바꾸지 않는다
+    if (width < 100 || height < 80) return null;   // hidden or too small → leave unchanged
     const probe = document.createElement('span');
     probe.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font-size:${font}px;line-height:1.38`;
     probe.textContent = 'M'.repeat(100);
@@ -1712,18 +1727,18 @@
     const view = Object.assign({ mode: desktopQuery.matches ? 'fit' : 'wrap', font: coarsePointer ? 11.5 : 12.5 }, store.get('view', {}));
     let scrollback = 400;
     let lastScreen = null;
-    let screenDeferred = false;      // 가벼운 모드: 숨은 터미널 화면을 아직 안 그림
+    let screenDeferred = false;      // lite mode: the hidden terminal screen has not been drawn yet
     window.addEventListener('univdash:litechange', () => {
       if (screenDeferred && lastScreen && !document.documentElement.hasAttribute('data-ui-lite')) { screenDeferred = false; renderScreen(lastScreen); }
     });
-    const screenCache = new Map();   // pane → 마지막 화면 (최근 12개)
+    const screenCache = new Map();   // pane → last screen (most recent 12)
     let stickBottom = true;
     let charRatio = 0.6;
-    const submit = true;   // 보내면 항상 Enter 까지 (자동 제출 토글은 없앰)
+    const submit = true;   // sending always includes Enter (the auto-submit toggle was removed)
     const drafts = store.get('drafts', {});
     let draftTimer = null;
 
-    // ── 목록 ──
+    // ── List ──
     function matches(w) {
       const query = state.search.trim().toLowerCase();
       if (query) {
@@ -1737,24 +1752,24 @@
     }
 
     function itemHtml(w) {
-      // Workspace 는 지금 보고 있는 탭 기준 (파일 탭을 보고 있으면 아무 창도 선택 표시하지 않는다)
+      // Workspace goes by the tab being viewed (while a file tab is shown, no window is marked selected)
       const selected = state.listCurrent === undefined ? w.key === state.selectedKey : w.key === state.listCurrent;
       const unread = !isWindowVisible(w.key) && unreadActivity(w) > (state.seen[w.key] || 0);
       const status = STATUS[w.status] || STATUS.idle;
       const meta = [status.label, w.path, timeAgo(w.activity)].filter(Boolean).join(' · ');
       return `<div class="win-item ${selected ? 'selected' : ''} ${isHidden(w.key) ? 'is-hidden' : ''}" role="button" tabindex="0" ${coarsePointer ? '' : 'draggable="true"'} data-key="${escapeHtml(w.key)}" aria-current="${selected}">
-          ${unread ? '<span class="unread-dot" title="새 출력"></span>' : ''}
+          ${unread ? `<span class="unread-dot" title="${t('새 출력')}"></span>` : ''}
           ${statusIcon(w)}
           <span class="min-w-0 flex-1">
             <span class="flex items-center gap-2 min-w-0"><span class="truncate text-sm font-bold text-white/90">${escapeHtml(displayName(w))}</span>${agentPill(w)}</span>
             ${windowNote(w) && windowNote(w) !== displayName(w) ? `<span class="block truncate text-xs text-white/60 mt-0.5" title="${escapeHtml(windowNote(w))}">${escapeHtml(windowNote(w))}</span>` : ''}
             <span class="block truncate font-mono text-[10px] text-white/35 mt-0.5">${escapeHtml(meta)}</span>
           </span>
-          <button type="button" class="win-more" data-more aria-label="${escapeHtml(displayName(w))} 메뉴"><i class="fas fa-ellipsis-vertical"></i></button>
+          <button type="button" class="win-more" data-more aria-label="${t('{name} 메뉴', { name: escapeHtml(displayName(w)) })}"><i class="fas fa-ellipsis-vertical"></i></button>
         </div>`;
     }
 
-    // ── tmux 창 탭: 창을 고르면 탭으로 열리고, 탭끼리 바로 전환 (이 기기에 저장) ──
+    // ── tmux window tabs: picking a window opens it as a tab, and tabs switch directly (saved on this device) ──
     const MAX_TERM_TABS = 20;
     let termTabs = store.get('term-tabs', []).filter((k) => typeof k === 'string');
     function saveTermTabs() { store.set('term-tabs', termTabs); }
@@ -1765,12 +1780,12 @@
       while (termTabs.length > MAX_TERM_TABS) termTabs.splice(termTabs.findIndex((k) => k !== key), 1);
       saveTermTabs();
     }
-    // 탭바 그리기는 아래 공용 탭바(파일 탭과 함께)가 맡는다. 여기서는 목록만 관리한다.
+    // Drawing the tab bar is done by the shared tab bar below (together with file tabs). Only the list is managed here.
     const termTabHooks = [];
     function renderTermTabs() {
       const map = byKey();
       if (state.windows.length) {
-        const alive = termTabs.filter((k) => map.has(k));   // tmux 에서 닫힌 창은 탭에서도 뺀다
+        const alive = termTabs.filter((k) => map.has(k));   // windows closed in tmux are dropped from the tabs too
         if (alive.length !== termTabs.length) { termTabs = alive; saveTermTabs(); }
       }
       termTabHooks.forEach((fn) => fn());
@@ -1823,9 +1838,9 @@
       if (!state.windows.length) {
         list.innerHTML = `${banner}<div class="px-4 py-12 text-center">
             <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl glass-strong text-lg text-blue-400"><i class="fas fa-terminal"></i></div>
-            <p class="mt-4 text-sm font-bold text-white/70">실행 중인 tmux 세션이 없습니다.</p>
-            <p class="mt-1 text-xs text-white/40">오른쪽 위 + 버튼으로 새 세션을 만들 수 있습니다.</p>
-            <button type="button" class="restore-empty-btn" data-restore-open><i class="fas fa-clock-rotate-left"></i> 이전 세션 복구</button></div>`;
+            <p class="mt-4 text-sm font-bold text-white/70">${t('실행 중인 tmux 세션이 없습니다.')}</p>
+            <p class="mt-1 text-xs text-white/40">${t('오른쪽 위 + 버튼으로 새 세션을 만들 수 있습니다.')}</p>
+            <button type="button" class="restore-empty-btn" data-restore-open><i class="fas fa-clock-rotate-left"></i> ${t('이전 세션 복구')}</button></div>`;
         return;
       }
 
@@ -1843,18 +1858,18 @@
                 <span class="truncate normal-case tracking-normal text-[12px]">${escapeHtml(group.folder.name)}</span>
                 <span class="ml-auto font-mono text-[10px] opacity-70">${group.windows.length}</span>
                 ${group.windows.some((w) => w.status === 'waiting') ? '<span class="status-dot waiting"></span>' : ''}
-                <span class="folder-more" data-folder-more role="button" aria-label="폴더 메뉴"><i class="fas fa-ellipsis"></i></span>
+                <span class="folder-more" data-folder-more role="button" aria-label="${t('폴더 메뉴')}"><i class="fas fa-ellipsis"></i></span>
               </button>
               ${collapsed ? '' : `<div class="mt-1 space-y-1">${group.windows.map(itemHtml).join('')}</div>`}
             </section>`;
         } else {
-          html += `<section>${hasFolders ? '<p class="folder-head pointer-events-none"><i class="fas fa-inbox text-[10px]"></i><span class="normal-case tracking-normal text-[12px]">폴더 없음</span></p>' : ''}
+          html += `<section>${hasFolders ? `<p class="folder-head pointer-events-none"><i class="fas fa-inbox text-[10px]"></i><span class="normal-case tracking-normal text-[12px]">${t('폴더 없음')}</span></p>` : ''}
               <div class="${hasFolders ? 'mt-1 ' : ''}space-y-1">${group.windows.map(itemHtml).join('')}</div></section>`;
         }
       });
-      list.innerHTML = banner + (html || `<div class="px-4 py-12 text-center text-xs text-white/40">조건에 맞는 창이 없습니다.</div>`);
+      list.innerHTML = banner + (html || `<div class="px-4 py-12 text-center text-xs text-white/40">${t('조건에 맞는 창이 없습니다.')}</div>`);
     }
-    // 세션이 한꺼번에 사라졌으면(tmux 서버가 죽음 등) 목록 위에 복구 안내를 띄운다
+    // When sessions vanish all at once (tmux server died, etc.), show a restore notice above the list
     const restoreCheck = { count: -1, timer: null, alert: null };
     function checkRestore() {
       clearTimeout(restoreCheck.timer);
@@ -1866,19 +1881,19 @@
           restoreCheck.alert = row ? { ...row, restoring: false } : (data.job?.running ? { restoring: true } : null);
           if (before !== restoreCheck.alert?.id || data.job?.running) renderList();
           if (data.job?.running) checkRestoreLater();
-        } catch (error) { /* 다음에 다시 */ }
+        } catch (error) { /* try again next time */ }
       }, 1200);
     }
     function checkRestoreLater() { setTimeout(checkRestore, 4000); }
     function restoreBannerHtml() {
       const alert = restoreCheck.alert;
       if (!alert) return '';
-      if (alert.restoring) return '<div class="restore-banner busy"><i class="fas fa-circle-notch fa-spin"></i><div><b>세션을 복구하는 중입니다</b><span>에이전트는 차례로 켜집니다.</span></div></div>';
+      if (alert.restoring) return `<div class="restore-banner busy"><i class="fas fa-circle-notch fa-spin"></i><div><b>${t('세션을 복구하는 중입니다')}</b><span>${t('에이전트는 차례로 켜집니다.')}</span></div></div>`;
       if (store.get('restore-dismissed', '') === alert.id) return '';
       return `<div class="restore-banner"><i class="fas fa-triangle-exclamation"></i>
-          <div><b>세션 ${alert.missing.length}개가 사라졌습니다</b><span>${escapeHtml(nameList(alert.missing, 4))} · ${escapeHtml(restoreTime(alert.at))} 기록으로 복구할 수 있습니다.</span></div>
-          <button type="button" data-restore-open>복구</button>
-          <button type="button" class="restore-x" data-restore-dismiss="${escapeHtml(alert.id)}" aria-label="닫기"><i class="fas fa-xmark"></i></button></div>`;
+          <div><b>${t('세션 {count}개가 사라졌습니다', { count: alert.missing.length })}</b><span>${t('{names} · {when} 기록으로 복구할 수 있습니다.', { names: escapeHtml(nameList(alert.missing, 4)), when: escapeHtml(restoreTime(alert.at)) })}</span></div>
+          <button type="button" data-restore-open>${t('복구')}</button>
+          <button type="button" class="restore-x" data-restore-dismiss="${escapeHtml(alert.id)}" aria-label="${t('닫기')}"><i class="fas fa-xmark"></i></button></div>`;
     }
     window.addEventListener('univdash:restore', () => { renderList(); checkRestore(); });
     setInterval(() => { if (document.visibilityState === 'visible') checkRestore(); }, 60000);
@@ -1904,7 +1919,7 @@
       if (item && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); if (!window.UnivDashWs?.openFromList?.(item.dataset.key)) select(item.dataset.key); }
     });
     attachLongPress(list, '.win-item', (item) => { const w = byKey().get(item.dataset.key); if (w) windowMenu(w); });
-    // 단축키 (keys.js · 기본: j 다음 창 · k 이전 창) — 목록에 보이는 순서대로
+    // Shortcuts (keys.js · default: j next window · k previous window) — in the order shown in the list
     [['ws.nextWindow', 1], ['ws.prevWindow', -1]].forEach(([id, step]) => window.UnivDashKeys?.register(id, () => {
       const items = [...list.querySelectorAll('.win-item')].filter((item) => item.getClientRects().length);
       if (!items.length) return false;
@@ -1924,8 +1939,8 @@
     $('#sortBtn').addEventListener('click', () => {
       const current = sortMode();
       actionSheet({
-        title: '정렬 기준',
-        subtitle: '폴더 안에서 정렬됩니다. 휴대폰·PC 에 같이 적용됩니다.',
+        title: t('정렬 기준'),
+        subtitle: t('폴더 안에서 정렬됩니다. 휴대폰·PC 에 같이 적용됩니다.'),
         actions: Object.entries(SORTS).map(([id, sort]) => ({
           icon: sort.icon, label: sort.label, desc: sort.desc, sub: id === current ? '✓' : '', current: id === current,
           onClick: () => { state.prefs.sort = id; commitPrefs(); },
@@ -1933,7 +1948,7 @@
       });
     });
 
-    // ── 창 선택 / 터미널 열기 ──
+    // ── Selecting a window / opening the terminal ──
     function currentWindow() { return byKey().get(state.selectedKey) || null; }
 
     function pickPane(w) {
@@ -1957,17 +1972,17 @@
         modelState.at = 0;
         lastScreen = null;
         scrollback = 400;
-        inner.innerHTML = '<div class="ln term-empty-note">화면을 불러오는 중...</div>';
+        inner.innerHTML = `<div class="ln term-empty-note">${t('화면을 불러오는 중...')}</div>`;
       }
       state.paneId = pickPane(w);
-      // 전에 본 창이면 마지막 화면을 바로 보여 주고, 새 화면은 도착하는 대로 바꾼다
+      // For a window seen before, show its last screen right away and swap in the new one when it arrives
       if (changed && screenCache.has(state.paneId)) renderScreen(screenCache.get(state.paneId));
       store.set('last-window', key);
       stickBottom = true;
 
       $('#termEmpty').classList.add('hidden');
       $('#termEmpty').classList.remove('lg:flex');
-      // keepFile: 새로고침 복원 때 보고 있던 파일은 그대로 두고 터미널은 뒤에서 준비만 한다
+      // keepFile: when restoring after a reload, leave the file being viewed as is and only prepare the terminal behind it
       if (!keepFile && document.body.classList.contains('pty-open')) {
         document.body.classList.remove('pty-open'); $('#ptyView').classList.add('hidden'); $('#ptyView').classList.remove('flex');
         store.set('ws-pty-open', false);
@@ -2023,7 +2038,7 @@
       log.timer = null;
       socket.send({ t: 'logunsub' });
       if (document.body.classList.contains('term-open') && !fromPopstate && window.history.state?.tdxTerm) {
-        window.history.back();  // popstate 에서 마저 닫는다
+        window.history.back();  // popstate finishes closing
         return;
       }
       document.body.classList.remove('term-open');
@@ -2036,7 +2051,7 @@
       renderAll(true);
     }
     window.addEventListener('popstate', () => {
-      if (document.body.classList.contains('file-open') || document.body.classList.contains('pty-open')) return;  // 파일 · 터미널 보기가 먼저 닫힌다 (아래)
+      if (document.body.classList.contains('file-open') || document.body.classList.contains('pty-open')) return;  // the file · terminal view closes first (below)
       if (document.body.classList.contains('term-open')) closeTerm(true);
     });
     $('#termBack').addEventListener('click', () => closeTerm());
@@ -2045,13 +2060,13 @@
       if (state.paneId) socket.send({ t: 'sub', pane: state.paneId, history: scrollback });
     }
 
-    // ── 지금 쓰는 모델 (입력창 ⚡ 옆) · 남은 사용량 (머리글 오른쪽) ──
+    // ── Current model (next to ⚡ in the input) · remaining usage (right side of the header) ──
     const modelBtn = $('#modelBtn');
     const usageMini = $('#usageMini');
     const modelState = { pane: null, model: null, at: 0 };
     let modelRequest = 0;
     function prettyModel(id) {
-      if (!id) return '모델';
+      if (!id) return t('모델');
       if (!id.startsWith('claude-')) return id;
       const parts = id.replace(/^claude-/, '').replace(/-\d{8}$/, '').split('-');
       const family = parts.shift();
@@ -2066,11 +2081,11 @@
       const switchBtn = $('#agentSwitchBtn');
       if (switchBtn) {
         switchBtn.classList.toggle('hidden', !agent);
-        if (agent) switchBtn.textContent = '에이전트 바꾸기';
+        if (agent) switchBtn.textContent = t('에이전트 바꾸기');
       }
       if (!agent) return;
       $('#modelLabel').textContent = prettyModel(modelState.model);
-      modelBtn.title = modelState.model ? `지금 모델: ${modelState.model} — 눌러서 바꾸기` : '모델 바꾸기';
+      modelBtn.title = modelState.model ? t('지금 모델: {model} — 눌러서 바꾸기', { model: modelState.model }) : t('모델 바꾸기');
     }
     async function refreshModel(force = false) {
       const request = ++modelRequest;
@@ -2087,8 +2102,8 @@
       } catch (e) { /* noop */ }
       if (request === modelRequest) renderModel();
     }
-    // 모델을 바꾼 직후: Claude 가 기록에 "Set model to …" 를 남기는 즉시 알아채도록 잠깐 촘촘히 확인한다.
-    // /model 을 보낸 뒤 1.5초마다 모델을 확인한다 (바뀌거나 90초가 지나면 멈춤)
+    // Right after a model change: check frequently for a short while so it is noticed as soon as Claude logs "Set model to …".
+    // After sending /model, check the model every 1.5 s (stops once it changes or 90 s pass)
     function watchModelChange(check, changed, timeout = 90000) {
       const started = Date.now();
       const timer = setInterval(() => {
@@ -2096,48 +2111,48 @@
         check();
       }, 1500);
     }
-    // 업데이트 버튼: 에이전트를 종료 → (업데이트) → 같은 대화로 다시 켠다 (서버가 Ctrl+C 와 셸 명령으로 처리)
+    // Update button: quit the agent → (update) → start it again in the same conversation (the server does it with Ctrl+C and shell commands)
     function restartAgent({ pane, agent, busy, window: win }) {
       if (!pane || !agent) return;
       const name = { codex: 'Codex', gemini: 'Gemini' }[agent] || 'Claude Code';
       const run = async (update) => {
-        if (busy) { toast(`${name} 가 작업 중입니다. 끝난 뒤에 다시 눌러 주십시오.`, 'warn'); return; }
-        toast(update ? `${name} 업데이트 후 같은 대화로 다시 켜는 중…` : `${name} 를 같은 대화로 다시 켜는 중…`, 'info');
+        if (busy) { toast(t('{name} 가 작업 중입니다. 끝난 뒤에 다시 눌러 주십시오.', { name }), 'warn'); return; }
+        toast(update ? t('{name} 업데이트 후 같은 대화로 다시 켜는 중…', { name }) : t('{name} 를 같은 대화로 다시 켜는 중…', { name }), 'info');
         try {
           const result = await api('POST', '/api/agent/restart', { pane, update });
-          toast(`실행함: ${result.command}`, 'ok');
+          toast(t('실행함: {command}', { command: result.command }), 'ok');
         } catch (error) { toast(error.message, 'error'); }
       };
       actionSheet({
-        title: `${name} 업데이트`,
-        subtitle: '지금 창의 에이전트를 끄고, 같은 대화를 이어서 다시 켭니다 (/resume). 입력창에 쓰던 글은 사라집니다.',
+        title: t('{name} 업데이트', { name }),
+        subtitle: t('지금 창의 에이전트를 끄고, 같은 대화를 이어서 다시 켭니다 (/resume). 입력창에 쓰던 글은 사라집니다.'),
         actions: [
-          { icon: 'fa-arrow-rotate-right', label: '업데이트하고 다시 켜기', desc: `${AGENT_BINS[agent] || agent} update 후 같은 대화로`, onClick: () => run(true) },
-          { icon: 'fa-power-off', label: '다시 켜기만', desc: '업데이트 없이 같은 대화로 재시작', onClick: () => run(false) },
+          { icon: 'fa-arrow-rotate-right', label: t('업데이트하고 다시 켜기'), desc: t('{bin} update 후 같은 대화로', { bin: AGENT_BINS[agent] || agent }), onClick: () => run(true) },
+          { icon: 'fa-power-off', label: t('다시 켜기만'), desc: t('업데이트 없이 같은 대화로 재시작'), onClick: () => run(false) },
           'sep',
-          { icon: 'fa-layer-group', label: '모든 에이전트 창 업데이트', desc: 'Claude · Codex · Gemini 모두 업데이트 후 창마다 같은 대화로 다시 켜기', onClick: () => updateAllAgents() },
+          { icon: 'fa-layer-group', label: t('모든 에이전트 창 업데이트'), desc: t('Claude · Codex · Gemini 모두 업데이트 후 창마다 같은 대화로 다시 켜기'), onClick: () => updateAllAgents() },
           ...(win ? ['sep', ...agentSwitchActions(win)] : []),
         ],
       });
     }
-    // 모든 에이전트 창: 서버가 claude update · codex update 후, 쉬고 있는 창만 같은 대화로 다시 켠다.
-    // 에이전트가 돌아가고 있는 창(작업 중 · 답을 기다리는 중)은 빼고 건드리지 않는다.
+    // All agent windows: after `claude update` · `codex update`, the server restarts only the idle windows in the same conversation.
+    // Windows where the agent is running (working · waiting for an answer) are left out and not touched.
     async function updateAllAgents() {
       const agents = state.windows.filter((w) => isAgent(w.agent));
       const idle = agents.filter((w) => w.status === 'idle');
       const count = (agent) => idle.filter((w) => w.agent === agent).length;
       const running = agents.length - idle.length;
       const confirmed = await confirmSheet({
-        title: '모든 에이전트 창 업데이트',
-        message: `Claude Code · Codex · Gemini 를 최신 버전으로 업데이트하고, 쉬고 있는 창(${AGENT_IDS.map((id) => `${AGENT_NAMES[id]} ${count(id)}개`).join(' · ')})을 잠깐 껐다가 같은 대화로 다시 켭니다. 입력창에 쓰던 글은 사라집니다.`
-          + (running ? ` 에이전트가 돌아가고 있는 창 ${running}개는 제외하고 그대로 둡니다.` : ''),
-        confirmLabel: '모두 업데이트',
+        title: t('모든 에이전트 창 업데이트'),
+        message: t('Claude Code · Codex · Gemini 를 최신 버전으로 업데이트하고, 쉬고 있는 창({list})을 잠깐 껐다가 같은 대화로 다시 켭니다. 입력창에 쓰던 글은 사라집니다.', { list: AGENT_IDS.map((id) => t('{name} {count}개', { name: AGENT_NAMES[id], count: count(id) })).join(' · ') })
+          + (running ? ` ${t('에이전트가 돌아가고 있는 창 {count}개는 제외하고 그대로 둡니다.', { count: running })}` : ''),
+        confirmLabel: t('모두 업데이트'),
       });
       if (!confirmed) return;
       let first;
       try { first = await api('POST', '/api/agent/update-all', { claude: true, codex: true, gemini: true }); }
       catch (error) { toast(error.message, 'error'); return; }
-      toast('Claude Code · Codex · Gemini 를 업데이트하고 다시 켜는 중…', 'info', null, 6000);
+      toast(t('Claude Code · Codex · Gemini 를 업데이트하고 다시 켜는 중…'), 'info', null, 6000);
       followUpdateAll(first);
     }
     function followUpdateAll(first) {
@@ -2148,26 +2163,26 @@
           setTimeout(() => api('GET', '/api/agent/update-all').then(step, () => setTimeout(() => step(status), 4000)), 2000);
           return;
         }
-        if (status.state === 'error') { toast(status.error || '업데이트하지 못했습니다.', 'error', null, 9000); return; }
+        if (status.state === 'error') { toast(status.error || t('업데이트하지 못했습니다.'), 'error', null, 9000); return; }
         const parts = [];
         let warn = false;
         const running = [];
         const failed = [];
         for (const [name, r] of [['Claude', status.claude], ['Codex', status.codex], ['Gemini', status.gemini]]) {
           if (!r) continue;
-          parts.push(`${name} 창 ${r.restarted.length}개 다시 켬`);
-          if (r.updated === false) { parts.push(`${name} 업데이트 실패 (기존 버전으로 켬)`); warn = true; }
+          parts.push(t('{name} 창 {count}개 다시 켬', { name, count: r.restarted.length }));
+          if (r.updated === false) { parts.push(t('{name} 업데이트 실패 (기존 버전으로 켬)', { name })); warn = true; }
           for (const s of r.skipped) (s.running ? running : failed).push(s);
         }
-        if (status.codex?.daemon === 'kept') parts.push('Codex 데몬은 돌아가는 창 때문에 그대로 둠');
-        if (running.length) parts.push(`돌아가고 있어 뺀 창: ${running.map((s) => s.window).join(', ')}`);
-        if (failed.length) { parts.push(`다시 켜지 못한 창: ${failed.map((s) => `${s.window} (${s.reason})`).join(', ')}`); warn = true; }
+        if (status.codex?.daemon === 'kept') parts.push(t('Codex 데몬은 돌아가는 창 때문에 그대로 둠'));
+        if (running.length) parts.push(t('돌아가고 있어 뺀 창: {windows}', { windows: running.map((s) => s.window).join(', ') }));
+        if (failed.length) { parts.push(t('다시 켜지 못한 창: {windows}', { windows: failed.map((s) => `${s.window} (${s.reason})`).join(', ') })); warn = true; }
         toast(`${parts.join(' · ')}.`, warn ? 'warn' : 'ok', null, 10000);
       };
       step(first);
     }
-    // 슬래시 명령 보내기: Codex 는 붙여넣기 직후의 Enter 를 줄바꿈으로 받으므로 글자로 치고 잠시 뒤 Enter
-    // Gemini(Antigravity CLI)도 글자를 친 뒤 뜨는 자동 완성 목록에서 Enter 로 고른다
+    // Sending a slash command: Codex takes an Enter right after a paste as a line break, so type the characters and press Enter a moment later
+    // Gemini (Antigravity CLI) also picks with Enter from the autocomplete list that appears after typing
     async function sendSlash(pane, agent, text, sendFn) {
       if (agent === 'codex' || agent === 'gemini') {
         await sendFn({ t: 'text', pane, text });
@@ -2175,37 +2190,37 @@
         await sendFn({ t: 'keys', pane, keys: ['Enter'] });
       } else await sendFn({ t: 'prompt', pane, text, submit: true, attachments: [] });
     }
-    // 모델 버튼: /model 을 보내기만 한다. 선택 창은 채팅 아래 카드(또는 터미널)에서 답한다.
-    // 고른 결과("Set model to …")가 기록에 뜨면 칩이 바뀌도록 잠시 자주 확인한다.
+    // Model button: only sends /model. The picker is answered in the card below the chat (or in the terminal).
+    // Check often for a while so the chip changes once the result ("Set model to …") shows up in the transcript.
     async function sendModelCommand() {
       const w = currentWindow();
       const agent = w && agentOf(w);
       if (!state.paneId || !agent) return;
-      if (w.status === 'busy') { toast('지금 작업 중입니다. 끝난 뒤에 모델을 바꿀 수 있습니다.', 'warn'); return; }
+      if (w.status === 'busy') { toast(t('지금 작업 중입니다. 끝난 뒤에 모델을 바꿀 수 있습니다.'), 'warn'); return; }
       const before = modelState.model;
       const watch = () => watchModelChange(() => refreshModel(true), () => modelState.model !== before);
       if (agent === 'gemini') { pickGeminiModel(state.paneId, (message) => socket.send(message, { ack: true }), watch); return; }
       try {
         await sendSlash(state.paneId, agent, '/model', (message) => socket.send(message, { ack: true }));
         watch();
-        if (modeFor(w) === 'log') toast('모델 목록이 채팅 아래 카드에 표시됩니다.', 'info', null, 2500);
+        if (modeFor(w) === 'log') toast(t('모델 목록이 채팅 아래 카드에 표시됩니다.'), 'info', null, 2500);
       } catch (error) { toast(error.message, 'error'); }
     }
-    // Gemini(Antigravity CLI)의 모델 선택 창은 번호가 없어 카드로 옮길 수 없다 → 목록을 받아 와 고르면 "/model <이름>" 을 보낸다
+    // The model picker of Gemini (Antigravity CLI) has no numbers, so it cannot be turned into a card → fetch the list and send "/model <name>" for the chosen one
     async function pickGeminiModel(pane, sendFn, onSent) {
       let data;
       try { data = await api('GET', '/api/agent/models?agent=gemini'); }
       catch (error) { toast(error.message, 'error'); return; }
-      if (!data.models?.length) { toast('모델 목록을 받지 못했습니다. 잠시 뒤 다시 시도해 주십시오.', 'warn'); return; }
+      if (!data.models?.length) { toast(t('모델 목록을 받지 못했습니다. 잠시 뒤 다시 시도해 주십시오.'), 'warn'); return; }
       actionSheet({
-        title: 'Gemini 모델 선택',
-        subtitle: 'Antigravity CLI 에서 사용할 수 있는 모델입니다.',
+        title: t('Gemini 모델 선택'),
+        subtitle: t('Antigravity CLI 에서 사용할 수 있는 모델입니다.'),
         actions: data.models.map((model) => ({
           icon: 'fa-microchip', label: model.name || model.id, desc: model.id,
           onClick: async () => {
             try {
               await sendSlash(pane, 'gemini', `/model ${model.id}`, sendFn);
-              toast(`${model.name || model.id} 모델로 바꾸는 중입니다.`, 'info', null, 2500);
+              toast(t('{model} 모델로 바꾸는 중입니다.', { model: model.name || model.id }), 'info', null, 2500);
               onSent?.();
             } catch (error) { toast(error.message, 'error'); }
           },
@@ -2222,98 +2237,101 @@
       try { data = await api('GET', '/api/accounts/codex'); }
       catch (error) { toast(error.message, 'error'); return; }
       actionSheet({
-        title: 'Codex 계정 변경',
-        subtitle: '다른 계정을 고르면 실행 중인 Codex 창이 같은 대화로 다시 켜집니다.',
+        title: t('Codex 계정 변경'),
+        subtitle: t('다른 계정을 고르면 실행 중인 Codex 창이 같은 대화로 다시 켜집니다.'),
         actions: [
           ...data.accounts.map((account) => ({
-            icon: 'fa-user', label: account.email || '이름 없는 계정',
-            current: account.active, sub: account.active ? '사용 중' : '',
-            desc: account.plan ? `${account.plan} 요금제` : '',
+            icon: 'fa-user', label: account.email || t('이름 없는 계정'),
+            current: account.active, sub: account.active ? t('사용 중') : '',
+            desc: account.plan ? t('{plan} 요금제', { plan: account.plan }) : '',
             onClick: () => { if (!account.active) switchCodexAccount(account); },
           })),
           ...(data.accounts.length ? ['sep'] : []),
-          { icon: 'fa-plus', label: '계정 추가 · 관리', desc: 'AI 사용량 페이지에서 다른 계정 로그인', onClick: () => { location.href = '/ai-usage'; } },
+          { icon: 'fa-plus', label: t('계정 추가 · 관리'), desc: t('AI 사용량 페이지에서 다른 계정 로그인'), onClick: () => { location.href = '/ai-usage'; } },
         ],
       });
     }
     async function switchCodexAccount(account) {
       const confirmed = await confirmSheet({
-        title: 'Codex 계정 변경',
-        message: `${account.email} 계정으로 바꾸시겠습니까? 모든 Codex 창을 잠깐 종료하고 Codex 를 최신으로 업데이트한 뒤, 같은 대화를 이어서 다시 켭니다. 작업 중인 창이 있으면 모두 끝난 뒤 자동으로 합니다.`,
-        confirmLabel: '계정 변경',
+        title: t('Codex 계정 변경'),
+        message: t('{email} 계정으로 바꾸시겠습니까? 모든 Codex 창을 잠깐 종료하고 Codex 를 최신으로 업데이트한 뒤, 같은 대화를 이어서 다시 켭니다. 작업 중인 창이 있으면 모두 끝난 뒤 자동으로 합니다.', { email: account.email }),
+        confirmLabel: t('계정 변경'),
       });
       if (!confirmed) return;
       try {
         const result = await api('POST', '/api/accounts/codex/switch', { id: account.id });
-        toast(`Codex 계정을 ${result.email}로 변경했습니다.`, 'ok');
+        toast(t('Codex 계정을 {email}로 변경했습니다.', { email: result.email }), 'ok');
         codexAccountChanged(result.limits);
         if (result.applied) window.UnivDash.followCodexApply(result.applied);
       } catch (error) { toast(error.message, 'error'); }
     }
-    // Gemini (Antigravity CLI): 로그인 파일을 바꿔 끼우고, 쉬고 있는 Gemini 창을 같은 대화로 다시 켠다
+    // Gemini (Antigravity CLI): swap the login file and restart the idle Gemini windows in the same conversation
     async function openGeminiAccounts() {
       let data;
       try { data = await api('GET', '/api/accounts/gemini'); }
       catch (error) { toast(error.message, 'error'); return; }
       actionSheet({
-        title: 'Gemini 계정 변경',
-        subtitle: '다른 계정을 선택하면 쉬고 있는 Gemini 창이 같은 대화로 다시 켜집니다.',
+        title: t('Gemini 계정 변경'),
+        subtitle: t('다른 계정을 선택하면 쉬고 있는 Gemini 창이 같은 대화로 다시 켜집니다.'),
         actions: [
           ...data.accounts.map((account) => ({
-            icon: 'fa-user', label: account.email || '이름 없는 계정',
-            current: account.active, sub: account.active ? '사용 중' : '',
-            desc: account.plan ? `${account.plan} 요금제` : '',
+            icon: 'fa-user', label: account.email || t('이름 없는 계정'),
+            current: account.active, sub: account.active ? t('사용 중') : '',
+            desc: account.plan ? t('{plan} 요금제', { plan: account.plan }) : '',
             onClick: () => { if (!account.active) switchGeminiAccount(account); },
           })),
           ...(data.accounts.length ? ['sep'] : []),
-          { icon: 'fa-plus', label: '계정 추가 · 관리', desc: 'AI 사용량 페이지에서 다른 계정 로그인', onClick: () => { location.href = '/ai-usage'; } },
+          { icon: 'fa-plus', label: t('계정 추가 · 관리'), desc: t('AI 사용량 페이지에서 다른 계정 로그인'), onClick: () => { location.href = '/ai-usage'; } },
         ],
       });
     }
     async function switchGeminiAccount(account) {
       const confirmed = await confirmSheet({
-        title: 'Gemini 계정 변경',
-        message: `${account.email || '선택한'} 계정으로 바꾸시겠습니까? 쉬고 있는 Gemini 창은 잠깐 껐다가 같은 대화로 다시 켭니다. 작업 중인 창은 그대로 두므로, 끝난 뒤 직접 다시 켜야 새 계정이 적용됩니다.`,
-        confirmLabel: '계정 변경',
+        title: t('Gemini 계정 변경'),
+        message: account.email
+          ? t('{email} 계정으로 바꾸시겠습니까? 쉬고 있는 Gemini 창은 잠깐 껐다가 같은 대화로 다시 켭니다. 작업 중인 창은 그대로 두므로, 끝난 뒤 직접 다시 켜야 새 계정이 적용됩니다.', { email: account.email })
+          : t('선택한 계정으로 바꾸시겠습니까? 쉬고 있는 Gemini 창은 잠깐 껐다가 같은 대화로 다시 켭니다. 작업 중인 창은 그대로 두므로, 끝난 뒤 직접 다시 켜야 새 계정이 적용됩니다.'),
+        confirmLabel: t('계정 변경'),
       });
       if (!confirmed) return;
       try {
         const result = await api('POST', '/api/accounts/gemini/switch', { id: account.id });
         const skipped = result.windows?.skipped?.length || 0;
-        toast(result.changed ? `Gemini 계정을 ${result.email || '선택한 계정'}(으)로 변경했습니다.${skipped ? ` 다시 켜지 못한 창 ${skipped}개는 직접 다시 켜 주십시오.` : ''}` : '이미 그 계정입니다.', skipped ? 'warn' : 'ok', null, 6000);
+        const changedText = result.email ? t('Gemini 계정을 {email}(으)로 변경했습니다.', { email: result.email }) : t('Gemini 계정을 선택한 계정(으)로 변경했습니다.');
+        toast(result.changed ? `${changedText}${skipped ? ` ${t('다시 켜지 못한 창 {count}개는 직접 다시 켜 주십시오.', { count: skipped })}` : ''}` : t('이미 그 계정입니다.'), skipped ? 'warn' : 'ok', null, 6000);
         codexAccountChanged();
       } catch (error) { toast(error.message, 'error'); }
     }
-    // Claude Code: 로그인 파일만 바꿔 끼운다 — 실행 중인 창은 파일이 바뀐 것을 알아채고 새 계정으로 이어진다
+    // Claude Code: only the login file is swapped — running windows notice the file changed and continue with the new account
     async function openClaudeAccounts() {
       let data;
       try { data = await api('GET', '/api/accounts/claude'); }
       catch (error) { toast(error.message, 'error'); return; }
       actionSheet({
-        title: 'Claude Code 계정 변경',
-        subtitle: '다른 계정을 고르면 실행 중인 Claude Code 창도 끄지 않고 새 계정으로 이어집니다.',
+        title: t('Claude Code 계정 변경'),
+        subtitle: t('다른 계정을 고르면 실행 중인 Claude Code 창도 끄지 않고 새 계정으로 이어집니다.'),
         actions: [
           ...data.accounts.map((account) => ({
-            icon: 'fa-user', label: account.email || '이름 없는 계정',
-            current: account.active, sub: account.active ? '사용 중' : account.expired ? '만료' : '',
-            desc: account.plan ? `${account.plan} 요금제` : '',
+            icon: 'fa-user', label: account.email || t('이름 없는 계정'),
+            current: account.active, sub: account.active ? t('사용 중') : account.expired ? t('만료') : '',
+            desc: account.plan ? t('{plan} 요금제', { plan: account.plan }) : '',
             onClick: () => { if (!account.active) switchClaudeAccount(account); },
           })),
           ...(data.accounts.length ? ['sep'] : []),
-          { icon: 'fa-plus', label: '계정 추가 · 관리', desc: 'AI 사용량 페이지에서 다른 계정 로그인', onClick: () => { location.href = '/ai-usage'; } },
+          { icon: 'fa-plus', label: t('계정 추가 · 관리'), desc: t('AI 사용량 페이지에서 다른 계정 로그인'), onClick: () => { location.href = '/ai-usage'; } },
         ],
       });
     }
     async function switchClaudeAccount(account) {
       const confirmed = await confirmSheet({
-        title: 'Claude Code 계정 변경',
-        message: `${account.email} 계정으로 바꾸시겠습니까? 실행 중인 Claude Code 창은 끄지 않고, 다음 요청부터 새 계정을 씁니다.`,
-        confirmLabel: '계정 변경',
+        title: t('Claude Code 계정 변경'),
+        message: t('{email} 계정으로 바꾸시겠습니까? 실행 중인 Claude Code 창은 끄지 않고, 다음 요청부터 새 계정을 씁니다.', { email: account.email }),
+        confirmLabel: t('계정 변경'),
       });
       if (!confirmed) return;
       try {
         const result = await api('POST', '/api/accounts/claude/switch', { id: account.id });
-        toast(result.changed ? `Claude Code 계정을 ${result.email}로 변경했습니다.` : '이미 그 계정입니다.', 'ok');
+        toast(result.changed ? t('Claude Code 계정을 {email}로 변경했습니다.', { email: result.email }) : t('이미 그 계정입니다.'), 'ok');
         codexAccountChanged();
       } catch (error) { toast(error.message, 'error'); }
     }
@@ -2325,7 +2343,7 @@
     });
     modelBtn.addEventListener('click', () => sendModelCommand());
 
-    // 남은 사용량: 현재 세션 · 주간 (Claude / Codex, 1분마다)
+    // Remaining usage: current session · weekly (Claude / Codex, every minute)
     let limits = null;
     let limitsAt = 0;
     let limitsGeneration = 0;
@@ -2352,56 +2370,59 @@
       usageMini.classList.toggle('hidden', !html);
       if (html) usageMini.innerHTML = html;
     }
-    // 남은 사용량 게이지 HTML (메인 · 분할 화면 공용). 없으면 ''
+    // Remaining-usage gauge HTML (shared by the main and split views). '' when there is none
     function usageMarkup(agent) {
       const key = isAgent(agent) ? agent : 'claude';
       const provider = agent && limits?.[key];
       const all = provider?.windows || [];
-      // Gemini 는 한도가 묶음별(Gemini 모델 / Claude · GPT 모델)로 온다 → 게이지에는 Gemini 묶음만 보인다
-      const own = key === 'gemini' ? all.filter((x) => / · Gemini$/.test(x.label || '')) : [];
+      // Gemini limits come per group (Gemini models / Claude · GPT models) → the gauge shows only the Gemini group
+      const own = key === 'gemini' ? all.filter((x) => x.group === 'gemini') : [];
       const windows = own.length ? own : all;
       const session = windows.find((x) => x.window_minutes && x.window_minutes <= 360);
       const weekly = windows.find((x) => /weekly_all|seven_day$|codex-secondary/.test(x.id)) || windows.find((x) => x.window_minutes >= 10080);
-      const gauges = [['세션', session], ['주간', weekly]].filter(([, x]) => x);
+      const gauges = [[t('세션'), session, false], [t('주간'), weekly, true]].filter(([, x]) => x);
       if (!gauges.length) return '';
-      const when = (iso) => (iso ? new Date(iso).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' }) : '');
+      const when = (iso) => (iso ? new Date(iso).toLocaleString(t.locale, { month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' }) : '');
       const resetText = (iso) => {
         if (!iso) return '';
         const date = new Date(iso);
         if (Number.isNaN(date.getTime())) return '';
         const now = new Date();
         const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-        const day = date.toDateString() === now.toDateString() ? '오늘'
-          : date.toDateString() === tomorrow.toDateString() ? '내일'
+        const day = date.toDateString() === now.toDateString() ? t('오늘')
+          : date.toDateString() === tomorrow.toDateString() ? t('내일')
             : `${date.getMonth() + 1}/${date.getDate()}`;
         const time = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
         return `${day} ${time}`;
       };
       const account = limits?.accounts?.[key] || '';
       const name = `${AGENT_NAMES[key]}${provider.plan ? ` · ${escapeHtml(provider.plan)}` : ''}`;
-      // 넓은 화면: 요금제 아래에 로그인한 계정 메일 / 좁은 화면(요금제 칸이 숨음): 그래프를 누르면 알림으로
+      // Wide screens: the signed-in account email below the plan / narrow screens (the plan cell is hidden): shown as a toast when the gauge is tapped
       return `<span class="um-provider"><span>${name}</span>${account ? `<span class="um-account">${escapeHtml(account)}</span>` : ''}</span>`
-        + `<span class="um-who hidden" data-account="${escapeHtml(account)}" data-provider="${escapeHtml(AGENT_NAMES[key])}"></span>` + gauges.map(([name, x]) => {
-        // 이 계정에는 5시간 한도가 없다 (Anthropic 이 값을 주지 않음) → 막대 대신 '제한 없음'
-        if (x.unlimited) return `<div class="um ok" title="이 계정은 지금 5시간(세션) 한도가 적용되지 않습니다. 주간 한도만 있습니다."><span class="um-label">${name}</span><span class="um-val">제한 없음</span></div>`;
+        + `<span class="um-who hidden" data-account="${escapeHtml(account)}" data-provider="${escapeHtml(AGENT_NAMES[key])}"></span>` + gauges.map(([name, x, isWeekly]) => {
+        // This account has no 5-hour limit (Anthropic does not send the value) → 'No limit' instead of a bar
+        if (x.unlimited) return `<div class="um ok" title="${t('이 계정은 지금 5시간(세션) 한도가 적용되지 않습니다. 주간 한도만 있습니다.')}"><span class="um-label">${name}</span><span class="um-val">${t('제한 없음')}</span></div>`;
         const left = Math.round(x.remaining_percent);
         const tone = left > 50 ? 'ok' : left > 20 ? 'mid' : 'low';
         const reset = resetText(x.resets_at);
-        const resetClass = name === '주간' ? 'um-reset um-reset-week' : 'um-reset';
-        return `<div class="um ${tone}" title="${escapeHtml(`${x.label} ${left}% 남음${x.resets_at ? ` · ${when(x.resets_at)} 초기화` : ''}`)}">
+        const resetClass = isWeekly ? 'um-reset um-reset-week' : 'um-reset';
+        const title = x.resets_at
+          ? t('{label} {left}% 남음 · {when} 초기화', { label: x.label, left, when: when(x.resets_at) })
+          : t('{label} {left}% 남음', { label: x.label, left });
+        return `<div class="um ${tone}" title="${escapeHtml(title)}">
             <span class="um-label">${name}</span><span class="um-bar"><i style="width:${left}%"></i></span><span class="um-val">${left}%</span>
-            ${reset ? `<span class="${resetClass}"><span class="um-reset-label">초기화 </span>${escapeHtml(reset)}</span>` : ''}</div>`;
+            ${reset ? `<span class="${resetClass}"><span class="um-reset-label">${t('초기화')} </span>${escapeHtml(reset)}</span>` : ''}</div>`;
       }).join('');
     }
     setInterval(() => { if (document.visibilityState === 'visible' && state.selectedKey) refreshLimits().then(renderUsage); }, 60000);
-    // 사용량 그래프를 누르면 어느 계정의 사용량인지 알려 준다 (휴대폰처럼 계정 메일 칸이 안 보이는 화면용)
+    // Tapping the usage gauge tells which account the usage belongs to (for screens such as phones where the account email is not visible)
     document.addEventListener('click', (event) => {
       const box = event.target.closest('#usageMini, .tp-usage');
       const who = box?.querySelector('.um-who');
       if (!who) return;
-      toast(who.dataset.account ? `${who.dataset.provider} 계정: ${who.dataset.account}` : `${who.dataset.provider} 계정 정보를 찾지 못했습니다`, 'info', null, 3500);
+      toast(who.dataset.account ? t('{provider} 계정: {account}', { provider: who.dataset.provider, account: who.dataset.account }) : t('{provider} 계정 정보를 찾지 못했습니다', { provider: who.dataset.provider }), 'info', null, 3500);
     });
-    // 모델 선택은 터미널에서 직접 해도 새로고침 없이 빠르게 반영되도록 활성 창에서 2초마다 확인한다.
+    // Check every 2 seconds in the active window so a model picked directly in the terminal shows up quickly without a refresh.
     setInterval(() => { if (document.visibilityState === 'visible' && state.selectedKey) refreshModel(); }, 2000);
 
     function renderHeader() {
@@ -2409,7 +2430,7 @@
       if (!w) return;
       renderModel();
       renderUsage();
-      // 창 상태(응답 필요 등)가 바뀌면 화면이 그대로여도 채팅 아래 카드를 다시 판단한다 (Codex 선택 창은 화면이 안 바뀜)
+      // When the window status changes (needs answer, …), re-evaluate the card below the chat even if the screen is the same (a Codex picker does not change the screen)
       if (lastScreen && lastScreen.pane === state.paneId) updateChatStatus(lastScreen);
       $('#termTitle').textContent = displayName(w);
       $('#promptInput').placeholder = promptPlaceholder(w);
@@ -2438,7 +2459,7 @@
       applyMode();
     });
 
-    // ── 화면 ──
+    // ── Screen ──
     function applyView() {
       screenEl.classList.remove('wrap', 'fit', 'raw');
       screenEl.classList.add(view.mode);
@@ -2471,7 +2492,7 @@
       const firstForPane = !lastScreen || lastScreen.pane !== screen.pane;
       lastScreen = screen;
       if (firstForPane) fitTmux(true);
-      // 가벼운 모드: 채팅 보기라 터미널이 숨어 있으면 그리지 않고 미뤄 둔다 (터미널로 바꿀 때 마지막 화면을 그린다)
+      // Lite mode: while the terminal is hidden behind the chat view, do not draw and defer it (the last screen is drawn when switching to the terminal)
       if (document.documentElement.hasAttribute('data-ui-lite') && scroll.classList.contains('hidden')) { screenDeferred = true; return; }
       screenDeferred = false;
       const stick = firstForPane || stickBottom || atBottom();
@@ -2479,7 +2500,7 @@
       const visibleStart = Math.max(0, lines.length - screen.height);
       const cursorLine = screen.cursor.visible && !screen.in_mode ? visibleStart + screen.cursor.y : -1;
 
-      // 화면 아래쪽의 빈 줄은 잘라낸다 (커서 줄은 유지)
+      // Trim the empty lines at the bottom of the screen (the cursor line is kept)
       let end = lines.length - 1;
       while (end > cursorLine && end >= 0 && !plainText(lines[end]).trim()) end--;
 
@@ -2497,14 +2518,14 @@
         html += `<div class="ln">${body || ' '}</div>`;
       }
       const hint = screen.alternate && agentOf(currentWindow())
-        ? '<div class="alt-hint"><i class="fas fa-circle-info"></i><span>전체 화면 모드라 tmux 에 이전 기록이 남지 않습니다.</span><button type="button" data-open-log>채팅으로 보기</button></div>'
+        ? `<div class="alt-hint"><i class="fas fa-circle-info"></i><span>${t('전체 화면 모드라 tmux 에 이전 기록이 남지 않습니다.')}</span><button type="button" data-open-log>${t('채팅으로 보기')}</button></div>`
         : '';
-      inner.innerHTML = hint + (html || '<div class="ln term-empty-note">(빈 화면)</div>');
+      inner.innerHTML = hint + (html || `<div class="ln term-empty-note">${t('(빈 화면)')}</div>`);
 
       const historyLines = lines.length - screen.height;
       const canLoadMore = historyLines >= scrollback && scrollback < 5000;
       loadMoreBtn.classList.toggle('hidden', !canLoadMore);
-      loadMoreBtn.textContent = `이전 기록 더 보기 (+1000줄)`;
+      loadMoreBtn.textContent = t('이전 기록 더 보기 (+1000줄)');
       if (canLoadMore) scroll.prepend(loadMoreBtn);
 
       if (view.mode === 'fit') refit();
@@ -2534,7 +2555,7 @@
       const target = activeScroll();
       target.scrollTop = target.scrollHeight;
       stickBottom = true;
-      if (target === logScroll) log.follow = true;   // '최신' 누르면 다시 따라간다
+      if (target === logScroll) log.follow = true;   // pressing 'Latest' follows again
       jumpBtn.classList.add('hidden');
     });
     loadMoreBtn.addEventListener('click', () => {
@@ -2547,8 +2568,8 @@
     });
     window.addEventListener('resize', () => requestAnimationFrame(refit));
 
-    // tmux 창 크기를 이 화면에 맞춘다 — 대시보드에서 만든 세션은 붙은 터미널이 없어 80x24 로 남아 작게 보이므로.
-    // 화면(터미널) 보기일 때만, 창을 열거나 · 크기가 바뀌거나 · 이 기기로 돌아왔을 때 보낸다 (마지막으로 본 기기 크기를 따른다)
+    // Fit the tmux window size to this screen — a session created from the dashboard has no attached terminal, so it stays 80x24 and looks small.
+    // Sent only in the screen (terminal) view, when a window is opened · the size changes · this device comes back (the size of the last device that looked wins)
     let sizeTimer = 0;
     let sentSize = '';
     function fitTmux(force = false) {
@@ -2578,7 +2599,7 @@
     });
     socket.on('gone', (message) => {
       if (message.pane !== state.paneId) return;
-      toast('창이 닫혔습니다.', 'info');
+      toast(t('창이 닫혔습니다.'), 'info');
       if (desktopQuery.matches) {
         state.selectedKey = null; state.paneId = null;
         $('#termView').classList.remove('open');
@@ -2588,21 +2609,21 @@
       }
     });
 
-    // 보기 설정
+    // View settings
     $('#termViewBtn').addEventListener('click', () => {
-      const modes = [['wrap', '줄바꿈', 'fa-align-left', '모바일에서 읽기 편함'], ['fit', '화면 맞춤', 'fa-expand', '가로폭에 맞춰 축소'], ['raw', '원본', 'fa-arrows-left-right', '가로 스크롤']];
-      openSheet(`${sheetHead('보기 설정', '이 기기에만 저장됩니다.')}
+      const modes = [['wrap', t('줄바꿈'), 'fa-align-left', t('모바일에서 읽기 편함')], ['fit', t('화면 맞춤'), 'fa-expand', t('가로폭에 맞춰 축소')], ['raw', t('원본'), 'fa-arrows-left-right', t('가로 스크롤')]];
+      openSheet(`${sheetHead(t('보기 설정'), t('이 기기에만 저장됩니다.'))}
         <div class="sheet-form">
-          <label>표시 방식<div class="seg">${modes.map(([id, label]) => `<button type="button" data-mode="${id}" class="${view.mode === id ? 'on' : ''}">${label}</button>`).join('')}</div></label>
+          <label>${t('표시 방식')}<div class="seg">${modes.map(([id, label]) => `<button type="button" data-mode="${id}" class="${view.mode === id ? 'on' : ''}">${label}</button>`).join('')}</div></label>
           <p data-mode-desc class="text-[11px] opacity-60 -mt-1"></p>
-          <label>글자 크기 <span data-font-label class="font-mono"></span>
-            <div class="seg"><button type="button" data-font="-1">A−</button><button type="button" data-font="0">기본</button><button type="button" data-font="1">A+</button></div></label>
+          <label>${t('글자 크기')} <span data-font-label class="font-mono"></span>
+            <div class="seg"><button type="button" data-font="-1">A−</button><button type="button" data-font="0">${t('기본')}</button><button type="button" data-font="1">A+</button></div></label>
         </div>
-        <div class="sheet-buttons"><button type="button" class="sheet-cancel" data-close>닫기</button></div>`, (body) => {
+        <div class="sheet-buttons"><button type="button" class="sheet-cancel" data-close>${t('닫기')}</button></div>`, (body) => {
         const sync = () => {
           body.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === view.mode));
           body.querySelector('[data-mode-desc]').textContent = modes.find((m) => m[0] === view.mode)[3];
-          body.querySelector('[data-font-label]').textContent = view.mode === 'fit' ? '(자동)' : `${view.font}px`;
+          body.querySelector('[data-font-label]').textContent = view.mode === 'fit' ? t('(자동)') : `${view.font}px`;
         };
         sync();
         body.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => {
@@ -2620,7 +2641,7 @@
 
     $('#termMoreBtn').addEventListener('click', () => { const w = currentWindow(); if (w) windowMenu(w); });
 
-    // ── 입력: 프롬프트 ──
+    // ── Input: prompt ──
     function autosize() {
       input.style.height = 'auto';
       input.style.height = `${Math.min(input.scrollHeight + 2, window.innerHeight * 0.38)}px`;
@@ -2634,16 +2655,16 @@
     input.addEventListener('input', () => { autosize(); saveDraft(); });
 
     function syncSubmitToggle() {
-      $('#composerHint').textContent = coarsePointer ? '줄바꿈은 키보드 Enter · 전송은 ➤' : 'Enter 전송 · Shift+Enter 줄바꿈';
+      $('#composerHint').textContent = coarsePointer ? t('줄바꿈은 키보드 Enter · 전송은 ➤') : t('Enter 전송 · Shift+Enter 줄바꿈');
     }
 
     syncSubmitToggle();
 
-    // ── 이전 프롬프트 불러오기 (셸처럼 ↑ / ↓, 휴대폰은 입력창 아래 ⌃ ⌄ 버튼) ──
+    // ── Recalling earlier prompts (↑ / ↓ like a shell; on phones the ⌃ ⌄ buttons below the input) ──
     const history = { index: -1, stash: '' };
     function recallHistory(delta) {
       const list = store.get('recent', []);
-      if (!list.length) { toast('보낸 프롬프트 기록이 없습니다.', 'info', null, 1500); return; }
+      if (!list.length) { toast(t('보낸 프롬프트 기록이 없습니다.'), 'info', null, 1500); return; }
       if (history.index === -1) history.stash = input.value;
       const next = Math.max(-1, Math.min(list.length - 1, history.index + delta));
       if (next === history.index) return;
@@ -2657,24 +2678,24 @@
     input.addEventListener('input', () => { history.index = -1; });
     input.addEventListener('keydown', (event) => {
       if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.isComposing && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
-        // 입력창이 비어 있을 때만 기록을 불러온다. 불러온 글을 그대로 둔 채면 ↑↓ 로 계속 넘기고,
-        // 직접 쓴 글(또는 불러온 글을 고친 뒤)이 있으면 ↑↓ 는 커서만 움직인다.
+        // History is recalled only when the input is empty. While the recalled text is left untouched, ↑↓ keeps browsing;
+        // when there is text typed by hand (or the recalled text was edited), ↑↓ only moves the cursor.
         const browsing = history.index !== -1;
         if (event.key === 'ArrowUp' && (browsing || !input.value)) { event.preventDefault(); recallHistory(1); return; }
         if (event.key === 'ArrowDown' && browsing) { event.preventDefault(); recallHistory(-1); return; }
       }
     });
     for (const [id, delta] of [['#histPrev', 1], ['#histNext', -1]]) {
-      $(id).addEventListener('pointerdown', (event) => event.preventDefault());  // 키보드가 내려가지 않게
+      $(id).addEventListener('pointerdown', (event) => event.preventDefault());  // so the keyboard does not close
       $(id).addEventListener('click', () => { exitDirect(); recallHistory(delta); });
     }
 
-    // ── 특수 키 줄 접기 / 펼치기 ──
+    // ── Collapsing / expanding the special-key row ──
     function applyKeyBar(collapsed) {
       $('#keyBar').classList.toggle('hidden', collapsed);
       const toggle = $('#keyBarToggle');
       toggle.setAttribute('aria-expanded', String(!collapsed));
-      toggle.innerHTML = collapsed ? '<i class="fas fa-chevron-up"></i> 키 펼치기' : '<i class="fas fa-chevron-down"></i> 키 접기';
+      toggle.innerHTML = collapsed ? `<i class="fas fa-chevron-up"></i> ${t('키 펼치기')}` : `<i class="fas fa-chevron-down"></i> ${t('키 접기')}`;
     }
     applyKeyBar(store.get('keybar-folded', true));
     $('#keyBarToggle').addEventListener('pointerdown', (event) => event.preventDefault());
@@ -2692,8 +2713,8 @@
     });
     $('#composerForm').addEventListener('submit', (event) => { event.preventDefault(); sendPrompt(); });
 
-    // 응답을 못 받아 실패로 보인 프롬프트는 서버에 이미 들어갔을 수 있다 → 같은 글을 다시 보내면 같은 cid 를 붙여
-    // 서버가 한 번만 넣게 한다 (tmux_routes._send_prompt_once)
+    // A prompt that looked failed because no reply came may already have reached the server → when the same text is sent again, attach the same cid
+    // so the server enters it only once (tmux_routes._send_prompt_once)
     const newCid = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, '0')).join('');
     let unsurePrompt = null;   // { pane, text, cid, at }
     function promptCid(pane, text) {
@@ -2716,15 +2737,15 @@
       const key = state.selectedKey;
       const list = attachList(key);
       sendBtn.disabled = true;
-      vibrate(10);   // 보내기를 누른 그 순간 (await 뒤에서는 iOS 햅틱이 안 울린다)
+      vibrate(10);   // at the very moment Send is pressed (iOS haptics do not fire after an await)
       try {
         if (list.some((item) => item.status === 'uploading')) {
-          toast('첨부 파일 업로드가 끝나면 보냅니다...', 'info', null, 1800);
+          toast(t('첨부 파일 업로드가 끝나면 보냅니다...'), 'info', null, 1800);
           await Promise.all(list.map((item) => item.promise));
           if (state.selectedKey !== key) return;
         }
         if (list.some((item) => item.status === 'error')) {
-          throw new Error('업로드에 실패한 첨부가 있습니다. ✕ 로 빼거나 다시 첨부하십시오.');
+          throw new Error(t('업로드에 실패한 첨부가 있습니다. ✕ 로 빼거나 다시 첨부하십시오.'));
         }
         const ready = list.filter((item) => item.status === 'done');
         const text = input.value;
@@ -2755,12 +2776,12 @@
       }
     }
 
-    // ── 첨부 파일 (사진·파일 선택, 붙여넣기, 드래그앤드롭) ──
-    // 파일은 서버의 업로드 폴더에 올라가고, 보낼 때 경로가 프롬프트에 붙여넣어진다.
+    // ── Attachments (photo/file picker, paste, drag and drop) ──
+    // Files are uploaded to the server's upload folder, and their paths are pasted into the prompt when it is sent.
     const attachTray = $('#attachTray');
     const fileInput = $('#fileInput');
     const dropOverlay = $('#dropOverlay');
-    const attachments = new Map(); // 창 키 → 첨부 목록
+    const attachments = new Map(); // window key → attachment list
     const MAX_ATTACH = 20;
     let attachSeq = 0;
 
@@ -2787,12 +2808,12 @@
 
     function addFiles(fileList) {
       const key = state.selectedKey;
-      if (!key) { toast('먼저 첨부할 창을 선택하십시오.', 'warn'); return; }
+      if (!key) { toast(t('먼저 첨부할 창을 선택하십시오.'), 'warn'); return; }
       exitDirect();
       const list = attachList(key);
       let added = 0;
       for (const file of fileList) {
-        if (list.length >= MAX_ATTACH) { toast(`첨부는 한 번에 ${MAX_ATTACH}개까지 가능합니다.`, 'warn'); break; }
+        if (list.length >= MAX_ATTACH) { toast(t('첨부는 한 번에 {max}개까지 가능합니다.', { max: MAX_ATTACH }), 'warn'); break; }
         const type = file.type || '';
         const ext = (type.split('/')[1] || 'bin').replace(/[^a-z0-9]/gi, '').slice(0, 8);
         const item = {
@@ -2813,7 +2834,7 @@
         kind: 'attach', name: item.name, type: item.type,
         onProgress: (ratio) => { item.progress = ratio; updateChip(item); },
       });
-      item.xhr = job;   // 빼기 누르면 job.abort()
+      item.xhr = job;   // pressing remove calls job.abort()
       return job.promise.then((data) => {
         Object.assign(item, { status: 'done', id: data.id, path: data.path, progress: 1 });
         updateChip(item);
@@ -2839,7 +2860,7 @@
         <div class="attach-chip ${item.status}" data-local="${item.local}" title="${escapeHtml(item.name)}">
           ${item.url ? `<img class="attach-thumb" src="${item.url}" alt="">` : `<span class="attach-thumb"><i class="fas ${fileIcon(item)}"></i></span>`}
           <span class="attach-meta"><span class="attach-name">${escapeHtml(item.name)}</span><span class="attach-sub">${escapeHtml(chipSub(item))}</span></span>
-          <button type="button" class="attach-remove" data-remove="${item.local}" aria-label="${escapeHtml(item.name)} 첨부 취소"><i class="fas fa-xmark"></i></button>
+          <button type="button" class="attach-remove" data-remove="${item.local}" aria-label="${t('{name} 첨부 취소', { name: escapeHtml(item.name) })}"><i class="fas fa-xmark"></i></button>
           <span class="attach-progress" style="width:${item.status === 'uploading' ? Math.round(item.progress * 100) : 0}%"></span>
         </div>`).join('');
     }
@@ -2875,8 +2896,8 @@
     $('#attachBtn').addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', () => { addFiles(Array.from(fileInput.files || [])); fileInput.value = ''; });
 
-    // 붙여넣기: 스크린샷 등 클립보드의 파일/이미지 — 채팅 입력창에 커서가 있을 때만 첨부한다
-    // (파일 탐색기 등 다른 곳에 붙여 넣은 이미지가 채팅에도 같이 들어가지 않게)
+    // Paste: files/images on the clipboard such as screenshots — attached only while the cursor is in the chat input
+    // (so an image pasted somewhere else, e.g. the file explorer, does not also end up in the chat)
     function pastedFiles(event) {
       const items = Array.from(event.clipboardData?.items || []);
       return items.filter((item) => item.kind === 'file').map((item) => item.getAsFile()).filter(Boolean);
@@ -2888,7 +2909,7 @@
       addFiles(files);
     });
 
-    // 드래그앤드롭: 터미널 영역에 놓으면 현재 창에, 목록의 창 위에 놓으면 그 창에 첨부
+    // Drag and drop: dropped on the terminal area it attaches to the current window, dropped on a window in the list to that window
     let dragDepth = 0;
     const draggingFiles = (event) => Array.from(event.dataTransfer?.types || []).includes('Files');
     function showDrop(event) {
@@ -2898,7 +2919,7 @@
       if (item) { item.classList.add('drop-target'); dropOverlay.classList.add('hidden'); return; }
       if (state.selectedKey && isTermVisible()) {
         const w = currentWindow();
-        $('#dropTarget').textContent = w ? `${displayName(w)} 창에 첨부` : '';
+        $('#dropTarget').textContent = w ? t('{name} 창에 첨부', { name: displayName(w) }) : '';
         dropOverlay.classList.remove('hidden');
       }
     }
@@ -2929,21 +2950,21 @@
       event.preventDefault();
       const item = event.target.closest?.('.win-item');
       hideDrop();
-      if (event.target.closest?.('[data-explorer]') || document.body.classList.contains('file-open')) return;  // 파일 탭 업로드는 Explorer 가 처리
+      if (event.target.closest?.('[data-explorer]') || document.body.classList.contains('file-open')) return;  // uploads in the Files tab are handled by Explorer
       const files = Array.from(event.dataTransfer.files || []);
       if (!files.length) return;
       if (item) select(item.dataset.key);
-      // 놓자마자 메모리로 복사 (Yoink 등은 끌어낸 뒤 원본을 지워서, 나중에 읽으면 '네트워크 오류' 가 난다)
+      // Copy into memory as soon as it is dropped (Yoink and the like delete the original after the drag, so reading later gives a 'network error')
       Promise.all(files.map((file) => (file.size > 512 * 1024 * 1024 ? file
         : file.arrayBuffer().then((buf) => new File([buf], file.name, { type: file.type, lastModified: file.lastModified }))
-          .catch(() => { toast(`${file.name}: 원본 파일을 읽을 수 없습니다. 끌어온 앱(Yoink 등)이 파일을 옮기거나 지웠을 수 있습니다.`, 'error'); return null; }))))
+          .catch(() => { toast(t('{name}: 원본 파일을 읽을 수 없습니다. 끌어온 앱(Yoink 등)이 파일을 옮기거나 지웠을 수 있습니다.', { name: file.name }), 'error'); return null; }))))
         .then((copies) => { const ok = copies.filter(Boolean); if (ok.length) addFiles(ok); });
     });
     window.addEventListener('blur', hideDrop);
 
-    // ── 입력: 특수 키 ──
+    // ── Input: special keys ──
     const keyBar = $('#keyBar');
-    // 누르는 순간 포커스를 뺏지 않아야 모바일 키보드가 내려가지 않는다.
+    // Focus must not be taken on press, or the mobile keyboard closes.
     keyBar.addEventListener('pointerdown', (event) => { if (event.target.closest('.key-chip')) event.preventDefault(); });
     keyBar.addEventListener('mousedown', (event) => { if (event.target.closest('.key-chip')) event.preventDefault(); });
     keyBar.addEventListener('click', async (event) => {
@@ -2957,7 +2978,7 @@
       } catch (error) { toast(error.message, 'error'); }
     });
 
-    // ── 입력: 직접 입력 모드 (키 하나하나를 그대로 터미널로) ──
+    // ── Input: direct input mode (every key goes straight to the terminal) ──
     const directBtn = $('#directBtn');
     let directQueue = Promise.resolve();
     function queueDirect(message) {
@@ -2971,7 +2992,7 @@
       directBtn.setAttribute('aria-pressed', 'true');
       resetDirect();
       direct.focus({ preventScroll: true });
-      toast('직접 입력 모드: 누르는 키가 바로 터미널로 전달됩니다.', 'info', null, 2400);
+      toast(t('직접 입력 모드: 누르는 키가 바로 터미널로 전달됩니다.'), 'info', null, 2400);
     }
     function exitDirect() {
       if (!document.body.classList.contains('direct-mode')) return;
@@ -3010,9 +3031,9 @@
         queueDirect({ t: 'keys', keys: [key] });
       }
     });
-    // 모바일 키보드는 keydown 대신 input/composition 이벤트만 주는 경우가 많아서, 입력 받개에
-    // 보이지 않는 문자(SENTINEL)를 채워 두고 값의 변화로 입력을 알아낸다. 비어 있으면 Android 에서
-    // 백스페이스 이벤트가 오지 않기 때문이다.
+    // Mobile keyboards often give only input/composition events instead of keydown, so the input catcher is
+    // filled with invisible characters (SENTINEL) and input is detected from the change of its value. When it is
+    // empty, Android does not send backspace events.
     const SENTINEL = '\u200b\u200b';
     const banner = $('#directBanner');
     const bannerIdle = banner.innerHTML;
@@ -3037,22 +3058,22 @@
     direct.addEventListener('focus', resetDirect);
     direct.addEventListener('input', (event) => { if (!event.isComposing) flushDirect(); });
     direct.addEventListener('compositionupdate', (event) => {
-      banner.innerHTML = `<i class="fas fa-keyboard"></i> 입력 중: <span class="font-mono">${escapeHtml(event.data || '')}</span>`;
+      banner.innerHTML = `<i class="fas fa-keyboard"></i> ${t('입력 중: {text}', { text: `<span class="font-mono">${escapeHtml(event.data || '')}</span>` })}`;
     });
     direct.addEventListener('compositionend', () => {
       banner.innerHTML = bannerIdle;
       setTimeout(flushDirect, 0);
     });
 
-    // ── 채팅 (에이전트 세션 로그) ──
-    // Claude Code 는 alternate screen 이라 tmux 스크롤백이 없다. 세션 로그를 읽어 전체 대화를 보여준다.
+    // ── Chat (agent session log) ──
+    // Claude Code uses the alternate screen, so there is no tmux scrollback. The session log is read to show the whole conversation.
     const logScroll = $('#logScroll');
     const logList = $('#logList');
     const logOlder = $('#logOlder');
     const LOG_PAGE = 80;
-    // follow: 최신 내용을 따라 맨 아래에 붙어 있는가. 사용자가 일부러 위로 올릴 때만 끄고, 맨 아래로 돌아오면 다시 켠다.
+    // follow: whether the view sticks to the bottom following the latest content. Turned off only when the user scrolls up on purpose, and on again when they return to the bottom.
     const log = { pane: null, start: 0, total: 0, rendered: new Map(), timer: null, loading: false, available: true, follow: true };
-    // 에이전트 창은 채팅이 기본 (예전 저장값 term-mode 는 무시하고 새 키 사용)
+    // Agent windows default to chat (the old stored value term-mode is ignored; a new key is used)
     let termMode = store.get('term-mode-v2', 'log');
 
     function agentOf(w) { return w?.agent || null; }
@@ -3071,7 +3092,7 @@
       $('#chatUsageBtn').classList.toggle('hidden', mode !== 'log');
       if (mode !== 'log') { hideChatSearch(); window.UnivDashChatUsage?.close(); }
       window.UnivDashChatUsage?.modeChanged();
-      // 채팅 모드에서는 터미널 직접 입력(⌨) 버튼을 숨긴다
+      // In chat mode the terminal direct-input (⌨) button is hidden
       if (mode === 'log') exitDirect();
       $('#directBtn').classList.toggle('hidden', mode === 'log');
       jumpBtn.classList.add('hidden');
@@ -3080,18 +3101,18 @@
       if (mode === 'log') {
         if (log.pane !== state.paneId) loadLatestLog();
         else { pollLog(); subscribeLog(); }
-        // 실시간은 WebSocket 으로 밀려온다. 연결이 끊겼을 때를 위한 느린 확인만 남긴다.
+        // Live updates are pushed over the WebSocket. Only a slow check remains for when the connection is down.
         log.timer = setInterval(() => { if (document.visibilityState === 'visible' && !socket.open) (log.available ? pollLog() : loadLatestLog()); }, 6000);
       } else {
         socket.send({ t: 'logunsub' });
         fitTmux(true);
-        // 가벼운 모드에서 채팅을 보는 동안 미뤄 둔 터미널 화면을 지금 그린다
+        // Draw now the terminal screen that was deferred while the chat was shown in lite mode
         if (screenDeferred && lastScreen && lastScreen.pane === state.paneId) { screenDeferred = false; renderScreen(lastScreen); }
       }
     }
-    // 서버가 세션 로그 파일이 바뀌는 즉시(0.4초 주기) 새 항목을 보내 준다
+    // The server sends new items as soon as the session log file changes (0.4 s cycle)
     function subscribeLog() {
-      // 로그를 아직 못 찾은 에이전트 창(새 세션 · 첫 프롬프트 전)도 구독한다 → 로그가 생기면 서버가 바로 알려 준다
+      // Agent windows whose log has not been found yet (new session · before the first prompt) subscribe too → the server tells us right away when the log appears
       if (state.paneId && log.pane === state.paneId && (log.available || agentOf(currentWindow()))) socket.send({ t: 'logsub', pane: state.paneId, since: log.total });
     }
     function setMode(mode) {
@@ -3105,15 +3126,15 @@
       const date = new Date(ts);
       if (Number.isNaN(date.getTime())) return '';
       const today = new Date().toDateString() === date.toDateString();
-      return date.toLocaleString('ko-KR', today ? { hour: '2-digit', minute: '2-digit' } : { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      return date.toLocaleString(t.locale, today ? { hour: '2-digit', minute: '2-digit' } : { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     }
-    // 답변 속 파일 · 폴더 경로 → 누르면 여는 링크. 절대경로(/… ~/…), ./ ../ 로 시작하는 경로,
-    // 확장자가 있는 파일 경로(app/static/app.js, …:123, …#L12)만 — "and/or" · "1/2" · 웹 주소는 건드리지 않는다.
-    // 모두 escapeHtml 을 거친 글자 위에서 동작한다 (경로 속 & " 는 &amp; &quot; 로 들어온다).
+    // File · folder paths in an answer → links that open on click. Only absolute paths (/… ~/…), paths starting with ./ ../,
+    // and file paths with an extension (app/static/app.js, …:123, …#L12) — "and/or" · "1/2" · web addresses are left alone.
+    // Everything works on text that already went through escapeHtml (& " inside a path arrive as &amp; &quot;).
     const PATH_CHAR = String.raw`(?:[\p{L}\p{N}\p{M}_.@+\-]|&amp;)`;
     const LINE_SUFFIX = String.raw`(?::\d+(?:[:-]\d+)?|#L\d+(?:-L?\d+)?)`;
     const PATH_RE = new RegExp(String.raw`(?<![\p{L}\p{N}_/.:~@-])((?:~|\.{1,2})?(?:\/${PATH_CHAR}+)+\/?|${PATH_CHAR}+(?:\/${PATH_CHAR}+)+\/?)(${LINE_SUFFIX})?`, 'gu');
-    // 경로 바로 뒤에 붙은 조사 ("app.js에서", "/home/yojun/univDash에") 는 링크에서 뺀다
+    // A Korean particle attached right after a path ("app.js에서", "/home/yojun/univDash에") is left out of the link
     const FILE_THEN_HANGUL = /^(.*\.[A-Za-z0-9]{1,8})(\p{Script=Hangul}+)$/u;
     const DIR_THEN_PARTICLE = /^(.*[A-Za-z0-9_)\]-])(에서는|에서|에는|에도|으로|에|의|을|를|은|는|이|가|로|와|과|도|만|까지|부터)$/;
     const unescapeHtml = (html) => html.replace(/&(amp|lt|gt|quot|#39);/g, (m, name) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" })[name]);
@@ -3123,38 +3144,38 @@
     }
     function pathAnchor(path, suffix, label) {
       const lineNo = lineOf(suffix);
-      return `<a class="path-link" role="link" tabindex="0" data-open-path="${path}"${lineNo ? ` data-line="${lineNo}"` : ''} title="눌러서 열기">${label}</a>`;
+      return `<a class="path-link" role="link" tabindex="0" data-open-path="${path}"${lineNo ? ` data-line="${lineNo}"` : ''} title="${t('눌러서 열기')}">${label}</a>`;
     }
-    // 경로처럼 보이나: 절대 · ~ · ./ 이거나, 마지막 조각에 확장자가 있거나, / 로 끝나는 폴더
+    // Does it look like a path: absolute · ~ · ./, or the last segment has an extension, or a folder ending in /
     function looksLikePath(path) {
       if (!path.includes('/') || /^\d+(\/\d+)+$/.test(path)) return false;
       if (/^(~|\/|\.{1,2}\/)/.test(path)) return true;
       const last = path.replace(/\/$/, '').split('/').pop();
       return /\.[A-Za-z0-9]{1,8}$/.test(last) || path.endsWith('/');
     }
-    // 링크 주소 → { path, suffix } (file:// · %20 같은 인코딩 · <…> 감싸기 정리). escape 된 글자로 받아 escape 된 글자로 돌려준다.
+    // Link target → { path, suffix } (cleans up file:// · encodings such as %20 · <…> wrapping). Takes escaped text and returns escaped text.
     function splitTarget(target) {
       let raw = unescapeHtml(target).trim().replace(/^file:\/\//i, '');
-      if (/%[0-9A-Fa-f]{2}/.test(raw)) { try { raw = decodeURI(raw); } catch (e) { /* 그대로 */ } }
+      if (/%[0-9A-Fa-f]{2}/.test(raw)) { try { raw = decodeURI(raw); } catch (e) { /* keep as is */ } }
       const m = raw.match(new RegExp(`^(.*?)(${LINE_SUFFIX})?$`, 'u'));
       return { path: escapeHtml(m[1]), suffix: m[2] || '' };
     }
-    // 마크다운 링크 [이름](주소) · [이름](<공백 있는 주소>): 웹 주소는 새 탭, 파일 경로는 여는 링크
+    // Markdown links [name](target) · [name](<target with spaces>): web addresses open in a new tab, file paths become open links
     const MD_LINK = /\[([^\[\]\n]+)\]\((?:&lt;([^\n]+?)&gt;|((?:[^\s()]|\([^\s()]*\))+))\)/g;
     function mdLinks(html) {
       return html.replace(MD_LINK, (whole, label, angled, plain) => {
         const target = angled || plain;
         if (/^https?:\/\//i.test(unescapeHtml(target))) return `<a class="md-link" href="${target}" target="_blank" rel="noopener noreferrer">${label}</a>`;
-        if (/^[a-z][a-z0-9+.-]*:/i.test(target) && !/^file:/i.test(target)) return whole;  // mailto: 등 다른 주소는 그대로
+        if (/^[a-z][a-z0-9+.-]*:/i.test(target) && !/^file:/i.test(target)) return whole;  // other schemes such as mailto: are left as they are
         const { path, suffix } = splitTarget(target);
         if (!path || /^#/.test(path)) return whole;
-        // 수식의 [x!y!](1/4) 처럼 경로가 아닌 괄호는 링크로 바꾸지 않는다
+        // Brackets that are not a path, like [x!y!](1/4) in a formula, are not turned into links
         const bare = unescapeHtml(path);
         if (!looksLikePath(bare) && !/^[^/\s]+\.[A-Za-z0-9]{1,8}$/.test(bare)) return whole;
         return pathAnchor(path, suffix, label);
       });
     }
-    // `코드` 안이 통째로 경로면(공백이 있어도) 그 전체를 링크로
+    // When the whole content of `code` is a path (even with spaces), all of it becomes the link
     function codePath(content) {
       const m = content.match(new RegExp(`^(.*?)(${LINE_SUFFIX})?$`, 'u'));
       const path = m[1];
@@ -3162,7 +3183,7 @@
       return pathAnchor(path, m[2] || '', content);
     }
     function linkPaths(html) {
-      // 태그 안(속성)과 이미 링크인 부분(<a>…</a>)은 건드리지 않고 글자 부분에만
+      // Only the text parts: the inside of tags (attributes) and parts that are already links (<a>…</a>) are left alone
       let inLink = 0;
       return html.split(/(<[^>]+>)/).map((part) => {
         if (part.startsWith('<')) {
@@ -3175,7 +3196,7 @@
           let path = raw;
           let tail = '';
           while (/[.,;:!?)]$/.test(path)) { tail = path.slice(-1) + tail; path = path.slice(0, -1); }
-          if (tail) suffix = '';  // "app.js.:12" 같은 모양은 줄 번호로 보지 않는다
+          if (tail) suffix = '';  // a shape like "app.js.:12" is not treated as a line number
           const segments = path.split('/');
           const last = segments.pop();
           const cut = last.match(FILE_THEN_HANGUL) || (/^(~|\/)/.test(path) && !suffix ? last.match(DIR_THEN_PARTICLE) : null);
@@ -3185,12 +3206,12 @@
         });
       }).join('');
     }
-    // 에이전트 답변: 간단한 마크다운 + 수식($…$ · $$…$$ · \(…\) · \[…\] → KaTeX, common.js) + 경로 링크
+    // Agent answers: light markdown + math ($…$ · $$…$$ · \(…\) · \[…\] → KaTeX, common.js) + path links
     function mdLite(text) {
       return String(text).split('```').map((part, index) => {
         if (index % 2) return `<pre class="md-code">${escapeHtml(part.replace(/^[\w+.-]*\n/, ''))}</pre>`;
         const { text: plain, math } = window.UnivDash.math.extract(part);
-        // 블록 수식 앞뒤 줄바꿈은 수식 상자가 이미 줄을 차지하므로 하나씩 없앤다 (빈 줄이 생기지 않게)
+        // One line break before and after block math is removed because the math box already takes its own line (so no empty line appears)
         const tidy = plain.replace(/\n?(KTXM(\d+)Z)\n?/g, (m, token, i) => (math[Number(i)]?.display ? token : m));
         return window.UnivDash.math.render(linkPaths(mdTables(tidy)), math);
       }).join('');
@@ -3199,7 +3220,7 @@
       .replace(/`([^`\n]+)`/g, (m, code) => `<code>${codePath(code) || code}</code>`))
       .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
       .replace(/^(#{1,6}) (.+)$/gm, '<span class="md-h">$2</span>');
-    // GFM 표: 머리 줄 + 구분 줄(|---|:--:|) + 본문 줄들. 나머지는 줄 단위 그대로 (pre-wrap)
+    // GFM tables: header row + separator row (|---|:--:|) + body rows. Everything else stays line by line (pre-wrap)
     const TABLE_SEP = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
     function tableCells(line) {
       let row = line.trim();
@@ -3222,7 +3243,7 @@
             const rows = [];
             while (j < lines.length && lines[j].includes('|') && lines[j].trim()) rows.push(tableCells(lines[j++]));
             const cell = (tag, value, k) => `<${tag}${aligns[k] ? ` style="text-align:${aligns[k]}"` : ''}>${mdInline(value || '')}</${tag}>`;
-            // 표 앞뒤 빈 줄은 표 여백이 대신한다
+            // The table's own margin stands in for the empty lines before and after it
             while (buf.length && !buf[buf.length - 1].trim()) buf.pop();
             flush();
             out.push(`<div class="md-table"><table><thead><tr>${head.map((v, k) => cell('th', v, k)).join('')}</tr></thead><tbody>${
@@ -3235,33 +3256,34 @@
         buf.push(lines[i]);
       }
       flush();
-      // 표 블록 바로 앞뒤 줄바꿈은 블록이 줄을 차지하므로 넣지 않는다
+      // No line break right before or after a table block, because the block takes its own line
       return out.reduce((acc, piece) => (acc && !acc.endsWith('</div>') && !piece.startsWith('<div class="md-table">') ? `${acc}\n${piece}` : acc + piece), '');
     }
     const TOOL_ICONS = { run_command: 'fa-terminal', command_status: 'fa-terminal', send_command_input: 'fa-terminal', read_file: 'fa-file-lines', view_file: 'fa-file-lines', write_file: 'fa-file-pen', write_to_file: 'fa-file-pen', edit_file: 'fa-pen', replace_file_content: 'fa-pen', multi_replace_file_content: 'fa-pen', grep_search: 'fa-magnifying-glass', codebase_search: 'fa-magnifying-glass', find_by_name: 'fa-folder-open', list_dir: 'fa-folder-open', search_web: 'fa-globe', read_url_content: 'fa-globe', invoke_subagent: 'fa-robot', browser_subagent: 'fa-robot', Bash: 'fa-terminal', exec_command: 'fa-terminal', shell: 'fa-terminal', Read: 'fa-file-lines', Edit: 'fa-pen', Write: 'fa-file-pen', MultiEdit: 'fa-pen', apply_patch: 'fa-pen', Grep: 'fa-magnifying-glass', Glob: 'fa-folder-open', WebFetch: 'fa-globe', WebSearch: 'fa-globe', Agent: 'fa-robot', Task: 'fa-robot', TodoWrite: 'fa-list-check', spawn_agent: 'fa-robot', SendMessage: 'fa-robot', send_message: 'fa-robot', followup_task: 'fa-robot', list_agents: 'fa-robot' };
-    // 서브에이전트 관련 도구는 이름 대신 뜻으로 보인다
-    const TOOL_LABELS = { Agent: '서브에이전트', Task: '서브에이전트', spawn_agent: '서브에이전트', SendMessage: '추가 지시', send_message: '서브에이전트에 메시지', followup_task: '추가 지시', list_agents: '서브에이전트 목록' };
+    // Subagent-related tools are shown by what they mean instead of by name
+    const TOOL_LABELS = { Agent: t('서브에이전트'), Task: t('서브에이전트'), spawn_agent: t('서브에이전트'), SendMessage: t('추가 지시'), send_message: t('서브에이전트에 메시지'), followup_task: t('추가 지시'), list_agents: t('서브에이전트 목록') };
     const SUB_FAILED = new Set(['failed', 'error', 'killed', 'cancelled']);
     function logItemHtml(item) {
       const agentName = AGENT_NAMES[log.agent] || 'Agent';
       if (item.kind === 'user') {
-        // 첨부한 그림 (서버가 대화 기록에서 꺼내 둔 캐시 · 이름은 내용 해시라 그대로 오래 캐시된다)
+        // Attached images (a cache the server pulled out of the transcript · the name is a content hash, so it stays cached for a long time as is)
         const images = (item.images || []).filter((name) => /^[0-9a-f]{32}\.(png|jpg|gif|webp)$/.test(name))
-          .map((name) => `<a class="msg-img" href="/api/transcript/image/${name}" target="_blank" rel="noopener" title="원본 크기로 보기"><img src="/api/transcript/image/${name}" alt="첨부한 그림" loading="lazy" decoding="async"></a>`).join('');
-        return `<div class="msg msg-user"><div class="msg-meta"><button type="button" class="copy-btn" data-copy="${item.id}" title="프롬프트 복사" aria-label="프롬프트 복사"><i class="far fa-copy"></i></button>나 · ${escapeHtml(logTime(item.ts))}</div>${images ? `<div class="msg-imgs">${images}</div>` : ''}${item.text ? `<div class="msg-body">${escapeHtml(item.text)}</div>` : ''}</div>`;
+          .map((name) => `<a class="msg-img" href="/api/transcript/image/${name}" target="_blank" rel="noopener" title="${t('원본 크기로 보기')}"><img src="/api/transcript/image/${name}" alt="${t('첨부한 그림')}" loading="lazy" decoding="async"></a>`).join('');
+        return `<div class="msg msg-user"><div class="msg-meta"><button type="button" class="copy-btn" data-copy="${item.id}" title="${t('프롬프트 복사')}" aria-label="${t('프롬프트 복사')}"><i class="far fa-copy"></i></button>${t('나 · {time}', { time: escapeHtml(logTime(item.ts)) })}</div>${images ? `<div class="msg-imgs">${images}</div>` : ''}${item.text ? `<div class="msg-body">${escapeHtml(item.text)}</div>` : ''}</div>`;
       }
       if (item.kind === 'assistant') {
-        return `<div class="msg msg-ai"><div class="msg-meta">${agentName} · ${escapeHtml(logTime(item.ts))}<button type="button" class="copy-btn" data-copy="${item.id}" title="답변 복사" aria-label="답변 복사"><i class="far fa-copy"></i></button></div><div class="msg-body">${mdLite(item.text)}</div></div>`;
+        return `<div class="msg msg-ai"><div class="msg-meta">${agentName} · ${escapeHtml(logTime(item.ts))}<button type="button" class="copy-btn" data-copy="${item.id}" title="${t('답변 복사')}" aria-label="${t('답변 복사')}"><i class="far fa-copy"></i></button></div><div class="msg-body">${mdLite(item.text)}</div></div>`;
       }
-      if (item.kind === 'system') return `<div class="msg-system">${escapeHtml(item.text)}</div>`;
+      // System lines come from the server in Korean; the known ones (compaction, interrupted) have translations.
+      if (item.kind === 'system') return `<div class="msg-system">${escapeHtml(t(item.text || ''))}</div>`;
       if (item.kind === 'subagent') {
-        // 서브에이전트의 보고 (완료 · 중간 메시지): 한 줄 미리보기, 누르면 전체
+        // A subagent's report (finished · interim message): one-line preview, the whole text on click
         const failed = SUB_FAILED.has(item.status);
-        const state = item.status === 'message' ? '메시지' : failed ? '실패' : '완료';
+        const state = item.status === 'message' ? t('메시지') : failed ? t('실패') : t('완료');
         const preview = String(item.text || '').replace(/\s+/g, ' ').trim().slice(0, 160);
         return `<details class="msg-tool msg-sub ${failed ? 'error' : ''}"><summary><i class="fas fa-robot text-[11px]"></i>
-          <span class="tool-name">${escapeHtml(item.name || '서브에이전트')}</span><span class="sub-badge">${state}</span><span class="tool-sum">${escapeHtml(preview)}</span><span class="sub-time">${escapeHtml(logTime(item.ts))}</span></summary>
-          <div class="msg-body sub-body">${item.text ? mdLite(item.text) : '(내용 없음)'}<button type="button" class="copy-btn" data-copy="${item.id}" aria-label="복사"><i class="far fa-copy"></i> 복사</button></div></details>`;
+          <span class="tool-name">${escapeHtml(item.name || t('서브에이전트'))}</span><span class="sub-badge">${state}</span><span class="tool-sum">${escapeHtml(preview)}</span><span class="sub-time">${escapeHtml(logTime(item.ts))}</span></summary>
+          <div class="msg-body sub-body">${item.text ? mdLite(item.text) : t('(내용 없음)')}<button type="button" class="copy-btn" data-copy="${item.id}" aria-label="${t('복사')}"><i class="far fa-copy"></i> ${t('복사')}</button></div></details>`;
       }
       if (Array.isArray(item.diffs) && item.diffs.length) return toolDiffHtml(item);
       const pending = item.output === null || item.output === undefined;
@@ -3269,19 +3291,19 @@
       const sub = item.agent ? ` data-sub-agent="${escapeHtml(item.agent)}"` : '';
       const auto = item.agent ? '' : ' auto-open';
       return `<details class="msg-tool${auto} ${item.error ? 'error' : ''}" data-item="${item.id}"${sub}${item.agent ? '' : ' open'}><summary><i class="fas ${TOOL_ICONS[item.name] || 'fa-wrench'} text-slate-500 text-[11px]"></i>
-          <span class="tool-name" title="${escapeHtml(item.name)}">${escapeHtml(TOOL_LABELS[item.name] || item.name)}</span>${item.running ? '<span class="sub-badge run">작업 중</span>' : ''}<span class="tool-sum">${escapeHtml(item.summary || '')}</span><span class="tool-state">${stateIcon}</span></summary>
+          <span class="tool-name" title="${escapeHtml(item.name)}">${escapeHtml(TOOL_LABELS[item.name] || item.name)}</span>${item.running ? `<span class="sub-badge run">${t('작업 중')}</span>` : ''}<span class="tool-sum">${escapeHtml(item.summary || '')}</span><span class="tool-state">${stateIcon}</span></summary>
           ${item.agent ? '<div class="sub-live"></div>' : ''}${pending ? '' : foldedHtml(toolOutputLines(item.output), OUTPUT_FOLD, (shown, rest) => `<pre>${shown.join('\n')}${rest.length ? `<template data-fold>\n${rest.join('\n')}</template>` : ''}</pre>`)}</details>`;
     }
-    // 긴 출력 · diff 는 앞부분만 그리고, 나머지는 <template>(그리지도 배치하지도 않음)에 두었다가 '더 보기'를 누르면 붙인다.
-    // 내용은 하나도 버리지 않는다. 안쪽 세로 스크롤을 없애 휠이 채팅 스크롤을 빼앗지 않게 한다.
+    // Long output · diffs draw only the first part; the rest sits in a <template> (neither rendered nor laid out) and is attached when 'show more' is pressed.
+    // No content is thrown away. The inner vertical scroll is removed so the wheel does not steal the chat scroll.
     const OUTPUT_FOLD = 24;
     const DIFF_FOLD = 60;
     function foldedHtml(lines, limit, wrap) {
-      // 조금만 넘치면(접어도 몇 줄 안 줄면) 그냥 다 보인다
+      // When it overflows only a little (folding would save just a few lines), everything is shown
       const cut = lines.length > limit + 8 ? limit : lines.length;
       const shown = lines.slice(0, cut);
       const rest = lines.slice(cut);
-      return wrap(shown, rest) + (rest.length ? `<button type="button" class="fold-more" data-fold-more><i class="fas fa-angles-down"></i> 나머지 ${rest.length}줄 더 보기</button>` : '');
+      return wrap(shown, rest) + (rest.length ? `<button type="button" class="fold-more" data-fold-more><i class="fas fa-angles-down"></i> ${t('나머지 {count}줄 더 보기', { count: rest.length })}</button>` : '');
     }
     function unfold(button) {
       const box = button.previousElementSibling;
@@ -3294,9 +3316,9 @@
       const button = event.target.closest?.('[data-fold-more]');
       if (button) { event.preventDefault(); unfold(button); }
     });
-    // 채팅 휠 나누기: 카드(코드 · diff · 표)는 가로로 스크롤되지만, 세로 위주의 휠 · 트랙패드 제스처는 카드가 아니라
-    // 채팅 전체를 스크롤한다. 가로 위주(옆으로 밀기 · Shift+휠)일 때만 카드가 움직인다.
-    // 카드 위에서 온 휠만 막고(preventDefault) 나머지는 브라우저 기본 스크롤 그대로 → 평소 스크롤은 부드러운 그대로.
+    // Splitting the chat wheel: cards (code · diff · tables) scroll horizontally, but a mostly vertical wheel · trackpad gesture scrolls
+    // the whole chat, not the card. The card moves only when the gesture is mostly horizontal (sideways swipe · Shift+wheel).
+    // Only wheel events from over a card are blocked (preventDefault); everything else keeps the browser's default scroll → normal scrolling stays smooth.
     const SCROLLS = /(auto|scroll)/;
     function innerScroller(target, chat) {
       for (let el = target instanceof Element ? target : target?.parentElement; el && el !== chat; el = el.parentElement) {
@@ -3308,13 +3330,13 @@
     }
     function routeChatWheel(chat) {
       chat.addEventListener('wheel', (event) => {
-        if (event.ctrlKey || event.defaultPrevented) return;   // 핀치 확대
+        if (event.ctrlKey || event.defaultPrevented) return;   // pinch zoom
         const inner = innerScroller(event.target, chat);
         if (!inner) return;
         const dx = event.deltaX;
         const dy = event.shiftKey && !dx ? 0 : event.deltaY;
-        if (Math.abs(dx) > Math.abs(dy) || (event.shiftKey && !event.deltaX)) return;   // 가로 위주 → 카드
-        // 세로로 스크롤되는 칸(서브에이전트 실시간 기록)은 끝에 닿기 전까지 그 칸이 스크롤
+        if (Math.abs(dx) > Math.abs(dy) || (event.shiftKey && !event.deltaX)) return;   // mostly horizontal → the card
+        // A box that scrolls vertically (the subagent live transcript) scrolls itself until it reaches its end
         const { el, style } = inner;
         if (SCROLLS.test(style.overflowY) && el.scrollHeight > el.clientHeight + 1) {
           if ((dy > 0 && el.scrollTop + el.clientHeight < el.scrollHeight - 1) || (dy < 0 && el.scrollTop > 0)) return;
@@ -3326,10 +3348,10 @@
     }
     window.UnivDashRouteChatWheel = routeChatWheel;
     routeChatWheel(logScroll);
-    // 도구 출력: git diff 처럼 diff 모양이면 터미널처럼 줄마다 색 (그 밖에는 그대로). 줄 단위 HTML 목록.
+    // Tool output: when it has the shape of a diff, like git diff, each line is coloured as in a terminal (otherwise left as is). A list of HTML lines.
     const DIFF_OUTPUT = /^(?:diff --git |@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@|--- (?:a\/|\/dev\/null))/m;
     function toolOutputLines(output) {
-      const text = output || '(출력 없음)';
+      const text = output || t('(출력 없음)');
       if (!DIFF_OUTPUT.test(text)) return text.split('\n').map((line) => escapeHtml(line));
       let lang = '';
       return text.split('\n').map((line) => {
@@ -3342,7 +3364,7 @@
         return escapeHtml(line);
       });
     }
-    // diff 줄 강조: 파일 확장자로 언어를 골라 highlight.js 로 색칠 (터미널의 Claude Code 처럼)
+    // Diff line highlighting: the language is picked from the file extension and coloured with highlight.js (like Claude Code in the terminal)
     const DIFF_LANG_ALIAS = { mjs: 'javascript', cjs: 'javascript', jsx: 'javascript', tsx: 'typescript', vue: 'xml', svelte: 'xml', jinja: 'xml', j2: 'xml', htm: 'xml', zsh: 'bash', env: 'bash', toml: 'ini', cfg: 'ini', conf: 'nginx', jsonl: 'json' };
     function diffLang(file) {
       const name = String(file || '').split(/[\\/]/).pop().toLowerCase();
@@ -3359,7 +3381,7 @@
       }
       return escapeHtml(text);
     }
-    // 바뀐 부분(단어) 강조: 붙어 있는 삭제 줄 묶음과 추가 줄 묶음을 차례로 짝지어 앞뒤 공통 부분을 뺀 가운데를 표시
+    // Highlighting the changed part (words): adjacent runs of deleted and added lines are paired in order, and the middle left after removing the common prefix and suffix is marked
     function diffWordRanges(lines) {
       const ranges = new Map();
       for (let i = 0; i < lines.length;) {
@@ -3377,7 +3399,7 @@
           let suf = 0;
           while (suf < a.length - pre && suf < b.length - pre && a[a.length - 1 - suf] === b[b.length - 1 - suf]) suf += 1;
           const changed = Math.max(a.length - pre - suf, b.length - pre - suf);
-          // 거의 다 바뀐 줄은 줄 전체 색만 (단어 강조가 오히려 어지럽다)
+          // Lines that changed almost entirely get only the whole-line colour (word highlighting would just be noisy)
           if (!pre && !suf) continue;
           if (changed > Math.max(a.length, b.length) * 0.7) continue;
           ranges.set(i + p, [pre, a.length - suf]);
@@ -3392,14 +3414,18 @@
       const [from, to] = range;
       return diffHighlight(text.slice(0, from), lang) + `<span class="df-word">${diffHighlight(text.slice(from, to), lang)}</span>` + diffHighlight(text.slice(to), lang);
     }
-    // 코드 변경 (Edit · Write · apply_patch): 터미널처럼 바뀐 줄을 펼쳐서 (줄 번호 · 빨강 삭제 · 초록 추가)
+    // Code changes (Edit · Write · apply_patch): the changed lines laid out as in a terminal (line numbers · red deletions · green additions)
     function toolDiffHtml(item) {
       const pending = item.output === null || item.output === undefined;
       const stateIcon = pending ? '<i class="fas fa-circle-notch fa-spin text-slate-400"></i>' : item.error ? '<i class="fas fa-xmark"></i>' : '<i class="fas fa-check"></i>';
       const add = item.diffs.reduce((n, d) => n + (d.add || 0), 0);
       const del = item.diffs.reduce((n, d) => n + (d.del || 0), 0);
       const files = item.diffs.map((d) => d.file.split('/').pop()).filter(Boolean);
-      const verb = item.diffs.every((d) => d.op === 'add') ? '만듦' : item.diffs.every((d) => d.op === 'delete') ? '지움' : '수정';
+      const sumValues = { files: escapeHtml(files.slice(0, 3).join(', ')), more: files.length - 3 };
+      const many = files.length > 3;
+      const summary = item.diffs.every((d) => d.op === 'add') ? (many ? t('{files} 외 {more} 만듦', sumValues) : t('{files} 만듦', sumValues))
+        : item.diffs.every((d) => d.op === 'delete') ? (many ? t('{files} 외 {more} 지움', sumValues) : t('{files} 지움', sumValues))
+          : (many ? t('{files} 외 {more} 수정', sumValues) : t('{files} 수정', sumValues));
       const body = item.diffs.map((d) => {
         const lang = diffLang(d.file);
         const rows = d.hunks.flatMap((h, index) => {
@@ -3416,19 +3442,19 @@
             return `<div class="df-row df-${kind}"><span class="df-no">${shownNo ?? ''}</span><span class="df-sign">${kind === 'ctx' ? '' : sign}</span><span class="df-text">${diffCodeHtml(line.slice(1), lang, words.get(i)) || ' '}</span></div>`;
           }));
         });
-        const opLabel = { add: '새 파일', delete: '삭제', update: '' }[d.op] || '';
+        const opLabel = { add: t('새 파일'), delete: t('삭제'), update: '' }[d.op] || '';
         const bodyHtml = d.op === 'delete' && !d.hunks.length ? ''
           : foldedHtml(rows, DIFF_FOLD, (shown, rest) => `<div class="df-body">${shown.join('')}${rest.length ? `<template data-fold>${rest.join('')}</template>` : ''}</div>`);
         return `<div class="df-file"><div class="df-head"><span class="df-path" title="${escapeHtml(d.file)}">${escapeHtml(d.file)}</span>${opLabel ? `<span class="df-op">${opLabel}</span>` : ''}<span class="df-stat"><b class="a">+${d.add || 0}</b> <b class="d">−${d.del || 0}</b></span></div>
-          ${bodyHtml}${d.cut ? '<div class="df-cut">… 길어서 일부만 표시됩니다 (터미널 탭에서 전체)</div>' : ''}</div>`;
+          ${bodyHtml}${d.cut ? `<div class="df-cut">${t('… 길어서 일부만 표시됩니다 (터미널 탭에서 전체)')}</div>` : ''}</div>`;
       }).join('');
       const failed = item.error && item.output ? `<pre>${escapeHtml(item.output)}</pre>` : '';
       return `<details class="msg-tool msg-diff auto-open ${item.error ? 'error' : ''}" data-item="${item.id}" open><summary><i class="fas fa-pen text-slate-500 text-[11px]"></i>
           <span class="tool-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name === 'exec' ? 'apply_patch' : item.name)}</span>
-          <span class="tool-sum">${escapeHtml(files.slice(0, 3).join(', '))}${files.length > 3 ? ` 외 ${files.length - 3}` : ''} ${verb}</span>
+          <span class="tool-sum">${summary}</span>
           <span class="df-stat"><b class="a">+${add}</b> <b class="d">−${del}</b></span><span class="tool-state">${stateIcon}</span></summary>${failed}${body}</details>`;
     }
-    // 서브에이전트 항목을 펼치면: 그 서브에이전트의 대화(작업 내용)를 보여 주고, 펼쳐 둔 동안 계속 새로 고친다
+    // When a subagent item is expanded: show that subagent's conversation (its work) and keep refreshing while it stays open
     const SUB_POLL_MS = 1500;
     async function showSubagent(details) {
       const box = details.querySelector(':scope > .sub-live');
@@ -3442,9 +3468,9 @@
         const sig = `${data.total}:${JSON.stringify(data.items.at(-1) ?? null)}`;
         if (box.dataset.sig !== sig) {
           box.dataset.sig = sig;
-          box.innerHTML = !data.available ? '<div class="sub-empty">서브에이전트 기록을 찾지 못했습니다.</div>'
-            : `${data.start > 0 ? `<div class="sub-empty">앞의 ${data.start}개 생략 · 최근 작업만 표시됩니다</div>` : ''}${data.items.map((item) => logItemHtml(item)).join('') || '<div class="sub-empty">아직 기록이 없습니다.</div>'}`;
-          box.querySelectorAll('.copy-btn').forEach((b) => b.remove());   // 복사 버튼은 본 대화 항목 기준이라 뺀다
+          box.innerHTML = !data.available ? `<div class="sub-empty">${t('서브에이전트 기록을 찾지 못했습니다.')}</div>`
+            : `${data.start > 0 ? `<div class="sub-empty">${t('앞의 {count}개 생략 · 최근 작업만 표시됩니다', { count: data.start })}</div>` : ''}${data.items.map((item) => logItemHtml(item)).join('') || `<div class="sub-empty">${t('아직 기록이 없습니다.')}</div>`}`;
+          box.querySelectorAll('.copy-btn').forEach((b) => b.remove());   // copy buttons are keyed to main-conversation items, so they are removed
           if (atBottom || !box.dataset.shown) box.scrollTop = box.scrollHeight;
           box.dataset.shown = '1';
         }
@@ -3458,7 +3484,7 @@
     }
     document.addEventListener('toggle', (event) => {
       const details = event.target;
-      // 도구 · 코드 변경은 기본으로 펼쳐 둔다 → 사용자가 접으면 다시 그려도 접힌 채로
+      // Tools · code changes are open by default → once the user collapses one it stays collapsed across redraws
       if (details instanceof HTMLDetailsElement && details.classList.contains('auto-open')) {
         if (details.open) delete details.dataset.userClosed; else details.dataset.userClosed = '1';
       }
@@ -3468,9 +3494,9 @@
     function logAtBottom() { return logScroll.scrollHeight - logScroll.scrollTop - logScroll.clientHeight < 60; }
     function renderLogOlder() {
       logOlder.classList.toggle('hidden', log.start <= 0);
-      logOlder.innerHTML = log.loading ? '<i class="fas fa-circle-notch fa-spin"></i> 이전 대화를 불러오는 중' : `<button type="button">이전 대화 ${log.start}개 더 보기</button>`;
+      logOlder.innerHTML = log.loading ? `<i class="fas fa-circle-notch fa-spin"></i> ${t('이전 대화를 불러오는 중')}` : `<button type="button">${t('이전 대화 {count}개 더 보기', { count: log.start })}</button>`;
     }
-    // 최종 답변 = 내 프롬프트 사이마다 마지막 에이전트 답변 (복사 버튼은 프롬프트와 최종 답변에만 보인다)
+    // Final answer = the last agent answer between each pair of my prompts (the copy button shows only on prompts and final answers)
     function markFinalAnswers(list) {
       let last = null;
       for (const el of list.children) {
@@ -3496,7 +3522,7 @@
             const el = tmp.firstElementChild;
             if (open) el.open = true;
             else if (existing.el.dataset.userClosed) { el.open = false; el.dataset.userClosed = '1'; }
-            // '더 보기'로 펼쳐 둔 항목은 다시 그려도 펼친 채로
+            // Items expanded with 'show more' stay expanded across redraws
             if (existing.el.hasAttribute('data-unfolded')) el.querySelectorAll('[data-fold-more]').forEach(unfold);
             existing.el.replaceWith(el);
             log.rendered.set(item.id, { key, el, item });
@@ -3511,7 +3537,7 @@
       const nodes = Array.from(tmp.children);
       nodes.forEach((el, index) => log.rendered.set(html[index][0].id, { key: html[index][1], el, item: html[index][0] }));
       if (prepend) { logList.prepend(...nodes); return; }
-      // 번호 순서대로: 늦게 도착한 앞 항목이 맨 아래에 붙지 않게
+      // In id order: so an earlier item that arrived late is not appended at the very bottom
       nodes.forEach((el, index) => {
         const id = html[index][0].id;
         let after = null;
@@ -3523,9 +3549,9 @@
       const query = new URLSearchParams({ pane: state.paneId, ...params });
       return api('GET', `/api/transcript?${query}`);
     }
-    // pane → 마지막으로 받은 채팅 첫 페이지. 다시 열 때 이걸 먼저 그리고(즉시), 새 데이터가 오면 바꾼다.
+    // pane → the first chat page received last. On reopening this is drawn first (instantly) and replaced when new data arrives.
     const chatCache = new Map();
-    // 에이전트를 바꾸면(Claude ↔ Codex) 같은 pane 이라도 대화 기록이 새 에이전트 것으로 바뀐다
+    // When the agent is switched (Claude ↔ Codex), the transcript changes to the new agent's even for the same pane
     window.addEventListener('univdash:agent-switched', (event) => {
       const { pane } = event.detail || {};
       chatCache.delete(pane);
@@ -3541,13 +3567,13 @@
         refreshModel(true);
       }, ms));
     });
-    const chatInflight = new Map();   // pane → 미리 받는 중인 요청
+    const chatInflight = new Map();   // pane → prefetch request in flight
     function cacheChat(pane, data) {
       chatCache.delete(pane);
       chatCache.set(pane, data);
       if (chatCache.size > 12) chatCache.delete(chatCache.keys().next().value);
     }
-    // 목록에서 창을 누르기 시작한 순간(마우스는 올린 순간) 채팅을 미리 받는다 — 손을 뗄 때쯤엔 이미 와 있다
+    // The chat is prefetched the moment a window in the list starts being pressed (for a mouse, the moment it hovers) — by the time the finger lifts it has already arrived
     function prefetchChat(key) {
       const w = byKey().get(key);
       if (!w || modeFor(w) !== 'log' || key === state.selectedKey) return;
@@ -3580,8 +3606,8 @@
       logList.innerHTML = '';
       if (!data.available) {
         logList.innerHTML = data.agent
-          ? '<div class="log-empty">아직 대화가 없습니다.<br>첫 프롬프트를 보내면 여기에 바로 표시됩니다.</div>'
-          : '<div class="log-empty">이 창의 채팅(에이전트 세션 로그)을 찾지 못했습니다.<br>Claude Code · Codex · Gemini 가 실행 중인 창에서만 볼 수 있습니다.</div>';
+          ? `<div class="log-empty">${t('아직 대화가 없습니다.<br>첫 프롬프트를 보내면 여기에 바로 표시됩니다.')}</div>`
+          : `<div class="log-empty">${t('이 창의 채팅(에이전트 세션 로그)을 찾지 못했습니다.<br>Claude Code · Codex · Gemini 가 실행 중인 창에서만 볼 수 있습니다.')}</div>`;
         renderPending();
         return;
       }
@@ -3590,12 +3616,12 @@
       log.queued = data.queued || [];
       log.submitted = data.submitted || [];
       renderPending();
-      if (!data.items.length) logList.innerHTML = '<div class="log-empty">아직 대화가 없습니다.</div>';
+      if (!data.items.length) logList.innerHTML = `<div class="log-empty">${t('아직 대화가 없습니다.')}</div>`;
       upsertLogItems(data.items);
       renderLogOlder();
       followBottom();
     }
-    // 채팅 검색 상자 감추기 (창을 바꾸거나 터미널 보기로 갈 때 · 아래 검색 코드보다 먼저 불릴 수 있어 DOM 만 쓴다)
+    // Hide the chat search box (when switching windows or going to the terminal view · may be called before the search code below, so it uses only the DOM)
     function hideChatSearch() {
       document.getElementById('chatSearch')?.classList.add('hidden');
       document.getElementById('chatSearchResults')?.classList.add('hidden');
@@ -3616,13 +3642,13 @@
         log.rendered.clear();
         log.queued = [];
         chatPending.innerHTML = '';
-        logList.innerHTML = '<div class="log-empty"><i class="fas fa-circle-notch fa-spin"></i> 채팅을 불러오는 중...</div>';
+        logList.innerHTML = `<div class="log-empty"><i class="fas fa-circle-notch fa-spin"></i> ${t('채팅을 불러오는 중...')}</div>`;
       }
       try {
         const data = await (chatInflight.get(pane) || fetchLog({ limit: LOG_PAGE }));
         cacheChat(pane, data);
         if (pane !== state.paneId || log.pane !== pane) return;
-        // 캐시와 같으면 다시 그리지 않는다 (깜빡임 · 스크롤 튐 방지)
+        // When it equals the cache, do not redraw (avoids flicker · scroll jumps)
         const same = cached && cached.available === data.available && cached.start === data.start && cached.total === data.total
           && JSON.stringify(cached.queued || []) === JSON.stringify(data.queued || [])
           && JSON.stringify(cached.submitted || []) === JSON.stringify(data.submitted || [])
@@ -3646,7 +3672,7 @@
         logList.querySelector('.log-empty')?.remove();
         upsertLogItems(data.items, { prepend: true });
         log.start = newStart;
-        logScroll.scrollTop = logScroll.scrollHeight - fromBottom;  // 보던 위치 유지
+        logScroll.scrollTop = logScroll.scrollHeight - fromBottom;  // keep the position being read
       } catch (error) {
         toast(error.message, 'error');
       } finally {
@@ -3654,7 +3680,7 @@
         renderLogOlder();
       }
     }
-    // ── 채팅 검색: 서버가 대화 전체(아직 불러오지 않은 이전 기록 포함)에서 내 프롬프트 · 에이전트 최종 답변만 찾는다 ──
+    // ── Chat search: the server searches only my prompts · the agent's final answers across the whole conversation (including earlier history not loaded yet) ──
     const chatSearch = $('#chatSearch');
     const chatSearchInput = $('#chatSearchInput');
     const chatSearchResults = $('#chatSearchResults');
@@ -3662,7 +3688,7 @@
     const search = { pane: null, q: '', items: [], index: -1, timer: 0, seq: 0, terms: [], marked: null };
     const searchTerms = (q) => [...new Set(q.toLowerCase().split(/\s+/).filter(Boolean))].slice(0, 8);
     function markTerms(text, terms) {
-      // 원문에서 맞은 구간을 찾고, 조각마다 이스케이프해서 <mark> 로 감싼다
+      // Find the matching ranges in the original text, then escape each piece and wrap it in <mark>
       const lower = text.toLowerCase();
       const ranges = [];
       terms.forEach((term) => { let at = lower.indexOf(term); while (at >= 0) { ranges.push([at, at + term.length]); at = lower.indexOf(term, at + term.length); } });
@@ -3674,23 +3700,23 @@
     }
     function renderSearchCount(data) {
       if (!search.q) { chatSearchCount.textContent = ''; return; }
-      if (!data) { chatSearchCount.textContent = '찾는 중…'; return; }
+      if (!data) { chatSearchCount.textContent = t('찾는 중…'); return; }
       const n = search.items.length;
-      chatSearchCount.textContent = !n ? '없음' : search.index >= 0 ? `${search.index + 1}/${n}${data.truncated ? '+' : ''}` : `${n}${data.truncated ? '+' : ''}개`;
+      chatSearchCount.textContent = !n ? t('없음') : search.index >= 0 ? `${search.index + 1}/${n}${data.truncated ? '+' : ''}` : t('{hits}개', { hits: `${n}${data.truncated ? '+' : ''}` });
     }
     function renderSearchResults(data) {
-      const agentName = AGENT_NAMES[log.agent] || '에이전트';
+      const agentName = AGENT_NAMES[log.agent] || t('에이전트');
       if (!search.q) { chatSearchResults.classList.add('hidden'); chatSearchResults.innerHTML = ''; return; }
       chatSearchResults.classList.remove('hidden');
-      if (!data) { chatSearchResults.innerHTML = '<div class="cs-empty"><i class="fas fa-circle-notch fa-spin"></i> 찾는 중…</div>'; return; }
-      if (data.available === false) { chatSearchResults.innerHTML = '<div class="cs-empty">이 창의 대화 기록을 찾지 못했습니다.</div>'; return; }
-      if (!search.items.length) { chatSearchResults.innerHTML = '<div class="cs-empty">맞는 프롬프트 · 답변이 없습니다.</div>'; return; }
+      if (!data) { chatSearchResults.innerHTML = `<div class="cs-empty"><i class="fas fa-circle-notch fa-spin"></i> ${t('찾는 중…')}</div>`; return; }
+      if (data.available === false) { chatSearchResults.innerHTML = `<div class="cs-empty">${t('이 창의 대화 기록을 찾지 못했습니다.')}</div>`; return; }
+      if (!search.items.length) { chatSearchResults.innerHTML = `<div class="cs-empty">${t('맞는 프롬프트 · 답변이 없습니다.')}</div>`; return; }
       chatSearchResults.innerHTML = search.items.map((item, index) => `
         <button type="button" class="cs-item ${index === search.index ? 'on' : ''}" data-cs-index="${index}" role="option" aria-selected="${index === search.index}">
-          <span class="cs-who ${item.kind === 'user' ? 'me' : 'ai'}">${item.kind === 'user' ? '나' : escapeHtml(agentName)}</span>
+          <span class="cs-who ${item.kind === 'user' ? 'me' : 'ai'}">${item.kind === 'user' ? t('나') : escapeHtml(agentName)}</span>
           <span class="cs-text">${markTerms(item.snippet.replace(/\*\*|`/g, ''), search.terms)}</span>
           <span class="cs-time">${escapeHtml(logTime(item.ts))}</span>
-        </button>`).join('') + (data.truncated ? `<div class="cs-empty">최근 ${search.items.length}개만 표시됩니다 (전체 ${data.matches}개). 낱말을 더 넣어 좁혀 보십시오.</div>` : '');
+        </button>`).join('') + (data.truncated ? `<div class="cs-empty">${t('최근 {shown}개만 표시됩니다 (전체 {total}개). 낱말을 더 넣어 좁혀 보십시오.', { shown: search.items.length, total: data.matches })}</div>` : '');
     }
     async function runChatSearch() {
       const q = chatSearchInput.value.trim();
@@ -3729,7 +3755,7 @@
       unmarkLogItem();
       search.marked = el;
       el.classList.add('msg-hit');
-      // 말풍선 안의 글자에서 검색어를 표시한다 (수식 · 코드 상자 안은 건드리지 않음)
+      // Mark the search terms in the text inside the bubble (the inside of math · code boxes is left alone)
       const walker = document.createTreeWalker(el.querySelector('.msg-body') || el, NodeFilter.SHOW_TEXT, {
         acceptNode: (node) => (node.parentElement.closest('.katex, pre, mark, button') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
       });
@@ -3744,12 +3770,12 @@
         node.replaceWith(...span.childNodes);
       });
     }
-    // 그 항목이 화면에 없으면(이전 기록) 거기까지 차례로 불러온 뒤 그 말풍선으로 이동한다
+    // When that item is not on screen (earlier history), load up to it step by step and then go to that bubble
     async function jumpToLogItem(id) {
       const pane = state.paneId;
       if (!pane || log.pane !== pane || !log.available) return;
-      if (log.loading) { toast('이전 대화를 불러오는 중입니다. 잠시 뒤 다시 눌러 주십시오.', 'info'); return; }
-      log.follow = false;   // 검색 결과로 이동: 새 내용이 와도 보던 곳에 머문다
+      if (log.loading) { toast(t('이전 대화를 불러오는 중입니다. 잠시 뒤 다시 눌러 주십시오.'), 'info'); return; }
+      log.follow = false;   // jumping to a search result: stay where the user is reading even when new content arrives
       const target = Math.max(0, id - 3);
       if (log.start > target) {
         log.loading = true;
@@ -3772,7 +3798,7 @@
         }
       }
       const el = log.rendered.get(id)?.el;
-      if (!el || !el.isConnected) { toast('그 메시지를 화면에서 찾지 못했습니다.', 'error'); return; }
+      if (!el || !el.isConnected) { toast(t('그 메시지를 화면에서 찾지 못했습니다.'), 'error'); return; }
       markLogItem(el, search.terms);
       el.scrollIntoView({ block: 'center', behavior: 'smooth' });
     }
@@ -3781,7 +3807,7 @@
       search.index = (index + search.items.length) % search.items.length;
       renderSearchCount(search.data);
       chatSearchResults.querySelectorAll('.cs-item').forEach((b, i) => { b.classList.toggle('on', i === search.index); b.setAttribute('aria-selected', String(i === search.index)); });
-      // 휴대폰처럼 좁은 화면에서는 목록을 접어 말풍선이 보이게 한다 (검색창을 누르면 다시 펼친다)
+      // On narrow screens such as phones the list is collapsed so the bubble is visible (tapping the search box expands it again)
       if (!mdQuery.matches) chatSearchResults.classList.add('hidden');
       else chatSearchResults.querySelector('.cs-item.on')?.scrollIntoView({ block: 'nearest' });
       jumpToLogItem(search.items[search.index].id);
@@ -3811,38 +3837,38 @@
     }
     $('#chatSearchBtn').addEventListener('click', () => (chatSearch.classList.contains('hidden') ? openChatSearch() : closeChatSearch()));
 
-    // ── 사용 현황: 이 대화에서 쓴 스킬 · 플러그인 · MCP 서버 · 서브에이전트 · 내장 도구 ──
-    // 지금 / 방금 = 마지막 프롬프트 이후. 숫자키(1~5)로 종류 접기/펼치기, a 로 모두, Esc 로 닫기.
+    // ── Usage overview: skills · plugins · MCP servers · subagents · built-in tools used in this conversation ──
+    // Now / just now = since the last prompt. Number keys (1–5) collapse/expand a kind, a toggles all, Esc closes.
     const chatUsage = $('#chatUsage');
     const usageBtn = $('#chatUsageBtn');
-    const USAGE_LABELS = { skill: '스킬', plugin: '플러그인', mcp: 'MCP 서버', agent: '서브에이전트', builtin: '내장 도구' };
+    const USAGE_LABELS = { skill: t('스킬'), plugin: t('플러그인'), mcp: t('MCP 서버'), agent: t('서브에이전트'), builtin: t('내장 도구') };
     const usage = { pane: null, data: null, timer: null, seq: 0, busy: false, open: store.get('chat-usage-open', []) };
     const usageSummary = $('#usageSummary');
     const wideScreen = window.matchMedia('(min-width: 768px)');
-    // 하단바 요약은 넓은 화면의 채팅 보기에서만 (휴대폰은 안 띄움)
+    // The bottom-bar summary shows only in the chat view on wide screens (not on phones)
     const summaryWanted = () => { const w = currentWindow(); return wideScreen.matches && !!state.paneId && !!w && !!agentOf(w) && modeFor(w) === 'log'; };
     const usageWanted = () => !chatUsage.classList.contains('hidden') || summaryWanted();
     const usageDot = (st) => `<span class="cu-dot ${st === 'running' ? 'run' : st === 'error' ? 'err' : st === 'ok' ? 'ok' : 'idle'}"></span>`;
     function renderUsagePanel() {
       const data = usage.data;
-      if (!data) { chatUsage.innerHTML = '<div class="cu-empty">불러오는 중…</div>'; return; }
-      if (!data.available) { chatUsage.innerHTML = '<div class="cu-empty">이 창의 대화 기록을 찾지 못했습니다.</div>'; return; }
+      if (!data) { chatUsage.innerHTML = `<div class="cu-empty">${t('불러오는 중…')}</div>`; return; }
+      if (!data.available) { chatUsage.innerHTML = `<div class="cu-empty">${t('이 창의 대화 기록을 찾지 못했습니다.')}</div>`; return; }
       const allOpen = data.groups.every((g) => !g.items.length || usage.open.includes(g.group));
-      // 에이전트가 작업 중일 때만 '지금'이다. 대기 중이면 지난 질문에서 쓴 것(방금)이고, 끝나지 않은 도구는 중단된 것.
+      // It is 'now' only while the agent is working. When idle, these are what the last question used (just now), and a tool that never finished was interrupted.
       const busy = typeof data.busy === 'boolean' ? data.busy : usage.busy;
       const st = (s) => (!busy && s === 'running' ? 'ok' : s);
       const states = data.recent.map((r) => st(r.state));
       const count = (s) => states.filter((x) => x === s).length;
       const recent = data.recent.length
         ? data.recent.map((r) => `<div class="cu-row${busy ? '' : ' past'}">${usageDot(busy ? st(r.state) : 'idle')}<span class="cu-kind">${USAGE_LABELS[r.group]}</span><span class="cu-name">${escapeHtml(r.name)}</span><span class="cu-count">×${r.count}</span></div>`).join('')
-        : `<div class="cu-empty">${busy ? '이번 질문에서는 아직 쓴 것이 없습니다.' : '지난 질문에서 쓴 것이 없습니다.'}</div>`;
+        : `<div class="cu-empty">${busy ? t('이번 질문에서는 아직 쓴 것이 없습니다.') : t('지난 질문에서 쓴 것이 없습니다.')}</div>`;
       const groups = data.groups.map((g, index) => {
         const open = usage.open.includes(g.group);
         const used = g.items.filter((r) => r.recent).length;
         return `<div class="cu-group${open ? ' open' : ''}">
           <button type="button" class="cu-ghead" data-cu-group="${g.group}" aria-expanded="${open}" ${g.items.length ? '' : 'disabled'}>
             <kbd>${index + 1}</kbd><i class="fas fa-caret-${open ? 'down' : 'right'}"></i>
-            <span>${USAGE_LABELS[g.group]} · 사용 ${g.items.length}</span>${used && busy ? `<span class="cu-gnow">${usageDot('ok')}${used}</span>` : ''}
+            <span>${t('{label} · 사용 {count}', { label: USAGE_LABELS[g.group], count: g.items.length })}</span>${used && busy ? `<span class="cu-gnow">${usageDot('ok')}${used}</span>` : ''}
           </button>
           ${open ? `<div class="cu-items">${g.items.map((r) => `<div class="cu-row">${usageDot(r.recent && busy ? st(r.state) : 'idle')}<span class="cu-name">${escapeHtml(r.name)}</span><span class="cu-count">×${r.count}${r.recent ? ` <b>(+${r.recent})</b>` : ''}</span></div>`).join('')}</div>` : ''}
         </div>`;
@@ -3850,45 +3876,52 @@
       chatUsage.innerHTML = `
         <div class="cu-head">
           ${busy
-            ? `<span>${usageDot('running')}${count('running')} 실행</span><span>${usageDot('ok')}${count('ok')} 사용</span><span>${usageDot('error')}${count('error')} 오류</span>`
-            : '<span class="cu-idle">대기 중</span>'}<span class="cu-total" title="이 대화에서 지금까지 쓴 스킬 · 플러그인 · MCP · 서브에이전트 · 도구 가짓수">이 대화 ${data.total}가지</span>
-          <button type="button" class="cu-btn" data-cu-all>[a] ${allOpen ? '모두 접기' : '모두 펼침'}</button>
-          <button type="button" class="cu-btn cu-x" data-cu-close aria-label="닫기"><i class="fas fa-xmark"></i></button>
+            ? `<span>${usageDot('running')}${t('{count} 실행', { count: count('running') })}</span><span>${usageDot('ok')}${t('{count} 사용', { count: count('ok') })}</span><span>${usageDot('error')}${t('{count} 오류', { count: count('error') })}</span>`
+            : `<span class="cu-idle">${t('대기 중')}</span>`}<span class="cu-total" title="${t('이 대화에서 지금까지 쓴 스킬 · 플러그인 · MCP · 서브에이전트 · 도구 가짓수')}">${t('이 대화 {count}가지', { count: data.total })}</span>
+          <button type="button" class="cu-btn" data-cu-all>[a] ${allOpen ? t('모두 접기') : t('모두 펼침')}</button>
+          <button type="button" class="cu-btn cu-x" data-cu-close aria-label="${t('닫기')}"><i class="fas fa-xmark"></i></button>
         </div>
         <div class="cu-body">
-          <div class="cu-title">${busy ? '지금 (작업 중)' : '방금 (지난 질문)'}</div>
+          <div class="cu-title">${busy ? t('지금 (작업 중)') : t('방금 (지난 질문)')}</div>
           <div class="cu-recent">${recent}</div>
           <div class="cu-groups">${groups}</div>
-          <div class="cu-legend">${usageDot('ok')} 사용 ${usageDot('running')} 실행 중 ${usageDot('error')} 오류 ${usageDot('idle')} 지금 안 씀 · 숫자키로 그룹 접기/펼치기</div>
+          <div class="cu-legend">${t('{ok} 사용 {run} 실행 중 {err} 오류 {idle} 지금 안 씀 · 숫자키로 그룹 접기/펼치기', { ok: usageDot('ok'), run: usageDot('running'), err: usageDot('error'), idle: usageDot('idle') })}</div>
         </div>`;
     }
-    // 지금 쓰는 도구: "⚙ Bash · git status" (실행 중) / "방금 Read · app.js" (다음 도구를 고르는 중)
+    // The tool in use now: "⚙ Bash · git status" (running) / "just now Read · app.js" (picking the next tool)
     function usageNowText(current, names) {
-      if (!current) return names.length ? escapeHtml(names.slice(0, 2).join(', ')) : '작업 중';
+      if (!current) return names.length ? escapeHtml(names.slice(0, 2).join(', ')) : t('작업 중');
       const use = (current.use || []).find((u) => u[0] !== 'builtin');
       const label = use ? `${USAGE_LABELS[use[0]]} ${use[1]}` : toolLabel(current.name);
-      const icon = current.running ? '<i class="fas fa-gear fa-spin us-spin"></i>' : '<span class="us-past">방금</span>';
+      const icon = current.running ? '<i class="fas fa-gear fa-spin us-spin"></i>' : `<span class="us-past">${t('방금')}</span>`;
       return `${icon}<b>${escapeHtml(label)}</b>${current.summary ? ` · ${escapeHtml(current.summary)}` : ''}${current.more ? ` <span class="us-past">+${current.more}</span>` : ''}`;
     }
-    const toolLabel = (name) => (name && name.startsWith('mcp__') ? name.split('__').slice(1).join(' · ') : name || '도구');
-    // 하단바 신호등 요약: 작업 중이면 이번 질문의 실행 · 사용 · 오류, 대기 중이면 흐리게 '대기 중'
+    const toolLabel = (name) => (name && name.startsWith('mcp__') ? name.split('__').slice(1).join(' · ') : name || t('도구'));
+    // Bottom-bar traffic-light summary: while working, this question's running · used · errors; when idle, a dimmed 'Idle'
     function renderUsageSummary() {
       const data = usage.data;
       const show = summaryWanted() && data?.available && usage.pane === state.paneId;
       usageSummary.classList.toggle('hidden', !show);
       if (!show) return;
       const busy = typeof data.busy === 'boolean' ? data.busy : usage.busy;
-      // 신호등은 '지금' 만: 대기 중이면 모두 0 (지난 질문 내용은 마우스를 올리거나 패널에서)
+      // The traffic lights are 'now' only: all 0 when idle (what the last question used is on hover or in the panel)
       const states = busy ? data.recent.map((r) => r.state) : [];
       const n = (st) => states.filter((x) => x === st).length;
       const names = busy ? data.recent.filter((r) => r.group !== 'builtin').map((r) => r.name) : [];
       const past = data.recent.filter((r) => r.group !== 'builtin').map((r) => r.name);
       usageSummary.classList.toggle('idle', !busy);
       usageSummary.innerHTML = `<span class="us-light">${usageDot('running')}${n('running')}</span><span class="us-light">${usageDot('ok')}${n('ok')}</span><span class="us-light">${usageDot('error')}${n('error')}</span>`
-        + `<span class="us-text">${busy ? usageNowText(data.current, names) : '대기 중'}</span>`;
+        + `<span class="us-text">${busy ? usageNowText(data.current, names) : t('대기 중')}</span>`;
+      const tool = data.current ? `${toolLabel(data.current.name)}${data.current.summary ? ` · ${data.current.summary}` : ''}` : '';
+      const nowLine = !data.current ? '' : `${data.current.running ? t('실행 중: {tool}', { tool }) : t('방금: {tool}', { tool })}\n`;
+      const counts = { run: n('running'), ok: n('ok'), err: n('error'), names: names.join(', ') };
       usageSummary.title = busy
-        ? `${data.current ? `${data.current.running ? '실행 중' : '방금'}: ${toolLabel(data.current.name)}${data.current.summary ? ` · ${data.current.summary}` : ''}\n` : ''}지금 (작업 중): 실행 ${n('running')} · 사용 ${n('ok')} · 오류 ${n('error')}${names.length ? ` · ${names.join(', ')}` : ''} — 누르면 사용 현황`
-        : `대기 중${past.length ? ` · 지난 질문에서 쓴 것: ${past.join(', ')}` : ''} · 이 대화에서 쓴 것 ${data.total}가지 — 누르면 사용 현황`;
+        ? nowLine + (names.length
+          ? t('지금 (작업 중): 실행 {run} · 사용 {ok} · 오류 {err} · {names} — 누르면 사용 현황', counts)
+          : t('지금 (작업 중): 실행 {run} · 사용 {ok} · 오류 {err} — 누르면 사용 현황', counts))
+        : past.length
+          ? t('대기 중 · 지난 질문에서 쓴 것: {names} · 이 대화에서 쓴 것 {total}가지 — 누르면 사용 현황', { names: past.join(', '), total: data.total })
+          : t('대기 중 · 이 대화에서 쓴 것 {total}가지 — 누르면 사용 현황', { total: data.total });
     }
     async function loadUsage() {
       const pane = state.paneId;
@@ -3905,14 +3938,14 @@
         if (!chatUsage.classList.contains('hidden')) renderUsagePanel();
         renderUsageSummary();
       } catch (error) {
-        if (seq === usage.seq && !usage.data && !chatUsage.classList.contains('hidden')) chatUsage.innerHTML = `<div class="cu-empty">${escapeHtml(error.message || '불러오지 못했습니다.')}</div>`;
+        if (seq === usage.seq && !usage.data && !chatUsage.classList.contains('hidden')) chatUsage.innerHTML = `<div class="cu-empty">${escapeHtml(error.message || t('불러오지 못했습니다.'))}</div>`;
       }
     }
     function scheduleUsage() {
       clearTimeout(usage.timer);
       if (!usageWanted()) return;
-      // 작업 중에는 자주, 대기 중에는 드물게 · 화면이 안 보이면 멈춘다.
-      // 가벼운 모드는 더 드물게 (대화 기록이 오면 logged() 로 곧바로 다시 읽으니 반응은 그대로)
+      // Often while working, rarely when idle · stops when the page is not visible.
+      // Lite mode polls even less often (a new transcript entry triggers an immediate reread via logged(), so responsiveness is unchanged)
       const lite = document.documentElement.hasAttribute('data-ui-lite');
       const busy = usage.data?.busy || usage.busy;
       usage.timer = setTimeout(async () => { if (!document.hidden) await loadUsage(); scheduleUsage(); }, busy ? (lite ? 5000 : 2000) : (lite ? 30000 : 8000));
@@ -3977,28 +4010,28 @@
     document.addEventListener('visibilitychange', () => { if (!document.hidden && usageWanted()) loadUsage(); });
     window.UnivDashChatUsage = {
       close: closeUsage,
-      // 채팅의 '작업 중' 표시와 같은 기준: 바뀌면 다시 그리고 곧바로 새로 읽는다
+      // Same criterion as the chat's 'Working' indicator: on change, redraw and reread right away
       busy: (busy) => {
         if (busy === usage.busy) return;
         usage.busy = busy;
         if (usageWanted()) loadUsage().then(scheduleUsage);
       },
-      // 대화 기록이 새로 오면(답변 끝 · 도구 결과 등) 바로 다시 읽는다
+      // When new transcript entries arrive (answer finished · tool result, …), reread right away
       logged: () => {
         if (!usageWanted()) return;
         clearTimeout(usage.kick);
         usage.kick = setTimeout(() => loadUsage().then(scheduleUsage), 120);
       },
-      // 다른 창으로 바꾸면 그 창 기록으로 다시 불러온다
+      // Switching to another window reloads with that window's transcript
       paneChanged: () => { if (usage.pane !== state.paneId) resetUsageFor(state.paneId); },
-      // 채팅 ↔ 터미널 보기 전환 · 창 선택: 요약을 보이거나 감추고, 필요하면 불러온다
+      // Chat ↔ terminal view switch · window selection: show or hide the summary and load when needed
       modeChanged: () => {
         if (usage.pane !== state.paneId) { resetUsageFor(state.paneId); return; }
         renderUsageSummary();
         if (usageWanted()) { if (!usage.data) loadUsage().then(scheduleUsage); else scheduleUsage(); } else clearTimeout(usage.timer);
       },
     };
-    // 결과를 눌러 입력칸을 벗어난 뒤에도 Esc 로 닫는다 (다른 입력칸 · 열린 시트에서는 그쪽이 먼저)
+    // Esc still closes it after a result was clicked and focus left the input (another input · an open sheet takes precedence)
     document.addEventListener('keydown', (event) => {
       if (event.key !== 'Escape' || chatSearch.classList.contains('hidden') || event.defaultPrevented) return;
       const active = document.activeElement;
@@ -4007,7 +4040,7 @@
       event.preventDefault();
       closeChatSearch();
     });
-    // 채팅을 누르면 결과 목록만 접는다 (검색어 · 표시는 그대로)
+    // Tapping the chat only collapses the result list (the query · the marks stay)
     logScroll.addEventListener('pointerdown', () => chatSearchResults.classList.add('hidden'), { passive: true });
     chatSearchInput.addEventListener('input', () => { clearTimeout(search.timer); search.timer = setTimeout(runChatSearch, 250); });
     chatSearchInput.addEventListener('focus', () => { if (search.q) chatSearchResults.classList.remove('hidden'); });
@@ -4033,29 +4066,29 @@
       if (log.pane !== state.paneId || !log.available || log.loading) return;
       const pane = state.paneId;
       try {
-        // 끝부분 몇 개를 다시 받아 도구 실행 결과처럼 나중에 채워지는 항목도 갱신한다.
+        // Fetch the last few again so items filled in later, such as tool results, are refreshed too.
         const data = await fetchLog({ start: Math.max(log.start, log.total - 12), limit: 300 });
         if (pane !== state.paneId) return;
         applyLogData(data);
-      } catch (error) { /* 다음 주기에 다시 시도 */ }
+      } catch (error) { /* retry on the next cycle */ }
     }
-    // ── 에이전트가 확인한 대기열 · 방금 보낸 프롬프트 ──
-    // 보낸 프롬프트는 로그에 기록되기 전에도 바로 말풍선으로 보여 준다.
-    // 지우는 기준은 글자 비교가 아니라 순서다: 보낸 뒤 로그에 새 사용자 메시지(또는 대기열 항목)가
-    // 하나 생길 때마다 가장 오래된 말풍선을 하나 지운다 — 첨부 경로가 붙거나 긴 글이 잘려
-    // 로그의 글이 달라져도 중복이 남지 않는다.
+    // ── The queue acknowledged by the agent · prompts just sent ──
+    // A sent prompt is shown as a bubble right away, even before it is written to the log.
+    // What removes it is order, not text comparison: each time a new user message (or queue item) appears
+    // in the log after sending, the oldest bubble is removed — so no duplicate remains even when
+    // attachment paths are appended or long text is truncated and the logged text differs.
     const chatPending = $('#chatPending');
     const chatStatus = $('#chatStatus');
     const SENT_KEEP_MS = 10 * 60 * 1000;
     log.queued = [];
-    log.submitted = [];   // 보냈지만 아직 기록되지 않은 프롬프트 (Codex 가 대화를 압축하는 중 등 · 서버가 알려 준다)
+    log.submitted = [];   // prompts sent but not recorded yet (e.g. while Codex is compacting the conversation · reported by the server)
     log.sent = [];
     function addSent(text) {
-      if (modeFor(currentWindow()) !== 'log' || !text.trim() || /^\/\S/.test(text.trim())) return null;   // 슬래시 명령은 로그에 일반 메시지로 남지 않는다
+      if (modeFor(currentWindow()) !== 'log' || !text.trim() || /^\/\S/.test(text.trim())) return null;   // slash commands do not stay in the log as ordinary messages
       const entry = { pane: state.paneId, text, at: Date.now(), afterId: log.total - 1, queuedBase: log.queued.length };
       log.sent.push(entry);
       renderPending();
-      followBottom();   // 내가 보낸 프롬프트: 다시 최신을 따라간다
+      followBottom();   // a prompt I sent: follow the latest again
       return entry;
     }
     setInterval(() => { if (log.sent.length) renderPending(); }, 30000);
@@ -4075,29 +4108,29 @@
           return now - e.at < SENT_KEEP_MS;
         });
       }
-      const queuedBubble = (text) => `<div class="msg msg-user pending"><div class="msg-meta"><i class="fas fa-hourglass-half"></i> 대기 중 · 작업 중에 곧 전달됩니다</div><div class="msg-body">${escapeHtml(text)}</div></div>`;
-      const sentBubble = (e) => `<div class="msg msg-user"><div class="msg-meta">나 · ${escapeHtml(logTime(e.at))}</div><div class="msg-body">${escapeHtml(e.text)}</div></div>`;
+      const queuedBubble = (text) => `<div class="msg msg-user pending"><div class="msg-meta"><i class="fas fa-hourglass-half"></i> ${t('대기 중 · 작업 중에 곧 전달됩니다')}</div><div class="msg-body">${escapeHtml(text)}</div></div>`;
+      const sentBubble = (e) => `<div class="msg msg-user"><div class="msg-meta">${t('나 · {time}', { time: escapeHtml(logTime(e.at)) })}</div><div class="msg-body">${escapeHtml(e.text)}</div></div>`;
       const sentHere = log.sent.filter((e) => e.pane === state.paneId);
-      // 이 화면에서 보낸 말풍선이 이미 있으면 서버가 알려 준 것은 겹치니 빼고 보여 준다
-      const submittedBubble = (text) => `<div class="msg msg-user"><div class="msg-meta">나 · 전달됨</div><div class="msg-body">${escapeHtml(text)}</div></div>`;
+      // When this screen already has bubbles it sent, the ones reported by the server would overlap, so they are left out
+      const submittedBubble = (text) => `<div class="msg msg-user"><div class="msg-meta">${t('나 · 전달됨')}</div><div class="msg-body">${escapeHtml(text)}</div></div>`;
       const submitted = sentHere.length || log.pane !== state.paneId ? [] : log.submitted.map(submittedBubble);
       chatPending.innerHTML = [...log.queued.map(queuedBubble), ...submitted, ...sentHere.map(sentBubble)].join('');
     }
 
-    // ── 에이전트 상태 카드: 터미널 화면에서 상태 줄 / 선택 질문을 읽어 채팅 하단에 보여준다 ──
+    // ── Agent status card: reads the status line / choice question from the terminal screen and shows it at the bottom of the chat ──
     const STATUS_LINE = /^\s*[✻✽✶✢✳✺✹✷·*•◦●⠀-⣿]\s+(\S.*)$/;
-    // 선택지 줄: "❯ 1. Yes", "› 2. GPT-6-Sol (current)  설명", "↓ 10. Opus 4.6   설명" (긴 목록은 ↑↓ 가 붙는다)
+    // Option lines: "❯ 1. Yes", "› 2. GPT-6-Sol (current)  description", "↓ 10. Opus 4.6   description" (long lists get ↑↓)
     const OPTION_LINE = /^\s*(?:[❯›>↑↓]\s*)*(\d{1,2})\.\s+(.+?)\s*$/;
     const CURSOR_LINE = /^\s*(?:[↑↓]\s*)?[❯›>]/;
     const PICKER_FOOTER = /enter to set as default|enter select|enter default|esc back|s to use this session only|\bs session\b/i;
     function chatStatusFrom(screen, w) {
       const lines = screen.content.split('\n').slice(-Math.max(1, screen.height)).map((line) => plainText(line));
-      while (lines.length && !lines[lines.length - 1].trim()) lines.pop();  // 화면 아래 빈 줄 제거
+      while (lines.length && !lines[lines.length - 1].trim()) lines.pop();  // drop the empty lines at the bottom of the screen
       if (w.status === 'waiting') {
-        // 가장 아래 선택지 덩어리 (위로 스크롤된 긴 목록은 1. 이 안 보일 수 있다)
+        // The lowest block of options (in a long list scrolled up, 1. may not be visible)
         let last = -1;
         for (let i = lines.length - 1; i >= Math.max(0, lines.length - 40); i--) if (OPTION_LINE.test(lines[i])) { last = i; break; }
-        if (last < 0) return { kind: 'waiting', question: '응답이 필요합니다. 터미널 탭에서 확인하십시오.', options: [] };
+        if (last < 0) return { kind: 'waiting', question: t('응답이 필요합니다. 터미널 탭에서 확인하십시오.'), options: [] };
         let first = last;
         for (let i = last - 1; i >= 0; i--) {
           if (OPTION_LINE.test(lines[i])) first = i;
@@ -4112,7 +4145,7 @@
           const current = /✔|✓|\(current\)/i.test(label);
           options.push({ key: m[1], label: label.replace(/\s*(✔|✓|\(current\))\s*/gi, ' ').trim(), desc: desc.trim(), current, cursor: CURSOR_LINE.test(lines[i]) });
         }
-        // 선택지 아래: 추론 수준 줄 ("◐ Medium effort (default) ←/→ to adjust") · 안내문 ("Enter to set as default · s to use this session only")
+        // Below the options: the reasoning-effort line ("◐ Medium effort (default) ←/→ to adjust") · the hint ("Enter to set as default · s to use this session only")
         let effort = '';
         let effortAdjust = false;
         let footer = '';
@@ -4121,13 +4154,13 @@
           if (/\beffort\b/i.test(text) && !effort) { effortAdjust = /←\/→/.test(text); effort = text.replace(/←\/→.*$/, '').replace(/^[^\w(]+/, '').trim(); }
           else if (PICKER_FOOTER.test(text)) footer = text;
         }
-        // 모델 선택 같은 목록형 선택 창: 누르면 커서만 옮기고, 아래 버튼(Enter / s)으로 확정한다
+        // List-style pickers such as model selection: a tap only moves the cursor, and the buttons below (Enter / s) confirm
         const picker = !!footer && options.some((o) => o.cursor);
         const question = [];
         for (let i = first - 1; i >= 0 && question.length < 12; i--) {
           const line = lines[i].replace(/^[\s│╭╮╰╯]+|[\s│╭╮╰╯]+$/g, '');
           if (/^[─━═╌▔▁-]{6,}/.test(line)) break;
-          // 목록 바로 위 제목 영역만 표시한다. 빈 줄 너머의 이전 대화·모델 변경 알림은 제외한다.
+          // Only the title area right above the list is shown. Earlier conversation and model-change notices beyond an empty line are excluded.
           if (picker && !line && question.length) break;
           if (line) question.unshift(line);
           else if (question.length && question[0] !== '') question.unshift('');
@@ -4137,19 +4170,19 @@
         return { kind: 'waiting', question: question.join('\n'), options, picker, effort, effortAdjust, sessionOnly: /s to use this session only|\bs session\b/i.test(footer), footer };
       }
       if (w.status === 'busy') {
-        // 실시간 출력은 보이는 화면만이 아니라 스크롤백까지 (긴 명령 출력 · 답변도 이번 턴 것은 모두)
+        // Live output covers the scrollback too, not just the visible screen (long command output · answers: everything from this turn)
         const all = screen.content.split('\n').map((line) => plainText(line));
         while (all.length && !all[all.length - 1].trim()) all.pop();
         for (let i = all.length - 1; i >= Math.max(0, all.length - 20); i--) {
           const m = all[i].match(STATUS_LINE);
           if (m && (/…|\.\.\./.test(m[1]) || /interrupt/i.test(m[1])) && !/^⏵/.test(all[i].trim())) return { kind: 'busy', text: m[1].trim(), live: liveOutput(all, i) };
         }
-        return { kind: 'busy', text: '작업 중…', live: liveOutput(all, all.length) };
+        return { kind: 'busy', text: t('작업 중…'), live: liveOutput(all, all.length) };
       }
       return null;
     }
-    // 에이전트는 답변 · 명령 하나가 끝나야 세션 로그에 쓰므로, 쓰는 중인 내용은 터미널 화면에서 바로 보여준다.
-    // 상태 줄(✻ … / • Working …) 바로 위, 이번 턴의 사용자 입력(Claude "> …", Codex "› …") 이후 터미널에 나온 글 전부.
+    // The agent writes to the session log only after an answer · a command finishes, so content still being written is shown straight from the terminal screen.
+    // Everything printed in the terminal right above the status line (✻ … / • Working …), after this turn's user input (Claude "> …", Codex "› …").
     const LIVE_LINES = 400;
     function liveOutput(lines, statusIndex) {
       let start = Math.max(0, statusIndex - LIVE_LINES);
@@ -4176,8 +4209,8 @@
       if (status.kind === 'busy') {
         const showLive = status.live && chatLiveOpen(agentOf(w));
         chatStatus.innerHTML = `<div class="chat-status-row"><i class="fas fa-circle-notch fa-spin"></i><span class="chat-status-text">${escapeHtml(status.text)}</span>
-          ${status.live ? `<button type="button" class="chat-live-toggle" data-live-toggle title="실시간 출력 ${showLive ? '접기' : '펼치기'}"><i class="fas fa-chevron-${showLive ? 'down' : 'up'}"></i></button>` : ''}
-          <button type="button" data-status-keys="Escape" title="작업 중단 (Esc)">중단</button></div>
+          ${status.live ? `<button type="button" class="chat-live-toggle" data-live-toggle title="${showLive ? t('실시간 출력 접기') : t('실시간 출력 펼치기')}"><i class="fas fa-chevron-${showLive ? 'down' : 'up'}"></i></button>` : ''}
+          <button type="button" data-status-keys="Escape" title="${t('작업 중단 (Esc)')}">${t('중단')}</button></div>
           ${showLive ? `<pre class="chat-live">${escapeHtml(status.live)}</pre>` : ''}`;
         const livePre = chatStatus.querySelector('.chat-live');
         if (livePre) livePre.scrollTop = livePre.scrollHeight;
@@ -4192,8 +4225,8 @@
       lastStatusKey = '';
       if (lastScreen) updateChatStatus(lastScreen);
     });
-    // 선택지 고르기: 커서(❯ ›)가 보이면 화살표로 옮긴다 (Codex 목록은 번호 키가 안 먹는다). 커서가 없으면 번호 글자.
-    // move: 옮기기만 (목록형 선택 창 — 확정은 Enter / s 버튼)
+    // Picking an option: when a cursor (❯ ›) is visible, move with the arrow keys (number keys do not work in Codex lists). Without a cursor, the number character.
+    // move: move only (list-style picker — confirmed with the Enter / s buttons)
     function optionKeys(status, key, agent, move = false) {
       if (!status?.options?.length || !status.options.some((o) => o.cursor)) return null;
       const target = status.options.find((o) => o.key === key);
@@ -4203,24 +4236,24 @@
       const arrows = Array(Math.abs(step)).fill(step > 0 ? 'Down' : 'Up');
       return move ? arrows : [...arrows, 'Enter'];
     }
-    // "응답이 필요해요" 카드 (메인 · 분할 화면 공용)
+    // "Needs answer" card (shared by the main and split views)
     function waitingCardHtml(status) {
-      const head = `<div class="chat-status-head"><i class="fas fa-hand"></i> 응답이 필요합니다</div>
+      const head = `<div class="chat-status-head"><i class="fas fa-hand"></i> ${t('응답이 필요합니다')}</div>
         ${status.question ? `<div class="chat-status-question">${escapeHtml(status.question)}</div>` : ''}`;
       if (!status.picker) {
         return `${head}<div class="chat-status-options">${status.options.map((o) => `<button type="button" data-status-text="${escapeHtml(o.key)}"><b>${escapeHtml(o.key)}</b> ${escapeHtml(o.label)}</button>`).join('')}
           <button type="button" data-status-keys="Escape" class="muted">Esc</button></div>`;
       }
       return `${head}<div class="chat-picker">${status.options.map((o) => `<button type="button" class="${o.cursor ? 'on' : ''}" data-status-move="${escapeHtml(o.key)}">
-            <b>${escapeHtml(o.key)}</b><span class="cp-main"><span class="cp-label">${escapeHtml(o.label)}${o.current ? ' <em>사용 중</em>' : ''}</span>${o.desc ? `<span class="cp-desc">${escapeHtml(o.desc)}</span>` : ''}</span>
+            <b>${escapeHtml(o.key)}</b><span class="cp-main"><span class="cp-label">${escapeHtml(o.label)}${o.current ? ` <em>${t('사용 중')}</em>` : ''}</span>${o.desc ? `<span class="cp-desc">${escapeHtml(o.desc)}</span>` : ''}</span>
             ${o.cursor ? '<i class="fas fa-check"></i>' : ''}</button>`).join('')}</div>
-        ${status.effort ? `<div class="chat-picker-effort">${status.effortAdjust ? '<button type="button" data-status-keys="Left" aria-label="추론 수준 낮추기"><i class="fas fa-chevron-left"></i></button>' : ''}
-          <span>${escapeHtml(status.effort)}</span>${status.effortAdjust ? '<button type="button" data-status-keys="Right" aria-label="추론 수준 높이기"><i class="fas fa-chevron-right"></i></button>' : ''}</div>` : ''}
-        <div class="chat-status-options chat-picker-actions"><button type="button" data-status-keys="Escape" class="muted">취소</button>
-          ${status.sessionOnly ? '<button type="button" data-status-text="s">이 세션만</button>' : ''}
-          <button type="button" data-status-keys="Enter" class="primary">${status.sessionOnly ? '기본값으로 적용' : '선택'}</button></div>`;
+        ${status.effort ? `<div class="chat-picker-effort">${status.effortAdjust ? `<button type="button" data-status-keys="Left" aria-label="${t('추론 수준 낮추기')}"><i class="fas fa-chevron-left"></i></button>` : ''}
+          <span>${escapeHtml(status.effort)}</span>${status.effortAdjust ? `<button type="button" data-status-keys="Right" aria-label="${t('추론 수준 높이기')}"><i class="fas fa-chevron-right"></i></button>` : ''}</div>` : ''}
+        <div class="chat-status-options chat-picker-actions"><button type="button" data-status-keys="Escape" class="muted">${t('취소')}</button>
+          ${status.sessionOnly ? `<button type="button" data-status-text="s">${t('이 세션만')}</button>` : ''}
+          <button type="button" data-status-keys="Enter" class="primary">${status.sessionOnly ? t('기본값으로 적용') : t('선택')}</button></div>`;
     }
-    // 카드 버튼 → 보낼 메시지
+    // Card button → the message to send
     function statusMessage(button, status, agent, pane) {
       if (button.dataset.statusMove) {
         const keys = optionKeys(status, button.dataset.statusMove, agent, true);
@@ -4248,15 +4281,15 @@
       if (Array.isArray(data.queued)) { log.queued = data.queued; }
       log.submitted = Array.isArray(data.submitted) ? data.submitted : [];
       const stick = log.follow || logAtBottom();
-      if (data.total < log.total) { loadLatestLog(); return; }  // 세션이 바뀜 (/clear 등)
-      // 그사이 기록이 너무 많이 쌓여 중간이 빠졌으면(백그라운드 · 재연결) 최신부터 다시 — 이전 것은 '더 보기'로
+      if (data.total < log.total) { loadLatestLog(); return; }  // the session changed (/clear, …)
+      // When so much piled up meanwhile that the middle is missing (background · reconnect), start again from the latest — earlier ones via 'show more'
       if (data.items.length && (data.items[0].id > log.total || data.items.at(-1).id + 1 < data.total)) { loadLatestLog(); return; }
       const items = data.items.filter((item) => item.id >= log.start);
       window.UnivDashChatUsage?.logged();
       const hasNew = items.some((item) => !log.rendered.has(item.id));
       if (hasNew) logList.querySelector('.log-empty')?.remove();
       upsertLogItems(items);
-      // 서브에이전트가 끝나면 앞쪽 도구 항목(작업 중 → 완료)도 바뀐다
+      // When a subagent finishes, the earlier tool item changes too (working → done)
       if (Array.isArray(data.related)) upsertLogItems(data.related.filter((item) => log.rendered.has(item.id)));
       log.total = Math.max(log.total, data.total);
       renderPending();
@@ -4265,30 +4298,31 @@
     }
     socket.on('log', (message) => {
       if (message.pane !== state.paneId || modeFor(currentWindow()) !== 'log') return;
-      if (!log.available) { loadLatestLog(); return; }   // 새 세션의 로그가 방금 생겼다
+      if (!log.available) { loadLatestLog(); return; }   // the new session's log was just created
       applyLogData(message);
     });
     logScroll.addEventListener('scroll', () => {
       if (logScroll.scrollTop < 120) loadOlderLog();
-      // 맨 아래(정말 끝)로 돌아오면 다시 최신을 따라간다 (사용자가 올린 경우에만 꺼져 있으므로)
+      // Back at the bottom (the very end), follow the latest again (it is off only when the user scrolled up)
       if (logScroll.scrollHeight - logScroll.scrollTop - logScroll.clientHeight < 4) log.follow = true;
       if (logAtBottom()) jumpBtn.classList.add('hidden');
     }, { passive: true });
-    // ── 자동 스크롤: 사용자가 '일부러' 위로 올릴 때만 멈춘다 ──
-    // 위치(맨 아래인가)로만 판단하면, 새 항목이 나중에 그려지며 커질 때(화면 밖 생략 · 그림 · 수식) 아래에서 밀려나
-    // 다음 갱신부터 따라가지 않는다. 그래서 사용자 입력(휠 · 터치 · 키 · 스크롤 막대)으로만 끈다.
-    // 위로 올리려는 입력이 오면 바로 끈다 (부드러운 스크롤은 몇 프레임 늦게 움직이므로 위치를 기다리지 않는다).
-    // 조금만 올렸다가 다시 끝까지 내리면 위 scroll 처리에서 다시 켜진다.
+    // ── Auto-scroll: stops only when the user scrolls up 'on purpose' ──
+    // Judging by position alone (are we at the bottom?) fails when a new item grows after it is drawn later
+    // (off-screen skipping · images · math): it gets pushed off the bottom and the next update no longer follows.
+    // So following is turned off only by user input (wheel · touch · keys · scrollbar).
+    // Input that tries to go up turns it off right away (smooth scrolling moves a few frames late, so we do not wait for the position).
+    // Scrolling up a little and then back down to the very end turns it on again in the scroll handler above.
     function stopFollow() { log.follow = false; }
     logScroll.addEventListener('wheel', (event) => { if (event.deltaY < 0 && !event.ctrlKey) stopFollow(); }, { passive: true });
     let touchY = null;
     logScroll.addEventListener('touchstart', (event) => { touchY = event.touches[0]?.clientY ?? null; }, { passive: true });
     logScroll.addEventListener('touchmove', (event) => {
       const y = event.touches[0]?.clientY;
-      if (touchY !== null && y !== undefined && y - touchY > 6) stopFollow();   // 손가락을 아래로 = 위 내용을 본다
+      if (touchY !== null && y !== undefined && y - touchY > 6) stopFollow();   // finger moves down = looking at content above
     }, { passive: true });
     logScroll.addEventListener('keydown', (event) => { if (['PageUp', 'ArrowUp', 'Home'].includes(event.key)) stopFollow(); });
-    // 스크롤 막대를 잡고 끄는 경우 (막대는 요소 오른쪽 가장자리)
+    // Dragging the scrollbar (the bar is at the element's right edge)
     logScroll.addEventListener('pointerdown', (event) => {
       if (event.offsetX > logScroll.clientWidth) {
         const top = logScroll.scrollTop;
@@ -4296,7 +4330,7 @@
         window.addEventListener('pointerup', up);
       }
     });
-    // 따라가는 중이면 맨 아래로 (그린 뒤 크기가 바뀌어도 다음 프레임에 한 번 더)
+    // While following, go to the bottom (once more on the next frame in case the size changes after drawing)
     function pinBottom() {
       if (!log.follow) return;
       logScroll.scrollTop = logScroll.scrollHeight;
@@ -4304,7 +4338,7 @@
       pinBottom.raf = requestAnimationFrame(() => { if (log.follow) logScroll.scrollTop = logScroll.scrollHeight; });
     }
     function followBottom() { log.follow = true; jumpBtn.classList.add('hidden'); pinBottom(); }
-    // 내용 크기가 바뀌면(새 항목 · 나중에 그려지는 항목 · 접기/펼치기 · 상태 카드) 따라가는 중일 때만 아래에 붙인다
+    // When the content size changes (new items · items drawn later · collapse/expand · status card), stick to the bottom only while following
     if ('ResizeObserver' in window) {
       const keepPinned = new ResizeObserver(() => { if (log.follow && modeFor(currentWindow()) === 'log') pinBottom(); });
       [logList, $('#chatPending'), chatStatus].forEach((el) => el && keepPinned.observe(el));
@@ -4314,16 +4348,16 @@
       const button = event.target.closest('[data-copy]');
       if (!button) return;
       const entry = log.rendered.get(Number(button.dataset.copy));
-      try { await navigator.clipboard.writeText(entry.item.text); toast('복사했습니다.', 'ok', null, 1200); } catch (e) { toast('복사하지 못했습니다 (HTTPS 에서만 가능).', 'error'); }
+      try { await navigator.clipboard.writeText(entry.item.text); toast(t('복사했습니다.'), 'ok', null, 1200); } catch (e) { toast(t('복사하지 못했습니다 (HTTPS 에서만 가능).'), 'error'); }
     });
 
-    // ── 빠른 문구 & 최근 기록 ──
+    // ── Quick phrases & recent history ──
     function remember(text) {
       const recent = store.get('recent', []).filter((t) => t !== text);
       recent.unshift(text);
       store.set('recent', recent.slice(0, 100));
     }
-    const DEFAULT_SNIPPETS = ['계속 진행해줘', '커밋해줘', '테스트 돌려서 확인해줘', '/compact', '/clear'];
+    const DEFAULT_SNIPPETS = [t('계속 진행해줘'), t('커밋해줘'), t('테스트 돌려서 확인해줘'), '/compact', '/clear'];
     function insertText(text) {
       exitDirect();
       input.value = input.value ? `${input.value}${input.value.endsWith('\n') ? '' : ' '}${text}` : text;
@@ -4336,16 +4370,16 @@
       const rows = (items, removable) => items.map((text, index) => `
           <div class="snippet-row"><button type="button" class="sheet-action" data-text-index="${index}" data-kind="${removable ? 's' : 'r'}">
             <i class="fas ${removable ? 'fa-bolt' : 'fa-clock-rotate-left'} lead"></i><span class="txt">${escapeHtml(text.replace(/\s+/g, ' '))}</span></button>
-            ${removable ? `<button type="button" class="snippet-del" data-del="${index}" aria-label="삭제"><i class="fas fa-xmark"></i></button>` : ''}</div>`).join('');
+            ${removable ? `<button type="button" class="snippet-del" data-del="${index}" aria-label="${t('삭제')}"><i class="fas fa-xmark"></i></button>` : ''}</div>`).join('');
       const label = (text) => `<p class="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider opacity-50">${text}</p>`;
-      openSheet(`${sheetHead('히스토리', '탭하면 입력창에 넣습니다. 길게 눌러 바로 보내기.')}
+      openSheet(`${sheetHead(t('히스토리'), t('탭하면 입력창에 넣습니다. 길게 눌러 바로 보내기.'))}
         <div class="sheet-actions">
-          ${label('최근 보낸 프롬프트')}${recent.length ? rows(recent, false) : '<p class="px-3 py-2 text-xs opacity-60">아직 보낸 프롬프트가 없습니다.</p>'}
-          <div class="sheet-sep"></div>${label('빠른 문구')}
-          ${rows(snippets, true) || '<p class="px-3 py-2 text-xs opacity-60">저장된 문구가 없습니다.</p>'}
-          <button type="button" class="sheet-action" data-add><i class="fas fa-plus lead"></i><span>${input.value.trim() ? '지금 입력한 내용을 문구로 저장' : '새 문구 추가'}</span></button>
+          ${label(t('최근 보낸 프롬프트'))}${recent.length ? rows(recent, false) : `<p class="px-3 py-2 text-xs opacity-60">${t('아직 보낸 프롬프트가 없습니다.')}</p>`}
+          <div class="sheet-sep"></div>${label(t('빠른 문구'))}
+          ${rows(snippets, true) || `<p class="px-3 py-2 text-xs opacity-60">${t('저장된 문구가 없습니다.')}</p>`}
+          <button type="button" class="sheet-action" data-add><i class="fas fa-plus lead"></i><span>${input.value.trim() ? t('지금 입력한 내용을 문구로 저장') : t('새 문구 추가')}</span></button>
         </div>
-        <div class="sheet-buttons"><button type="button" class="sheet-cancel" data-close>닫기</button></div>`, (body) => {
+        <div class="sheet-buttons"><button type="button" class="sheet-cancel" data-close>${t('닫기')}</button></div>`, (body) => {
         body.querySelector('[data-close]').addEventListener('click', closeSheet);
         const textOf = (button) => (button.dataset.kind === 's' ? snippets : recent)[Number(button.dataset.textIndex)];
         body.querySelectorAll('[data-text-index]').forEach((button) => {
@@ -4356,7 +4390,7 @@
           closeSheet();
           if (!state.paneId) return;
           const entry = addSent(text);
-          try { await sendPromptOnce(state.paneId, text); remember(text); toast('보냈습니다.', 'ok', null, 1500); } catch (error) { if (entry) removeSent(entry); toast(error.message, 'error'); }
+          try { await sendPromptOnce(state.paneId, text); remember(text); toast(t('보냈습니다.'), 'ok', null, 1500); } catch (error) { if (entry) removeSent(entry); toast(error.message, 'error'); }
         });
         body.querySelectorAll('[data-del]').forEach((button) => button.addEventListener('click', () => {
           snippets.splice(Number(button.dataset.del), 1);
@@ -4367,15 +4401,15 @@
           const current = input.value.trim();
           if (current) {
             store.set('snippets', [current, ...snippets.filter((s) => s !== current)].slice(0, 30));
-            toast('문구로 저장했습니다.', 'ok', null, 1500);
+            toast(t('문구로 저장했습니다.'), 'ok', null, 1500);
             closeSheet();
             return;
           }
           formSheet({
-            title: '새 문구', fields: [{ name: 'text', label: '문구', placeholder: '예: 변경사항 요약해줘', maxlength: 2000 }], submitLabel: '추가',
+            title: t('새 문구'), fields: [{ name: 'text', label: t('문구'), placeholder: t('예: 변경사항 요약해줘'), maxlength: 2000 }], submitLabel: t('추가'),
             onSubmit(values) {
               const text = values.text.trim();
-              if (!text) throw new Error('문구를 입력하십시오.');
+              if (!text) throw new Error(t('문구를 입력하십시오.'));
               store.set('snippets', [text, ...snippets.filter((s) => s !== text)].slice(0, 30));
             },
           });
@@ -4385,7 +4419,7 @@
     $('#snippetBtn').addEventListener('pointerdown', (event) => event.preventDefault());
     $('#snippetBtn').addEventListener('click', snippetSheet);
 
-    // ── 초기화 ──
+    // ── Initialization ──
     applyView();
     desktopQuery.addEventListener('change', () => {
       if (desktopQuery.matches) document.body.classList.remove('term-open');
@@ -4402,7 +4436,7 @@
       const key = byKey().has(fromHash) ? fromHash : (desktopQuery.matches ? store.get('last-window', null) : null);
       if (key && byKey().has(key)) select(key, { pushHistory: false, keepFile: desktopQuery.matches });
       if (!desktopQuery.matches && fromHash && byKey().has(fromHash)) {
-        // 새로고침으로 들어온 경우에도 뒤로 가기로 목록에 돌아올 수 있게 한다.
+        // Even when arriving via a reload, Back should return to the list.
         replaceHash(null);
         pushHash(fromHash);
       }
@@ -4415,7 +4449,7 @@
         const paneStillThere = w.panes.some((p) => p.id === state.paneId);
         if (!paneStillThere) { state.paneId = pickPane(w); subscribe(); }
         renderHeader();
-        // 에이전트가 켜지거나 꺼지면 채팅/터미널 전환 버튼도 따라 바뀐다
+        // When the agent starts or stops, the Chat/Terminal switch follows
         if ($('#termModes').classList.contains('hidden') === !!agentOf(w)) applyMode();
       }
     }
@@ -4436,7 +4470,7 @@
     }
 
     terminal = { refit };
-    // 라이트 ↔ 다크 전환 시 화면을 새 색으로 다시 그린다
+    // On a light ↔ dark switch, redraw the screen with the new colours
     new MutationObserver(() => {
       const next = document.documentElement.getAttribute('data-ui-theme-mode') === 'light';
       if (next === lightTerm) return;
@@ -4444,7 +4478,7 @@
       adaptCache.clear();
       if (lastScreen) renderScreen(lastScreen);
     }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-ui-theme-mode'] });
-    // 분할 화면의 tmux 패널이 메인과 같은 모양으로 그리도록 공개
+    // Exposed so the tmux panels of the split view render the same way as the main one
     const renderers = {
       logItem(item, agent) { const saved = log.agent; log.agent = agent; const html = logItemHtml(item); log.agent = saved; return html; },
       markFinalAnswers,
@@ -4458,9 +4492,9 @@
 
 
   // ════════════════════════════════════════════════════════════════════
-  // Workspace 보기 전환: 창 · 파일(Explorer)
-  //  - 파일 탭에서 연 파일은 오른쪽(휴대폰은 밀려 들어오는 패널) 터미널 자리에 뜬다.
-  //  - 경로를 선택한 창의 프롬프트에 바로 넣을 수 있다.
+  // Workspace view switch: windows · files (Explorer)
+  //  - A file opened from the Files tab appears on the right (on phones, a sliding panel) in place of the terminal.
+  //  - A path can be inserted straight into the prompt of the selected window.
   // ════════════════════════════════════════════════════════════════════
   const wsFiles = !workspace ? null : (() => {
     const modes = { windows: $('#winMode'), files: $('#fileMode') };
@@ -4476,7 +4510,7 @@
       });
       return tree;
     }
-    // ── 왼쪽 파일 트리 · 창 목록의 선택 = 지금 보고 있는 탭 (분할 화면이면 마지막으로 누른 칸의 탭) ──
+    // ── Selection in the left file tree · window list = the tab being viewed (in a split view, the tab of the last clicked cell) ──
     let lastSidebar = null;
     function focusedTab() {
       const g = focusGroup !== 'main' && isSplit() ? groups[focusGroup] : null;
@@ -4524,18 +4558,18 @@
         viewer = window.UnivDashExplorer.mountViewer(fileView, {
           backAlways: true, hideTabs: true, onInsert: insertPath,
           onTabsChange: () => { syncChip(); renderBar(); },
-          // 마지막 파일 탭을 닫았는데 tmux 탭이 남아 있으면 그쪽으로 (공용 탭바가 전환을 맡음)
+          // If the last file tab was closed while tmux tabs remain, go there (the shared tab bar handles the switch)
           onClose: (info) => { if (info?.reason === 'empty' && orderedTabs().length) { showFileView(false); restoreRight(); } else closeFile(); },
         });
       }
       return viewer;
     }
-    // ── 공용 탭바: tmux 창 탭 + 파일 탭을 한 줄에 (종류는 아이콘 · 색으로 구분) ──
+    // ── Shared tab bar: tmux window tabs + file tabs on one row (kinds are told apart by icon · colour) ──
     const bar = $('#wsTabs');
-    // 분할 화면 상태 (최대 2×2): 칸마다 어느 그룹인지 · 그룹별 탭(순서)과 보고 있는 탭
-    let layout = store.get('ws-layout', null);          // [[tl, tr], [bl, br]] 그룹 id ('main' | 's1' | 's2' | 's3')
+    // Split view state (up to 2×2): which group each cell belongs to · per-group tabs (order) and the tab being viewed
+    let layout = store.get('ws-layout', null);          // [[tl, tr], [bl, br]] group ids ('main' | 's1' | 's2' | 's3')
     let groupState = store.get('ws-groups', {});         // { s1: { items: [...], active } }
-    const groups = {};                                   // 화면에 만든 두 번째 이후 그룹들
+    const groups = {};                                   // groups after the first one, created on screen
     let focusGroup = 'main';
     let tabOrder = store.get('ws-tab-order', []).filter((id) => typeof id === 'string');
     let lastActive = null;
@@ -4556,19 +4590,19 @@
     function orderedTabs() {
       const tabs = currentTabs();
       const ids = new Set(tabs.map((t) => t.id));
-      // 아직 불러오지 않은 쪽(창 목록 · 파일 뷰어)의 탭은 자리를 지킨다 (로딩 중에 순서가 흐트러지지 않게)
+      // Tabs of a side not loaded yet (window list · file viewer) keep their place (so the order is not scrambled while loading)
       const loaded = (id) => (id.startsWith('term:') ? state.windows.length > 0 : id.startsWith('pty:') ? ptyLoaded : !!viewer);
       const next = tabOrder.filter((id) => ids.has(id) || !loaded(id));
       for (const tab of tabs) {
         if (next.includes(tab.id)) continue;
-        const at = next.indexOf(lastActive);   // 새 탭은 보고 있던 탭 오른쪽에
+        const at = next.indexOf(lastActive);   // a new tab goes to the right of the tab being viewed
         next.splice(at < 0 ? next.length : at + 1, 0, tab.id);
       }
       if (next.join('\n') !== tabOrder.join('\n')) { tabOrder = next; store.set('ws-tab-order', tabOrder); }
       const byId = new Map(tabs.map((t) => [t.id, t]));
       return next.filter((id) => byId.has(id)).map((id) => byId.get(id));
     }
-    // 두 번째 그룹(분할)으로 옮긴 tmux · Terminal 탭은 메인 탭바에서 뺀다 (파일은 그룹마다 뷰어가 따로)
+    // tmux · Terminal tabs moved to a second group (split) are left out of the main tab bar (files have a separate viewer per group)
     const inSide = (id) => Object.values(groups).some((g) => g.items.includes(id));
     function mainTabs() { return orderedTabs().filter((t) => !inSide(t.id)); }
     function renderBar() {
@@ -4578,31 +4612,31 @@
       bar.classList.toggle('hidden', !tabs.length && !isSplit() && !SOLO);
       $('#termPane').classList.toggle('has-tabs', tabs.length > 0 || SOLO);
       bar.innerHTML = tabs.map((t) => tabHtml(t, t.id === active)).join('') + (SOLO ? soloBarHtml() : '')
-        + (tabs.length > 1 ? '<button type="button" class="wt-close-all" data-close-all title="탭 모두 닫기" aria-label="탭 모두 닫기"><i class="fas fa-rectangle-xmark"></i><span>모두 닫기</span></button>' : '');
+        + (tabs.length > 1 ? `<button type="button" class="wt-close-all" data-close-all title="${t('탭 모두 닫기')}" aria-label="${t('탭 모두 닫기')}"><i class="fas fa-rectangle-xmark"></i><span>${t('모두 닫기')}</span></button>` : '');
       if (SOLO) soloSync(tabs, active);
       lastActive = active;
       bar.querySelector('.wt.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       syncSidebar();
     }
-    function tabHtml(t, on) {
+    function tabHtml(tab, on) {
       {
-        const close = (label) => `<button type="button" class="wt-close" data-close aria-label="${escapeHtml(label)} 탭 닫기"><i class="fas fa-xmark"></i></button>`;
-        if (t.type === 'term') {
-          const w = t.w;
+        const close = (label) => `<button type="button" class="wt-close" data-close aria-label="${t('{name} 탭 닫기', { name: escapeHtml(label) })}"><i class="fas fa-xmark"></i></button>`;
+        if (tab.type === 'term') {
+          const w = tab.w;
           const unread = !isWindowVisible(w.key) && unreadActivity(w) > (state.seen[w.key] || 0);
-          return `<div class="wt wt-term ${on ? 'active' : ''}" role="tab" aria-selected="${on}" data-id="${escapeHtml(t.id)}" title="${escapeHtml(`tmux 세션 · ${w.session}:${w.index} · ${w.path}`)}">
+          return `<div class="wt wt-term ${on ? 'active' : ''}" role="tab" aria-selected="${on}" data-id="${escapeHtml(tab.id)}" title="${escapeHtml(t('tmux 세션 · {session}:{index} · {path}', { session: w.session, index: w.index, path: w.path }))}">
               <span class="wt-kind" aria-label="tmux"><i class="fas fa-terminal"></i></span><span class="status-dot ${w.status}"></span>
               <span class="wt-name">${escapeHtml(displayName(w))}</span>${unread ? '<span class="tt-unread"></span>' : ''}${close(displayName(w))}</div>`;
         }
-        if (t.type === 'pty') {
-          const name = ptyName(t.p);
-          return `<div class="wt wt-pty ${on ? 'active' : ''} ${t.p.dead ? 'dead' : ''}" role="tab" aria-selected="${on}" data-id="${escapeHtml(t.id)}" title="${escapeHtml(`Terminal · ${t.p.cwd}`)}">
+        if (tab.type === 'pty') {
+          const name = ptyName(tab.p);
+          return `<div class="wt wt-pty ${on ? 'active' : ''} ${tab.p.dead ? 'dead' : ''}" role="tab" aria-selected="${on}" data-id="${escapeHtml(tab.id)}" title="${escapeHtml(`Terminal · ${tab.p.cwd}`)}">
               <span class="wt-kind pty" aria-label="Terminal">$</span><span class="wt-name">${escapeHtml(name)}</span>${close(name)}</div>`;
         }
         const anyViewer = viewer || Object.values(groups).find((g) => g.viewer)?.viewer;
-        const icon = anyViewer?.iconFor(t.tab) || '<i class="far fa-file"></i>';
-        return `<div class="wt wt-file ${on ? 'active' : ''}" role="tab" aria-selected="${on}" data-id="${escapeHtml(t.id)}" title="${escapeHtml(`파일 · ${t.path}`)}">
-            ${icon}<span class="wt-name">${t.tab.dirty ? '<b class="exv-dirty">●</b>' : ''}${escapeHtml(t.tab.name)}</span>${close(t.tab.name)}</div>`;
+        const icon = anyViewer?.iconFor(tab.tab) || '<i class="far fa-file"></i>';
+        return `<div class="wt wt-file ${on ? 'active' : ''}" role="tab" aria-selected="${on}" data-id="${escapeHtml(tab.id)}" title="${escapeHtml(t('파일 · {path}', { path: tab.path }))}">
+            ${icon}<span class="wt-name">${tab.tab.dirty ? '<b class="exv-dirty">●</b>' : ''}${escapeHtml(tab.tab.name)}</span>${close(tab.tab.name)}</div>`;
       }
     }
     function activate(tab) {
@@ -4618,29 +4652,29 @@
       const tab = tabs[index];
       const neighbour = id === activeId() ? (tabs[index + 1] || tabs[index - 1]) : null;
       if (tab.type === 'file' && tab.tab.dirty) {
-        if (!(await viewer.closeTab(tab.path))) return;          // 저장 안 한 변경: 확인 후 닫기
+        if (!(await viewer.closeTab(tab.path))) return;          // unsaved changes: close after confirming
         if (neighbour) activate(neighbour);
       } else {
-        if (neighbour) activate(neighbour);                        // 먼저 옆 탭으로 넘어간 뒤 닫는다
+        if (neighbour) activate(neighbour);                        // move to the neighbouring tab first, then close
         if (tab.type === 'file') await viewer.closeTab(tab.path);
         else if (tab.type === 'pty') closePty(tab.ptyId, { hasNeighbour: !!neighbour, keep });
         else workspace.termTabs.close(tab.key);
       }
       renderBar();
     }
-    // 탭 모두 닫기: tmux 창은 탭만 닫히고(창은 계속 실행), Terminal 탭은 셸이 끝난다 → 닫기 전에 알린다
+    // Close all tabs: for tmux windows only the tab closes (the window keeps running), for Terminal tabs the shell ends → tell the user before closing
     async function closeAllTabs() {
       const tabs = mainTabs();
       if (!tabs.length) return;
       const shells = tabs.filter((t) => t.type === 'pty').length;
       const windows = tabs.filter((t) => t.type === 'term').length;
       const notes = [];
-      if (windows) notes.push(`tmux 창 ${windows}개는 탭만 닫히며 창은 계속 실행됩니다.`);
-      if (shells) notes.push(`Terminal 탭 ${shells}개는 셸이 종료됩니다.`);
-      if (tabs.some((t) => t.type === 'file' && t.tab.dirty)) notes.push('저장하지 않은 파일은 하나씩 확인합니다.');
-      const ok = await confirmSheet({ title: '탭 모두 닫기', message: `열린 탭 ${tabs.length}개를 모두 닫습니다.${notes.length ? `\n${notes.join('\n')}` : ''}`, confirmLabel: '모두 닫기', danger: shells > 0 });
+      if (windows) notes.push(t('tmux 창 {count}개는 탭만 닫히며 창은 계속 실행됩니다.', { count: windows }));
+      if (shells) notes.push(t('Terminal 탭 {count}개는 셸이 종료됩니다.', { count: shells }));
+      if (tabs.some((tab) => tab.type === 'file' && tab.tab.dirty)) notes.push(t('저장하지 않은 파일은 하나씩 확인합니다.'));
+      const ok = await confirmSheet({ title: t('탭 모두 닫기'), message: `${t('열린 탭 {count}개를 모두 닫습니다.', { count: tabs.length })}${notes.length ? `\n${notes.join('\n')}` : ''}`, confirmLabel: t('모두 닫기'), danger: shells > 0 });
       if (!ok) return;
-      // 지금 보고 있는 탭을 마지막에 닫아야 닫는 동안 옆 탭으로 화면이 여러 번 바뀌지 않는다
+      // Close the tab being viewed last, so the screen does not switch to neighbouring tabs several times while closing
       const active = activeId();
       for (const tab of [...tabs.filter((t) => t.id !== active), ...tabs.filter((t) => t.id === active)]) {
         await closeTab(tab.id);
@@ -4663,8 +4697,8 @@
     });
     workspace.termTabs.onChange(() => { renderBar(); renderGroups(); });
 
-    // ── Terminal (tmux 아님) ─────────────────────────────────────────
-    // 셸은 서버에 살아 있어 새로고침해도 다시 붙는다. 탭을 닫으면(×) 셸도 바로 끝난다.
+    // ── Terminal (not tmux) ─────────────────────────────────────────
+    // The shell lives on the server, so it reattaches after a reload. Closing the tab (×) ends the shell right away.
     const ptyView = $('#ptyView');
     const ptyHost = $('#ptyHost');
     const ptys = new Map();   // id → { id, cwd, title, dead, client }
@@ -4714,7 +4748,7 @@
         try { window.history.pushState({ ptyTab: id }, ''); } catch (e) { /* noop */ }
       }
       const client = ensureClient(p);
-      if (client && client.el.parentElement !== ptyHost) ptyHost.appendChild(client.el);   // 두 번째 그룹에서 돌아온 경우
+      if (client && client.el.parentElement !== ptyHost) ptyHost.appendChild(client.el);   // coming back from a second group
       ptys.forEach((other) => { if (!inSide(ptyId(other.id))) other.client?.el.classList.toggle('hidden', other.id !== id); });
       $('#ptyTitle').textContent = ptyName(p);
       $('#ptyCwd').textContent = p.cwd;
@@ -4744,7 +4778,7 @@
       ptys.delete(id);
       savePtyTabs();
       p.client?.dispose();
-      if (!keep) window.UnivDashPty?.kill(id);         // 탭을 닫으면 셸도 끝낸다 (새 창으로 옮길 때는 그대로 둔다)
+      if (!keep) window.UnivDashPty?.kill(id);         // closing the tab ends the shell too (left alone when moving to a new window)
       if (activePty === id) {
         activePty = null;
         if (!hasNeighbour) leavePty();
@@ -4765,7 +4799,7 @@
         if (key && p?.client) { vibrate(6); p.client.sendKeys(window.UnivDashPty.KEYS[key]); }
       });
     }
-    // 시작: 서버에 살아 있는 터미널 중 이 기기에서 열어 둔 것만 탭으로 되살린다
+    // Start-up: of the terminals alive on the server, restore as tabs only the ones opened on this device
     async function restorePtys() {
       if (!window.UnivDashPty) { ptyLoaded = true; return; }
       const mine = new Set(store.get('pty-tabs', []));
@@ -4786,8 +4820,8 @@
       }
     }
     window.UnivDashWs = { ...(window.UnivDashWs || {}), newTerminal };
-    // 단축키 (keys.js · 기본: w 지금 탭 닫기 · 1~9 N번째 탭 · ←/→ 이전/다음 탭)
-    // 분할 중이면 마지막으로 누른 그룹에 적용
+    // Shortcuts (keys.js · defaults: w close current tab · 1~9 Nth tab · ←/→ previous/next tab)
+    // While split, they apply to the last clicked group
     function tabContext() {
       const g = focusGroup !== 'main' && isSplit() ? groups[focusGroup] : null;
       const tabs = g ? tabsOf(g) : mainTabs();
@@ -4816,17 +4850,17 @@
     }));
 
     // ════════════════════════════════════════════════════════════════
-    // 분할 화면 (최대 2×2 · 4개, VS Code 처럼): 탭을 끌어 어떤 그룹의 가장자리에 놓으면 그 그룹 영역을 반으로 나눈다.
-    //  - 배치는 2×2 칸 표(layout)로 저장: 칸마다 그룹 id. 그룹을 없애면 이웃 그룹이 그 칸을 넘겨받는다.
-    //  - 메인 그룹은 기존 화면(전체 기능), 나머지 그룹은 파일 뷰어 · Terminal · tmux 실시간 화면(+빠른 입력).
-    //  - 좌우 사이드바와는 무관하게 가운데 편집 영역 안에서만 나뉜다.
+    // Split view (up to 2×2 · 4 groups, like VS Code): dragging a tab onto the edge of a group splits that group's area in half.
+    //  - The arrangement is stored as a 2×2 cell table (layout): a group id per cell. When a group is removed, a neighbouring group takes over its cells.
+    //  - The main group is the existing screen (all features); the other groups are a file viewer · Terminal · live tmux screen (+ quick input).
+    //  - Only the central editor area is split, regardless of the left/right sidebars.
     // ════════════════════════════════════════════════════════════════
     const editorArea = $('#editorArea');
     const GROUP_IDS = ['s1', 's2', 's3'];
     const sfileId = (path) => `sfile:${path}`;
     const FULL = () => [['main', 'main'], ['main', 'main']];
     if (!Array.isArray(layout) || layout.length !== 2) layout = FULL();
-    // 예전 한 칸 분할(ws-split) 상태를 새 형식으로 옮긴다
+    // Migrate the old single-split (ws-split) state to the new format
     (() => {
       const old = store.get('ws-split', null);
       const items = store.get('ws-side-items', []);
@@ -4859,29 +4893,33 @@
       const cells = cellsOf(id);
       const rows = new Set(cells.map(([r]) => r));
       const cols = new Set(cells.map(([, c]) => c));
-      const v = rows.size === 2 ? '' : rows.has(0) ? '위' : '아래';
-      const h = cols.size === 2 ? '' : cols.has(0) ? '왼쪽' : '오른쪽';
-      return `${h} ${v}`.trim() || '전체';
+      const v = rows.size === 2 ? '' : rows.has(0) ? 'top' : 'bottom';
+      const h = cols.size === 2 ? '' : cols.has(0) ? 'left' : 'right';
+      const labels = {
+        'left top': t('왼쪽 위'), 'left bottom': t('왼쪽 아래'), 'right top': t('오른쪽 위'), 'right bottom': t('오른쪽 아래'),
+        left: t('왼쪽'), right: t('오른쪽'), top: t('위'), bottom: t('아래'),
+      };
+      return labels[`${h} ${v}`.trim()] || t('전체');
     }
 
-    // ── 그룹 만들기 · 없애기 ──
+    // ── Creating · removing groups ──
     function createGroup(id) {
       if (groups[id]) return groups[id];
       const el = document.createElement('section');
       el.className = 'side-pane';
       el.dataset.group = id;
       el.style.gridArea = id;
-      el.setAttribute('aria-label', '분할 화면');
+      el.setAttribute('aria-label', t('분할 화면'));
       el.innerHTML = `
         <div class="side-bar">
           <div class="ws-tabbar no-scrollbar" role="tablist"></div>
-          <button type="button" class="side-bar-btn" data-g-close title="이 분할 닫기 (탭은 메인 그룹으로)" aria-label="분할 닫기"><i class="fas fa-xmark"></i></button>
+          <button type="button" class="side-bar-btn" data-g-close title="${t('이 분할 닫기 (탭은 메인 그룹으로)')}" aria-label="${t('분할 닫기')}"><i class="fas fa-xmark"></i></button>
         </div>
         <div class="side-host">
           <div class="side-view g-file hidden"></div>
           <div class="side-view g-pty pty-host hidden"></div>
           <div class="side-view g-mirror hidden"></div>
-          <div class="side-view side-empty"><i class="fas fa-table-columns"></i><p>탭을 여기로 끌어다 놓으십시오.</p></div>
+          <div class="side-view side-empty"><i class="fas fa-table-columns"></i><p>${t('탭을 여기로 끌어다 놓으십시오.')}</p></div>
         </div>`;
       editorArea.insertBefore(el, $('#dropZones'));
       const saved = groupState[id] || {};
@@ -4903,7 +4941,7 @@
       if (window.Sortable) sortableFor(g.bar, id);
       return g;
     }
-    // 그룹을 없애고 그 칸을 직사각형이 되는 이웃 그룹에게 넘긴다
+    // Remove a group and hand its cells to a neighbouring group that stays rectangular
     function removeGroup(id) {
       const cells = cellsOf(id);
       const others = layoutIds().filter((x) => x !== id);
@@ -4929,7 +4967,7 @@
       requestAnimationFrame(() => terminal?.refit());
     }
 
-    // ── 그룹의 탭 ──
+    // ── Tabs of a group ──
     function ensureGroupViewer(g) {
       if (!g.viewer && window.UnivDashExplorer) {
         g.viewer = window.UnivDashExplorer.mountViewer(g.el.querySelector('.g-file'), {
@@ -4967,10 +5005,10 @@
     function renderGroup(g) {
       const tabs = tabsOf(g);
       const activeTerm = tabs.find((t) => t.id === g.active && t.type === 'term');
-      if (activeTerm && g.mirror?.key === activeTerm.key) g.mirror.update(activeTerm.w);   // 상태 점 · 제목 갱신
+      if (activeTerm && g.mirror?.key === activeTerm.key) g.mirror.update(activeTerm.w);   // refresh status dot · title
       g.bar.innerHTML = tabs.map((t) => tabHtml(t, t.id === g.active)).join('');
       if (!g.el.isConnected || !isSplit()) return;
-      if (!sourcesLoaded(g.active)) return;                 // 새로고침 직후: 불러온 뒤에 연다
+      if (!sourcesLoaded(g.active)) return;                 // right after a reload: open once loaded
       if (!tabs.some((t) => t.id === g.active)) g.active = tabs[0]?.id || null;
       if (!g.active) { hideGroupViews(g); g.el.querySelector('.side-empty').classList.remove('hidden'); g.shown = null; return; }
       if (g.shown !== g.active) showIn(g, g.active);
@@ -4979,15 +5017,15 @@
       Object.values(groups).forEach((g) => renderGroup(g));
       applyLayout();
       queueCollapse();
-      // 모바일에서 데스크톱 분할로 돌아오거나 배치를 복원할 때도 보이는 창을 읽음 처리한다.
+      // Also mark visible windows as read when returning from mobile to the desktop split or restoring the layout.
       Object.values(groups).forEach((g) => {
         const key = g.mirror?.key;
         const w = key && byKey().get(key);
         if (w && isWindowVisible(key)) markSeen(key, unreadActivity(w));
       });
     }
-    // ── 빈 칸은 두지 않는다: 탭이 없는 그룹은 없애고, 메인이 비면 이웃 그룹이 메인 자리로 온다 ──
-    // 창 하나만 남으면 자연히 전체 화면이 된다. 탭을 옮기는 도중(잠깐 비어 있음)과 불러오는 중에는 건드리지 않는다.
+    // ── No empty cells: a group without tabs is removed, and when main is empty a neighbouring group takes main's place ──
+    // With a single pane left it naturally becomes full screen. Nothing is touched while a tab is being moved (briefly empty) or while loading.
     let layoutBusy = 0;
     let collapsing = false;
     let collapseQueued = false;
@@ -5001,9 +5039,9 @@
       setTimeout(() => { collapseQueued = false; collapseEmptyGroups(); });
     }
     const groupIsEmpty = (g) => !(g.items.some((id) => id.startsWith('sfile:')) && !g.viewer) && !tabsOf(g).length;
-    // 메인 파일 탭은 뷰어를 연 뒤에야 보이므로 뷰어가 없을 때 저장된 파일 탭이 있으면 비었다고 보지 않는다
+    // Main file tabs only show up after the viewer is opened, so with no viewer and saved file tabs main is not considered empty
     const mainIsEmpty = () => !mainTabs().length && (viewer || !tabOrder.some((id) => id.startsWith('file:')));
-    // 메인과 합쳐도 직사각형이 되는 그룹이어야 나머지 배치가 깨지지 않는다
+    // It must be a group that still forms a rectangle when merged with main, or the rest of the layout breaks
     function groupForMain() {
       const main = cellsOf('main');
       return Object.values(groups).find((g) => {
@@ -5033,7 +5071,7 @@
       }
       if (changed) { if (!groups[focusGroup]) focusGroup = 'main'; renderBar(); renderGroups(); }
     }
-    setInterval(collapseEmptyGroups, 2000);   // 창이 밖에서 닫힌 경우도 놓치지 않게
+    setInterval(collapseEmptyGroups, 2000);   // so windows closed from outside are not missed either
     function hideGroupViews(g) { g.el.querySelectorAll('.side-view').forEach((el) => el.classList.add('hidden')); }
     function showIn(g, id) {
       const tab = tabsOf(g).find((t) => t.id === id);
@@ -5062,18 +5100,18 @@
       syncSidebar();
     }
 
-    // ── 탭 옮기기: from/to 는 'main' 또는 그룹 id ──
+    // ── Moving tabs: from/to is 'main' or a group id ──
     const findTab = (from, id) => (from === 'main' ? mainTabs() : tabsOf(groups[from] || { items: [] })).find((t) => t.id === id);
     function moveTab(tab, from, to, options) { return whileMoving(() => moveTabNow(tab, from, to, options)); }
     async function moveTabNow(tab, from, to, { show = true } = {}) {
       if (!tab || from === to) return;
       const entry = tab.type === 'file' ? { path: tab.path, name: tab.tab.name, ext: tab.tab.ext, type: 'file' } : null;
-      // 1) 원래 그룹에서 빼기 (보고 있던 탭이면 옆 탭으로)
+      // 1) Take it out of the original group (if it was the viewed tab, go to the neighbouring tab)
       if (from === 'main') {
         const mains = mainTabs();
         const index = mains.findIndex((t) => t.id === tab.id);
         const neighbour = tab.id === activeId() ? (mains[index + 1] || mains[index - 1]) : null;
-        if (tab.type !== 'file' && to !== 'main') groups[to]?.items.push(tab.id);   // 메인 목록에서 먼저 빠지게
+        if (tab.type !== 'file' && to !== 'main') groups[to]?.items.push(tab.id);   // so it leaves the main list first
         if (neighbour) activate(neighbour);
         if (tab.type === 'term') workspace.termTabs.close(tab.key, { activateNext: false });
         else if (tab.type === 'pty') { if (activePty === tab.ptyId) { activePty = null; if (!neighbour) leavePty(); } }
@@ -5087,7 +5125,7 @@
         if (tab.type === 'term' && g.mirror?.key === tab.key) g.mirror.stop();
         if (tab.type === 'file') await g.viewer.forget(tab.path);
       }
-      // 2) 새 그룹에 넣기
+      // 2) Put it into the new group
       if (to === 'main') {
         if (tab.type === 'term') { if (show) workspace.select(tab.key, { pushHistory: false }); else workspace.termTabs.add(tab.key); }
         else if (tab.type === 'pty') { if (tab.p.client) ptyHost.appendChild(tab.p.client.el); if (show) showPty(tab.ptyId); }
@@ -5099,18 +5137,18 @@
         if (tab.type === 'file') { ensureGroupViewer(g); if (show) g.viewer.open(entry); else g.viewer.add(entry); }
         if (show || !g.active) { g.active = id; g.shown = null; }
       }
-      // 3) 빈 그룹은 없앤다
+      // 3) Remove an empty group
       if (from !== 'main' && groups[from] && !groups[from].items.length) removeGroup(from);
       saveLayout();
       renderBar();
       renderGroups();
     }
-    // target 그룹의 edge 쪽 반을 새 그룹으로 나누고 탭을 옮긴다
-    // target 그룹 영역의 edge 쪽 반에 새 그룹을 만든다 (만든 그룹 id, 못 만들면 null)
+    // Split the edge-side half of the target group into a new group and move the tab there
+    // Create a new group in the edge-side half of the target group's area (returns the new group id, or null if it cannot be made)
     function makeGroupAt(target, edge) {
       if (!desktopQuery.matches || !canSplit(target, edge)) return null;
       const id = GROUP_IDS.find((x) => !layoutIds().includes(x));
-      if (!id) { toast('최대 4개까지 나눌 수 있습니다.', 'info'); return null; }
+      if (!id) { toast(t('최대 4개까지 나눌 수 있습니다.'), 'info'); return null; }
       cellsOf(target).forEach(([r, c]) => {
         const side = edge === 'left' ? c === 0 : edge === 'right' ? c === 1 : edge === 'top' ? r === 0 : r === 1;
         if (side) layout[r][c] = id;
@@ -5121,13 +5159,13 @@
       return id;
     }
     async function splitWith(tab, from, target, edge) {
-      if (from === target && from !== 'main' && tabsOf(groups[from]).length <= 1) return;   // 하나뿐인 탭을 자기 가장자리로: 의미 없음
+      if (from === target && from !== 'main' && tabsOf(groups[from]).length <= 1) return;   // the only tab onto its own edge: pointless
       await whileMoving(async () => {
         const id = makeGroupAt(target, edge);
         if (id) await moveTab(tab, from, id);
       });
     }
-    // 파일을 어느 그룹에서 열기 (탐색기에서 끌어 온 파일)
+    // Open a file in a given group (a file dragged from the explorer)
     function openFileIn(group, entry) {
       if (group === 'main' || !groups[group]) { openFile(entry); focusGroup = 'main'; return; }
       const g = groups[group];
@@ -5165,7 +5203,7 @@
         renderGroups();
       });
     }
-    // 새로고침 뒤: 저장된 배치대로 그룹을 다시 만든다
+    // After a reload: recreate the groups from the saved layout
     function restoreGroups() {
       layoutIds().filter((id) => id !== 'main').forEach((id) => {
         const g = createGroup(id);
@@ -5177,36 +5215,36 @@
     $('#termPane')?.addEventListener('pointerdown', () => { focusGroup = 'main'; setTimeout(syncSidebar); }, true);
     desktopQuery.addEventListener('change', () => { renderBar(); renderGroups(); });
 
-    // ── 탭 오른쪽 클릭: 분할 · 옮기기 ──
+    // ── Tab right-click: split · move ──
     function tabMenu(event, group) {
       const el = event.target.closest('.wt');
       if (!el || !desktopQuery.matches) return;
       event.preventDefault();
       const tab = findTab(group, el.dataset.id);
       if (!tab) return;
-      const splits = [['right', '오른쪽으로 분할', 'fa-table-columns'], ['left', '왼쪽으로 분할', 'fa-table-columns'], ['bottom', '아래로 분할', 'fa-table-cells-large'], ['top', '위로 분할', 'fa-table-cells-large']]
+      const splits = [['right', t('오른쪽으로 분할'), 'fa-table-columns'], ['left', t('왼쪽으로 분할'), 'fa-table-columns'], ['bottom', t('아래로 분할'), 'fa-table-cells-large'], ['top', t('위로 분할'), 'fa-table-cells-large']]
         .filter(([edge]) => canSplit(group, edge) && layoutIds().length < 4)
         .map(([edge, label, icon]) => ({ icon, label, onClick: () => splitWith(tab, group, group, edge) }));
       const moves = layoutIds().filter((id) => id !== group).map((id) => ({
-        icon: 'fa-arrow-right-to-bracket', label: `${id === 'main' ? '메인 그룹' : '분할'} (${positionLabel(id)})으로 옮기기`, onClick: () => moveTab(tab, group, id),
+        icon: 'fa-arrow-right-to-bracket', label: id === 'main' ? t('메인 그룹 ({position})으로 옮기기', { position: positionLabel(id) }) : t('분할 ({position})으로 옮기기', { position: positionLabel(id) }), onClick: () => moveTab(tab, group, id),
       }));
-      const pops = [{ icon: 'fa-up-right-from-square', label: '새 창으로 띄우기', desc: '팝업 창으로 떼어 내서 다른 모니터에 두고 쓸 수 있습니다', onClick: () => popOut(tab, group) }];
-      if (window.screen?.isExtended && 'getScreenDetails' in window) pops.push({ icon: 'fa-display', label: '다른 모니터에 띄우기', onClick: () => popOut(tab, group, { otherScreen: true }) });
+      const pops = [{ icon: 'fa-up-right-from-square', label: t('새 창으로 띄우기'), desc: t('팝업 창으로 떼어 내서 다른 모니터에 두고 쓸 수 있습니다'), onClick: () => popOut(tab, group) }];
+      if (window.screen?.isExtended && 'getScreenDetails' in window) pops.push({ icon: 'fa-display', label: t('다른 모니터에 띄우기'), onClick: () => popOut(tab, group, { otherScreen: true }) });
       actionSheet({
-        title: el.querySelector('.wt-name')?.textContent || '탭',
+        title: el.querySelector('.wt-name')?.textContent || t('탭'),
         actions: [
           ...pops, 'sep',
           ...splits, ...(splits.length && moves.length ? ['sep'] : []), ...moves, 'sep',
-          { icon: 'fa-xmark', label: '닫기', onClick: () => (group === 'main' ? closeTab(tab.id) : closeTabIn(groups[group], tab.id)) },
-          ...(group !== 'main' ? [{ icon: 'fa-table-columns', label: '이 분할 닫기', onClick: () => closeGroup(group) }] : []),
+          { icon: 'fa-xmark', label: t('닫기'), onClick: () => (group === 'main' ? closeTab(tab.id) : closeTabIn(groups[group], tab.id)) },
+          ...(group !== 'main' ? [{ icon: 'fa-table-columns', label: t('이 분할 닫기'), onClick: () => closeGroup(group) }] : []),
         ],
       });
     }
     bar?.addEventListener('contextmenu', (event) => tabMenu(event, 'main'));
 
-    // ── 새 창으로 띄우기: 탭 하나만 보이는 팝업 창 (/?solo=…). 다른 모니터로 끌어다 두고 쓴다 ──
-    // tmux 창 · Terminal 셸은 서버에 그대로 살아 있고, 새 창이 같은 것에 붙는다. 이 창에서는 탭을 뺀다.
-    // 팝업의 '메인 창으로' 를 누르거나, Terminal 팝업을 그냥 닫으면 이 창으로 돌아온다.
+    // ── Pop out to a new window: a popup window showing a single tab (/?solo=…). Drag it to another monitor and use it there ──
+    // The tmux window · Terminal shell stays alive on the server and the new window attaches to the same one. The tab is removed from this window.
+    // Pressing 'Back to main window' in the popup, or simply closing a Terminal popup, brings it back to this window.
     const SOLO_CHANNEL = 'univdash-solo';
     let screenDetails = null;
     const tabInfo = (tab) => (tab.type === 'term' ? { type: 'term', key: tab.key }
@@ -5225,9 +5263,9 @@
       return `univdash-solo-${(h >>> 0).toString(36)}`;
     }
     const onScreen = (sc, p) => p.x >= sc.left && p.x < sc.left + sc.width && p.y >= sc.top && p.y < sc.top + sc.height;
-    // 화면 좌표 p 가 있는 모니터 (모르면 null → 브라우저에 맡긴다).
-    // 끌어 놓기 중에는 권한 창을 띄우지 않는다: 기다리는 사이 클릭 직후에만 허용되는 팝업이 막히기 때문.
-    // 권한이 아직 없으면 needScreenAccess 를 켜 두고, 띄운 뒤 안내의 [허용] 버튼(새 클릭)으로 받는다.
+    // The monitor containing screen coordinate p (null when unknown → leave it to the browser).
+    // No permission prompt during drag and drop: while waiting, the popup that is only allowed right after a click would be blocked.
+    // If permission is not granted yet, needScreenAccess is set and it is requested after opening via the notice's [Allow] button (a new click).
     let needScreenAccess = false;
     async function screenAt(p) {
       const here = window.screen;
@@ -5253,22 +5291,22 @@
         const h = Math.min(height, sc.availHeight);
         win.moveTo(Math.min(Math.max(p.x - 120, sc.availLeft), sc.availLeft + sc.availWidth - w), Math.min(Math.max(p.y - 20, sc.availTop), sc.availTop + sc.availHeight - h));
         win.resizeTo(w, h);
-        toast('놓은 모니터로 옮겼습니다. 다음부터는 바로 그 모니터에 표시됩니다.', 'success', 2600);
+        toast(t('놓은 모니터로 옮겼습니다. 다음부터는 바로 그 모니터에 표시됩니다.'), 'success', 2600);
       } catch (e) {
-        toast('창 관리 권한이 없어 이 모니터에 띄웠습니다. 주소창 왼쪽 사이트 설정에서 \'창 관리\'를 허용하면 놓은 모니터에 표시됩니다.', 'info', 6000);
+        toast(t('창 관리 권한이 없어 이 모니터에 띄웠습니다. 주소창 왼쪽 사이트 설정에서 \'창 관리\'를 허용하면 놓은 모니터에 표시됩니다.'), 'info', 6000);
       }
     }
     async function popOut(tab, group, { otherScreen = false, at = null } = {}) {
       if (!tab) return;
-      if (tab.type === 'file' && tab.tab?.dirty) { toast('저장하지 않은 변경이 있습니다. 저장한 뒤 새 창으로 띄워 주십시오.', 'error'); return; }
+      if (tab.type === 'file' && tab.tab?.dirty) { toast(t('저장하지 않은 변경이 있습니다. 저장한 뒤 새 창으로 띄워 주십시오.'), 'error'); return; }
       const info = tabInfo(tab);
       const pane = (group === 'main' ? $('#termPane') : groups[group]?.el)?.getBoundingClientRect();
       let width = Math.round(Math.min(window.screen.availWidth, Math.max(1100, pane?.width || 1100)));
       let height = Math.round(Math.min(window.screen.availHeight, Math.max(520, (pane?.height || 760) + 40)));
-      let left = at ? Math.round(at.x - 120) : window.screenX + 48;   // at: 탭을 끌어 놓은 화면 위치
+      let left = at ? Math.round(at.x - 120) : window.screenX + 48;   // at: screen position where the tab was dropped
       let top = at ? Math.round(at.y - 20) : window.screenY + 48;
-      // 놓은 곳이 이 창이 있는 모니터가 아니면 (보조 모니터의 창 → 주 모니터 등) 그 모니터를 찾아 그 안에 띄운다.
-      // 브라우저는 '창 관리' 권한이 없으면 팝업을 지금 모니터 안으로 끌어오므로 권한을 받아 모니터 정보를 쓴다.
+      // If the drop point is not on this window's monitor (window on a secondary monitor → primary monitor, etc.), find that monitor and open inside it.
+      // Without the 'window management' permission the browser pulls the popup into the current monitor, so we get the permission and use the monitor info.
       needScreenAccess = false;
       if (at && !otherScreen) {
         const target = await screenAt(at);
@@ -5281,20 +5319,20 @@
       }
       if (otherScreen) {
         try {
-          screenDetails = screenDetails || await window.getScreenDetails();   // 처음 한 번 '창 관리' 권한을 물어본다
+          screenDetails = screenDetails || await window.getScreenDetails();   // asks for the 'window management' permission the first time
           const here = screenDetails.currentScreen;
           const other = screenDetails.screens.find((sc) => sc !== here && (sc.left !== here.left || sc.top !== here.top));
           if (other) {
             left = other.availLeft + Math.max(0, Math.round((other.availWidth - width) / 2));
             top = other.availTop + Math.max(0, Math.round((other.availHeight - height) / 2));
           }
-        } catch (e) { /* 권한 거부: 그냥 옆에 띄운다 */ }
+        } catch (e) { /* permission denied: just open next to this window */ }
       }
       const win = window.open(soloUrl(info), popupName(tab.id), `popup=yes,width=${width},height=${height},left=${left},top=${top}`);
       if (!win) {
-        // 끌어 놓기가 길면(다른 모니터까지) 브라우저가 '클릭 직후'로 보지 않아 팝업을 막는다 → 버튼 한 번으로 띄운다
-        if (at) toast('탭을 새 창으로 띄우려면 눌러 주십시오.', 'info', { label: '새 창 열기', onClick: () => popOut(tab, group, { at }) }, 8000);
-        else toast('팝업이 막혔습니다. 주소창의 팝업 차단 아이콘에서 이 사이트를 허용한 뒤 다시 눌러 주십시오.', 'error');
+        // A long drag (all the way to another monitor) is not seen by the browser as 'right after a click', so the popup is blocked → open it with one button press
+        if (at) toast(t('탭을 새 창으로 띄우려면 눌러 주십시오.'), 'info', { label: t('새 창 열기'), onClick: () => popOut(tab, group, { at }) }, 8000);
+        else toast(t('팝업이 막혔습니다. 주소창의 팝업 차단 아이콘에서 이 사이트를 허용한 뒤 다시 눌러 주십시오.'), 'error');
         return;
       }
       const askScreen = needScreenAccess === true && at;
@@ -5302,10 +5340,10 @@
       if (group === 'main') await closeTab(tab.id, { keep: true });
       else await closeTabIn(groups[group], tab.id, { keep: true });
       if (info.type === 'pty') watchPopup(win, info);
-      if (askScreen) toast('놓은 모니터에 띄우려면 창 관리 권한이 필요합니다.', 'info', { label: '허용하고 옮기기', onClick: () => moveToScreen(win, at, width, height) }, 8000);
-      else toast('새 창으로 띄웠습니다. 원하는 모니터로 옮겨 쓰십시오.', 'success', 2200);
+      if (askScreen) toast(t('놓은 모니터에 띄우려면 창 관리 권한이 필요합니다.'), 'info', { label: t('허용하고 옮기기'), onClick: () => moveToScreen(win, at, width, height) }, 8000);
+      else toast(t('새 창으로 띄웠습니다. 원하는 모니터로 옮겨 쓰십시오.'), 'success', 2200);
     }
-    // 팝업이 닫혔는데 Terminal 이 돌아오지 않았으면 (그냥 창을 닫은 경우) 셸이 살아 있는 한 이 창 탭으로 되돌린다
+    // If the popup closed but the Terminal did not come back (the window was simply closed), return it to a tab in this window as long as the shell is alive
     function watchPopup(win, info) {
       const timer = setInterval(async () => {
         if (!win.closed) return;
@@ -5316,7 +5354,7 @@
           if (!alive || ptys.has(info.id)) return;
           addPty(alive);
           renderBar();
-          toast('새 창을 닫아서 Terminal 을 이 창 탭으로 돌려놨습니다.', 'info', 2600);
+          toast(t('새 창을 닫아서 Terminal 을 이 창 탭으로 돌려놨습니다.'), 'info', 2600);
         } catch (e) { /* noop */ }
       }, 1200);
     }
@@ -5330,7 +5368,7 @@
       if (last) { renderBar(); window.focus(); }
     }
     if (!SOLO) {
-      // 팝업에서 '메인 창으로': 연 창(opener)이 있으면 그 창으로, 없으면(메인 창을 새로고침 등) 열린 메인 창들로
+      // 'Back to main window' from a popup: to the opener window if there is one, otherwise (main window reloaded, etc.) to the open main windows
       window.addEventListener('message', (event) => {
         if (event.origin !== location.origin || event.data?.type !== 'univdash-solo-return') return;
         adoptTabs(event.data.tabs);
@@ -5340,32 +5378,32 @@
         channel.addEventListener('message', (event) => { if (event.data?.type === 'univdash-solo-return' && document.visibilityState !== 'hidden') adoptTabs(event.data.tabs); });
       }
     }
-    // ── 팝업(solo) 창 쪽 ──
+    // ── The popup (solo) window side ──
     let soloSeen = false;
     function soloBarHtml() {
-      return `<button type="button" class="wt-solo-return" data-solo-return title="이 창의 탭을 메인 창으로 돌려놓고 닫기"><i class="fas fa-arrow-right-to-bracket fa-flip-horizontal"></i><span>메인 창으로</span></button>`;
+      return `<button type="button" class="wt-solo-return" data-solo-return title="${t('이 창의 탭을 메인 창으로 돌려놓고 닫기')}"><i class="fas fa-arrow-right-to-bracket fa-flip-horizontal"></i><span>${t('메인 창으로')}</span></button>`;
     }
     function soloSync(tabs, active) {
       const all = currentTabs();
       if (all.length) soloSeen = true;
       const name = all.find((t) => t.id === active) || all[0];
       if (name) document.title = `${name.type === 'term' ? displayName(name.w) : name.type === 'pty' ? ptyName(name.p) : name.tab.name} — UnivDash`;
-      // 마지막 탭을 닫으면 창도 닫는다
+      // Closing the last tab closes the window too
       if (soloSeen && !workspace.termTabs.list().length && !ptys.size && !(viewer?.tabs || []).length) window.close();
     }
     function returnToMain() {
       const tabs = [...currentTabs(), ...Object.values(groups).flatMap((g) => tabsOf(g))];
-      if (tabs.some((t) => t.type === 'file' && t.tab?.dirty)) { toast('저장하지 않은 변경이 있습니다. 저장한 뒤 돌려놓아 주십시오.', 'error'); return; }
+      if (tabs.some((t) => t.type === 'file' && t.tab?.dirty)) { toast(t('저장하지 않은 변경이 있습니다. 저장한 뒤 돌려놓아 주십시오.'), 'error'); return; }
       const message = { type: 'univdash-solo-return', tabs: [...new Map(tabs.map((t) => [t.id.replace(/^sfile:/, 'file:'), tabInfo(t)])).values()] };
       let sent = false;
       try { if (window.opener && !window.opener.closed) { window.opener.postMessage(message, location.origin); sent = true; } } catch (e) { /* noop */ }
       if (!sent && 'BroadcastChannel' in window) { const channel = new BroadcastChannel(SOLO_CHANNEL); channel.postMessage(message); channel.close(); }
-      ptys.forEach((p) => p.client?.dispose());   // 셸은 끝내지 않는다 (메인 창이 이어서 붙는다)
+      ptys.forEach((p) => p.client?.dispose());   // the shell is not ended (the main window attaches next)
       ptys.clear();
       setTimeout(() => window.close(), 60);
     }
 
-    // ── 탭 끌어 놓기: 탭바 안에서는 순서 · 그룹 이동, 화면 위로 끌면 놓을 자리 (가장자리 = 그 그룹을 반으로 분할) ──
+    // ── Tab drag and drop: inside a tab bar it reorders · moves between groups; dragged over the screen it shows drop zones (edge = split that group in half) ──
     let dragTab = null;       // { id, group }
     let dropTarget = null;    // { group, zone, r }
     const zonesEl = $('#dropZones');
@@ -5404,7 +5442,7 @@
       if (zone === 'bottom') { top += height / 2; height /= 2; }
       Object.assign(highlight.style, { opacity: '1', left: `${left - area.left}px`, top: `${top - area.top}px`, width: `${width}px`, height: `${height}px` });
     }
-    // 탐색기의 파일을 끌어 와서 열기 · 분할해서 열기
+    // Drag a file from the explorer to open it · open it in a split
     let dragFile = null;
     const hideZones = () => { zonesEl?.classList.add('hidden'); if (highlight) highlight.style.opacity = '0'; dropTarget = null; };
     document.addEventListener('dragstart', (event) => {
@@ -5414,7 +5452,7 @@
       zonesEl?.classList.remove('hidden');
     });
     document.addEventListener('dragend', () => { if (dragFile || dragWin) { dragFile = null; dragWin = null; hideZones(); } });
-    // 창 목록의 tmux 세션을 끌어 와서 열기 · 분할해서 열기
+    // Drag a tmux session from the window list to open it · open it in a split
     let dragWin = null;
     document.addEventListener('dragstart', (event) => {
       const item = event.target.closest?.('#windowList .win-item[draggable="true"]');
@@ -5424,7 +5462,7 @@
       event.dataTransfer.setData('application/x-univdash-window', item.dataset.key);
       zonesEl?.classList.remove('hidden');
     });
-    // 세션을 어느 그룹에서 열기: 이미 다른 그룹에 열려 있으면 그 탭을 옮긴다
+    // Open a session in a given group: if it is already open in another group, move that tab
     async function openWindowIn(group, key) {
       const id = termId(key);
       const from = mainTabs().some((t) => t.id === id) ? 'main' : Object.values(groups).find((g) => g.items.includes(id))?.id;
@@ -5438,8 +5476,8 @@
       renderGroups();
       renderBar();
     }
-    // 분할 중에 목록에서 세션을 누르면: 이미 열린 분할 창이 있으면 그 창으로 가고,
-    // 어디에도 없으면 지금 포커스된 분할 창에서 연다 (VS Code 처럼). false 면 평소대로 메인에서 연다.
+    // Clicking a session in the list while split: if a split pane already has it open, go to that pane;
+    // if it is open nowhere, open it in the currently focused split pane (like VS Code). false means open in main as usual.
     function openFromList(key) {
       if (!isSplit()) return false;
       const id = termId(key);
@@ -5474,11 +5512,11 @@
       const { path } = dragFile;
       dragFile = null;
       hideZones();
-      if (!target) return;                 // 입력창 등: 기본 동작(경로 글자 넣기)
+      if (!target) return;                 // input fields etc.: default behaviour (insert the path as text)
       event.preventDefault();
       event.stopPropagation();
       if (target.zone === 'pty') {
-        // 그 Terminal 에 경로를 넣는다 (공백 · 특수문자가 있으면 따옴표로)
+        // Insert the path into that Terminal (quoted if it has spaces · special characters)
         const client = [...ptys.values()].map((p) => p.client).find((c) => c?.el?.contains(target.xterm));
         const quoted = /^[\w@%+=:,./-]+$/.test(path) ? path : `'${path.replace(/'/g, "'\\''")}'`;
         client?.sendKeys(`${quoted} `);
@@ -5492,17 +5530,17 @@
     }, true);
     document.addEventListener('dragover', (event) => {
       if (!dragTab && !dragFile && !dragWin) return;
-      // 프롬프트 입력창 위에서는 경로를 글자로 넣을 수 있게 놓을 자리를 끈다
+      // Over the prompt input, drop zones are turned off so the path can be inserted as text
       if (dragFile && event.target.closest?.('input, textarea')) { dropTarget = null; showZone(null); return; }
       let target = zoneAt(event.clientX, event.clientY);
-      // 탭바 위에 놓으면 그 창에 탭으로 연다 (VS Code 처럼)
+      // Dropping on a tab bar opens it as a tab in that pane (like VS Code)
       const tabBar = (dragFile || dragWin) && event.target.closest?.('#wsTabs, .side-pane .ws-tabbar');
       if (tabBar) {
         const group = tabBar.id === 'wsTabs' ? 'main' : tabBar.closest('[data-group]')?.dataset.group;
         const r = group && contentRect(group);
         if (r) target = { group, zone: 'center', r };
       }
-      // Terminal 위: 가장자리면 분할, 가운데면 그 Terminal 에 경로를 글자로 넣는다 (강조 표시 없이)
+      // Over a Terminal: an edge splits, the centre inserts the path as text into that Terminal (without a highlight)
       const xterm = dragFile && event.target.closest?.('.xterm');
       if (xterm && target && target.zone === 'center') target = { ...target, zone: 'pty', xterm };
       dropTarget = target;
@@ -5527,7 +5565,7 @@
       return new window.Sortable(el, {
         group: 'ws-tabs', draggable: '.wt', direction: 'horizontal', animation: 150, delay: 250, delayOnTouchOnly: true,
         filter: '.wt-close', preventOnFilter: false,
-        // 다른 창(팝업 ↔ 메인)에 놓을 수 있게 탭 정보를 같이 싣는다
+        // Carry the tab info along so it can be dropped on another window (popup ↔ main)
         setData: (dataTransfer, dragEl) => {
           const tab = findTab(group, dragEl.dataset.id);
           if (!tab) return;
@@ -5540,7 +5578,7 @@
           if (desktopQuery.matches) zonesEl?.classList.remove('hidden');
         },
         onEnd: async (event) => {
-          if (await finishDrop()) { renderBar(); renderGroups(); return; }   // 화면 위에 놓았으면 탭바는 상태대로 다시 그린다
+          if (await finishDrop()) { renderBar(); renderGroups(); return; }   // if dropped on the screen, redraw the tab bars from state
           const groupOf = (barEl) => (barEl === bar ? 'main' : barEl.closest('[data-group]')?.dataset.group);
           const from = groupOf(event.from);
           const to = groupOf(event.to);
@@ -5555,13 +5593,13 @@
         },
       });
     }
-    // ── 창 사이로 탭 옮기기: 메인 창 ↔ 새 창(팝업)으로 띄운 창, 탭을 끌어서 다른 창 위에 놓는다 ──
-    // 놓은 창이 탭을 열고, 원래 창에 '가져갔다' 고 알려서 그 창의 탭을 닫는다 (tmux · Terminal 은 서버에 그대로 살아 있다).
+    // ── Moving tabs between windows: main window ↔ a popped-out (popup) window, by dragging a tab onto the other window ──
+    // The receiving window opens the tab and tells the original window it was 'taken', which closes the tab there (tmux · Terminal stay alive on the server).
     const XTAB = 'application/x-univdash-tab';
     const WIN_ID = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     const tabChannel = 'BroadcastChannel' in window ? new BroadcastChannel('univdash-tabs') : null;
     const crossDrag = (event) => !dragTab && !dragFile && !dragWin && [...(event.dataTransfer?.types || [])].includes(XTAB);
-    let xdropBefore = null;   // 놓을 자리: 이 탭 앞 (null 이면 맨 끝)
+    let xdropBefore = null;   // drop position: before this tab (null means at the very end)
     function clearXdrop() {
       document.body.classList.remove('xtab-over');
       bar?.querySelectorAll('.xdrop-before, .xdrop-after').forEach((el) => el.classList.remove('xdrop-before', 'xdrop-after'));
@@ -5591,12 +5629,12 @@
       try { payload = JSON.parse(event.dataTransfer.getData(XTAB)); } catch (e) { payload = null; }
       const info = payload?.info;
       if (!info || payload.from === WIN_ID) return;
-      if (payload.dirty) { toast('저장하지 않은 변경이 있습니다. 저장한 뒤 옮겨 주십시오.', 'error'); return; }
+      if (payload.dirty) { toast(t('저장하지 않은 변경이 있습니다. 저장한 뒤 옮겨 주십시오.'), 'error'); return; }
       const id = info.type === 'term' ? termId(info.key) : info.type === 'pty' ? ptyId(info.id) : fileId(info.path);
-      if (info.type === 'term' && !byKey().has(info.key)) { toast('이 창에서 찾을 수 없는 tmux 세션입니다.', 'error'); return; }
+      if (info.type === 'term' && !byKey().has(info.key)) { toast(t('이 창에서 찾을 수 없는 tmux 세션입니다.'), 'error'); return; }
       adoptTabs([info]);
       tabChannel?.postMessage({ type: 'tab-taken', from: payload.from, srcId: payload.srcId, group: payload.group });
-      // 놓은 자리로 순서 맞추기 (파일 탭은 열리는 데 조금 걸린다)
+      // Put it in the order of the drop position (file tabs take a moment to open)
       let tries = 0;
       const place = () => {
         if (!currentTabs().some((t) => t.id === id)) { if (++tries < 30) setTimeout(place, 100); return; }
@@ -5610,25 +5648,25 @@
       place();
     }, true);
     window.addEventListener('dragend', clearXdrop);
-    // 끌던 탭을 창 밖으로 가져가면 이 창의 놓을 자리(분할 표시)는 지운다 → 다른 창에 놓아도 이 창에서 분할되지 않게
+    // When the dragged tab leaves the window, clear this window's drop zone (split indicator) → so dropping on another window does not split this one
     document.addEventListener('dragleave', (event) => {
       if (!dragTab) return;
       const { clientX: x, clientY: y } = event;
       if (x <= 0 || y <= 0 || x >= window.innerWidth || y >= window.innerHeight) { dropTarget = null; showZone(null); }
     });
-    // 탭을 창 밖(바탕화면 · 다른 프로그램 위)에 놓으면 그 자리에 새 창으로 띄운다.
-    // 다른 UnivDash 창이 받았으면 그 창이 'tab-taken' 을 보내므로 잠깐 기다렸다가, 아무도 안 받았을 때만 띄운다.
-    let outside = false;       // 끌던 탭이 마지막으로 창 밖으로 나갔는지
+    // Dropping a tab outside the window (desktop · over another program) pops it out as a new window at that spot.
+    // If another UnivDash window received it, that window sends 'tab-taken', so we wait briefly and pop out only when nobody took it.
+    let outside = false;       // whether the dragged tab last went outside the window
     let pendingPop = null;
     document.addEventListener('dragover', () => { if (dragTab) outside = false; }, true);
-    // 드래그 이벤트의 relatedTarget 은 브라우저가 잘 채우지 않으므로, 창 가장자리 밖 좌표로 나갔는지 본다
+    // Browsers rarely fill relatedTarget on drag events, so check whether the coordinates went beyond the window edges
     const offWindow = (e) => e.clientX <= 0 || e.clientY <= 0 || e.clientX >= window.innerWidth || e.clientY >= window.innerHeight;
     document.addEventListener('dragleave', (event) => { if (dragTab && offWindow(event)) outside = true; }, true);
     document.addEventListener('dragend', (event) => {
       const drag = dragTab;
       const at = event.screenX || event.screenY ? { x: event.screenX, y: event.screenY } : null;
-      // 창 밖으로 나갔는지: dragleave 로 본 것 + 놓은 화면 좌표가 이 창 바깥인지 (다른 모니터로 넘어가면
-      // dragleave 좌표가 창 안쪽 값으로 오기도 해서 둘 다 본다)
+      // Whether it left the window: what dragleave saw + whether the drop screen coordinates are outside this window
+      // (when crossing to another monitor, dragleave coordinates sometimes come as values inside the window, so check both)
       const offScreen = !!at && (at.x < window.screenX || at.y < window.screenY
         || at.x >= window.screenX + window.outerWidth || at.y >= window.screenY + window.outerHeight);
       const left = outside || offScreen;
@@ -5657,7 +5695,7 @@
       Object.values(groups).forEach((g) => sortableFor(g.bar, g.id));
     });
 
-    // ── 분할 그룹의 tmux 창: 메인과 같은 머리글(채팅 | 터미널 · 사용량) · 채팅 · 화면 · 모델 · 입력 (그룹마다 자기 WebSocket) ──
+    // ── tmux window of a split group: same header as main (Chat | Terminal · usage) · chat · screen · model · input (each group has its own WebSocket) ──
     function ensureMirror(g) {
       if (g.mirror) return g.mirror;
       const R = workspace.renderers;
@@ -5670,10 +5708,10 @@
               <div class="flex items-center gap-2 min-w-0"><h3 class="tp-title truncate"></h3><span class="agent-pill tp-agent hidden"></span></div>
               <p class="tp-sub truncate"></p>
             </div>
-            <button type="button" class="side-bar-btn" data-mirror-main title="메인 그룹으로 옮기기" aria-label="메인 그룹으로"><i class="fas fa-up-right-and-down-left-from-center"></i></button>
+            <button type="button" class="side-bar-btn" data-mirror-main title="${t('메인 그룹으로 옮기기')}" aria-label="${t('메인 그룹으로')}"><i class="fas fa-up-right-and-down-left-from-center"></i></button>
           </div>
           <div class="tp-row2">
-            <div class="mode-switch tp-modes hidden" role="tablist"><button type="button" data-tpmode="log"><i class="fas fa-comments"></i> 채팅</button><button type="button" data-tpmode="screen"><i class="fas fa-terminal"></i> 터미널</button></div>
+            <div class="mode-switch tp-modes hidden" role="tablist"><button type="button" data-tpmode="log"><i class="fas fa-comments"></i> ${t('채팅')}</button><button type="button" data-tpmode="screen"><i class="fas fa-terminal"></i> ${t('터미널')}</button></div>
             <div class="usage-mini tp-usage hidden ml-auto"></div>
           </div>
         </div>
@@ -5688,34 +5726,34 @@
           </div>
           <div class="attach-tray tp-tray hidden gap-2 overflow-x-auto no-scrollbar px-2 md:px-3 pt-2"></div>
           <form class="tp-form flex items-end gap-2 p-2 md:p-3" autocomplete="off">
-            <button type="button" class="model-chip tp-model hidden" title="모델 바꾸기"><i class="fas fa-microchip"></i><span>—</span></button>
+            <button type="button" class="model-chip tp-model hidden" title="${t('모델 바꾸기')}"><i class="fas fa-microchip"></i><span>—</span></button>
             <div class="relative flex-1 min-w-0">
-              <textarea rows="1" enterkeyhint="send" placeholder="프롬프트 입력" spellcheck="false" autocapitalize="off" class="prompt-input w-full glass-input rounded-2xl pl-4 pr-11 py-2.5 text-white placeholder-white/30 resize-none"></textarea>
-              <button type="button" class="attach-btn" data-tp-attach title="사진 · 파일 첨부" aria-label="첨부"><i class="fas fa-paperclip"></i></button>
+              <textarea rows="1" enterkeyhint="send" placeholder="${t('프롬프트 입력')}" spellcheck="false" autocapitalize="off" class="prompt-input w-full glass-input rounded-2xl pl-4 pr-11 py-2.5 text-white placeholder-white/30 resize-none"></textarea>
+              <button type="button" class="attach-btn" data-tp-attach title="${t('사진 · 파일 첨부')}" aria-label="${t('첨부')}"><i class="fas fa-paperclip"></i></button>
               <input type="file" multiple class="hidden tp-file" tabindex="-1" aria-hidden="true">
-              <div class="tp-direct-banner hidden"><i class="fas fa-keyboard"></i> 직접 입력 중 · 누르는 키가 바로 터미널로 전달됩니다</div>
+              <div class="tp-direct-banner hidden"><i class="fas fa-keyboard"></i> ${t('직접 입력 중 · 누르는 키가 바로 터미널로 전달됩니다')}</div>
             </div>
-            <button type="button" class="composer-btn" data-tp-direct title="터미널 직접 입력 모드" aria-pressed="false"><i class="fas fa-keyboard text-sm"></i></button>
-            <button type="submit" class="send-btn btn-glow" aria-label="보내기"><i class="fas fa-paper-plane text-sm"></i></button>
+            <button type="button" class="composer-btn" data-tp-direct title="${t('터미널 직접 입력 모드')}" aria-pressed="false"><i class="fas fa-keyboard text-sm"></i></button>
+            <button type="submit" class="send-btn btn-glow" aria-label="${t('보내기')}"><i class="fas fa-paper-plane text-sm"></i></button>
           </form>
           <div class="flex items-center justify-between gap-2 px-3 md:px-4 pb-2 -mt-1 text-[10px] text-white/40">
             <div class="flex items-center gap-1 min-w-0">
               <button type="button" class="submit-toggle" data-tp-keybar></button>
-              <button type="button" class="submit-toggle qs-btn" data-tp-snippet title="최근 보낸 프롬프트 · 빠른 문구" aria-label="히스토리">히스토리</button>
-              <button type="button" class="submit-toggle qs-btn hidden" data-tp-update title="에이전트를 업데이트하고 같은 대화로 다시 켜기" aria-label="업데이트">업데이트</button>
-              <button type="button" class="submit-toggle qs-btn hidden" data-tp-switch title="지금 에이전트를 끄고 다른 에이전트(Claude · Codex · Gemini)를 선택해 켜기">에이전트 바꾸기</button>
+              <button type="button" class="submit-toggle qs-btn" data-tp-snippet title="${t('최근 보낸 프롬프트 · 빠른 문구')}" aria-label="${t('히스토리')}">${t('히스토리')}</button>
+              <button type="button" class="submit-toggle qs-btn hidden" data-tp-update title="${t('에이전트를 업데이트하고 같은 대화로 다시 켜기')}" aria-label="${t('업데이트')}">${t('업데이트')}</button>
+              <button type="button" class="submit-toggle qs-btn hidden" data-tp-switch title="${t('지금 에이전트를 끄고 다른 에이전트(Claude · Codex · Gemini)를 선택해 켜기')}">${t('에이전트 바꾸기')}</button>
             </div>
             <div class="flex items-center gap-1 min-w-0">
-              <span class="truncate hidden sm:inline">Enter 전송 · Shift+Enter 줄바꿈</span>
-              <button type="button" class="hist-btn" data-tp-hist="1" title="이전 프롬프트 (↑)"><i class="fas fa-chevron-up"></i></button>
-              <button type="button" class="hist-btn" data-tp-hist="-1" title="다음 프롬프트 (↓)"><i class="fas fa-chevron-down"></i></button>
+              <span class="truncate hidden sm:inline">${t('Enter 전송 · Shift+Enter 줄바꿈')}</span>
+              <button type="button" class="hist-btn" data-tp-hist="1" title="${t('이전 프롬프트 (↑)')}"><i class="fas fa-chevron-up"></i></button>
+              <button type="button" class="hist-btn" data-tp-hist="-1" title="${t('다음 프롬프트 (↓)')}"><i class="fas fa-chevron-down"></i></button>
             </div>
           </div>
         </div>
         </div>`;
       const $$in = (sel) => root.querySelector(sel);
       const logEl = $$in('.tp-log');
-      window.UnivDashRouteChatWheel?.(logEl);   // 분할 화면 채팅도: 세로 휠은 채팅 전체, 가로만 카드
+      window.UnivDashRouteChatWheel?.(logEl);   // split-view chat too: vertical wheel scrolls the whole chat, only horizontal scrolls a card
       const listEl = $$in('.tp-list');
       const statusEl = $$in('.tp-status');
       const screenEl = $$in('.tp-screen');
@@ -5752,7 +5790,7 @@
         };
         ws.onclose = () => { if (ws === sock && pane && !disposed) setTimeout(() => { if (ws === sock && pane && !disposed) connect(); }, 1500); };
       }
-      // 조용히 죽은 연결 감지 (메인 연결과 같은 규칙): 조용하면 ping, 답이 없으면 새로 연결
+      // Detect a silently dead connection (same rule as the main connection): ping when quiet, reconnect when there is no answer
       let lastRecv = 0;
       let pingAt = 0;
       const aliveTimer = setInterval(() => {
@@ -5763,14 +5801,14 @@
           if (now - pingAt < 4000) return;
           const dead = ws;
           ws = null;
-          try { dead.close(); } catch (e) { /* 이미 닫힘 */ }
+          try { dead.close(); } catch (e) { /* already closed */ }
           connect();
           return;
         }
         pingAt = 0;
         if (now - lastRecv > 5000) { pingAt = now; send({ t: 'ping' }); }
       }, 2000);
-      // 터미널 화면
+      // Terminal screen
       function renderScreen() {
         if (!lastScreen) return;
         const screen = lastScreen;
@@ -5786,7 +5824,7 @@
         if (stick) screenEl.scrollTop = screenEl.scrollHeight;
       }
       screenEl.addEventListener('scroll', () => { stick = screenEl.scrollHeight - screenEl.scrollTop - screenEl.clientHeight < 40; }, { passive: true });
-      // tmux 창 크기를 이 칸에 맞춘다 (메인 화면과 같은 규칙)
+      // Fit the tmux window size to this cell (same rule as the main screen)
       let fitTimer = 0;
       let fitSent = '';
       function fitTmux(force = false) {
@@ -5805,8 +5843,8 @@
       new ResizeObserver(() => fitTmux()).observe(screenEl);
       document.addEventListener('visibilitychange', () => fitTmux(true));
       window.addEventListener('focus', () => fitTmux(true));
-      // 채팅 (세션 로그)
-      // 방금 보낸 프롬프트: 로그에 새 사용자 메시지가 생길 때마다 오래된 것부터 하나씩 지운다 (메인과 같은 규칙)
+      // Chat (session log)
+      // Just-sent prompts: each time a new user message appears in the log, remove them one by one from the oldest (same rule as main)
       const sent = [];
       function renderChat() {
         const items = [...chat.items.values()].sort((a, b) => a.id - b.id).slice(-200);
@@ -5814,14 +5852,14 @@
           let arrived = items.filter((item) => item.kind === 'user' && item.id > sent[0].afterId).length;
           while (sent.length && (arrived > 0 || Date.now() - sent[0].at > 10 * 60 * 1000)) { if (arrived > 0) arrived -= 1; sent.shift(); }
         }
-        const queuedHtml = chat.queued.map((text) => `<div class="msg msg-user pending"><div class="msg-meta"><i class="fas fa-hourglass-half"></i> 대기 중 · 작업 중에 곧 전달됩니다</div><div class="msg-body">${escapeHtml(text)}</div></div>`).join('');
+        const queuedHtml = chat.queued.map((text) => `<div class="msg msg-user pending"><div class="msg-meta"><i class="fas fa-hourglass-half"></i> ${t('대기 중 · 작업 중에 곧 전달됩니다')}</div><div class="msg-body">${escapeHtml(text)}</div></div>`).join('');
         const pending = queuedHtml + (sent.length
-          ? sent.map((e) => `<div class="msg msg-user"><div class="msg-meta">나 · ${escapeHtml(new Date(e.at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }))}</div><div class="msg-body">${escapeHtml(e.text)}</div></div>`).join('')
-          : chat.submitted.map((text) => `<div class="msg msg-user"><div class="msg-meta">나 · 전달됨</div><div class="msg-body">${escapeHtml(text)}</div></div>`).join(''));
-        // 다시 그려도 펼쳐 둔 항목(서브에이전트 등)은 펼친 채로
+          ? sent.map((e) => `<div class="msg msg-user"><div class="msg-meta">${t('나 · {time}', { time: escapeHtml(new Date(e.at).toLocaleTimeString(t.locale, { hour: '2-digit', minute: '2-digit' })) })}</div><div class="msg-body">${escapeHtml(e.text)}</div></div>`).join('')
+          : chat.submitted.map((text) => `<div class="msg msg-user"><div class="msg-meta">${t('나 · 전달됨')}</div><div class="msg-body">${escapeHtml(text)}</div></div>`).join(''));
+        // Items left expanded (subagents etc.) stay expanded across redraws
         const opened = new Set([...listEl.querySelectorAll(':scope > details[open][data-item]')].map((el) => el.dataset.item));
         listEl.dataset.pane = pane || '';
-        listEl.innerHTML = (items.length || pending) ? items.map((item) => R.logItem(item, chat.agent)).join('') + pending : '<div class="log-empty">아직 대화가 없습니다.</div>';
+        listEl.innerHTML = (items.length || pending) ? items.map((item) => R.logItem(item, chat.agent)).join('') + pending : `<div class="log-empty">${t('아직 대화가 없습니다.')}</div>`;
         opened.forEach((id) => { const el = listEl.querySelector(`:scope > details[data-item="${CSS.escape(id)}"]`); if (el) el.open = true; });
         R.markFinalAnswers(listEl);
         if (logStick) logEl.scrollTop = logEl.scrollHeight;
@@ -5839,7 +5877,7 @@
       });
       async function loadChat() {
         chat.items.clear();
-        listEl.innerHTML = '<div class="log-empty"><i class="fas fa-circle-notch fa-spin"></i> 채팅을 불러오는 중...</div>';
+        listEl.innerHTML = `<div class="log-empty"><i class="fas fa-circle-notch fa-spin"></i> ${t('채팅을 불러오는 중...')}</div>`;
         const forPane = pane;
         try {
           const data = await api('GET', `/api/transcript?pane=${encodeURIComponent(pane)}&limit=80`);
@@ -5847,8 +5885,8 @@
           chat.available = data.available;
           chat.agent = data.agent;
           if (!data.available) {
-            listEl.innerHTML = data.agent ? '<div class="log-empty">아직 대화가 없습니다. 첫 프롬프트를 보내면 여기에 바로 표시됩니다.</div>' : '<div class="log-empty">이 창의 채팅(에이전트 세션 로그)을 찾지 못했습니다.</div>';
-            if (data.agent) send({ t: 'logsub', pane, since: 0 });   // 로그가 생기면 서버가 알려 준다
+            listEl.innerHTML = `<div class="log-empty">${data.agent ? t('아직 대화가 없습니다. 첫 프롬프트를 보내면 여기에 바로 표시됩니다.') : t('이 창의 채팅(에이전트 세션 로그)을 찾지 못했습니다.')}</div>`;
+            if (data.agent) send({ t: 'logsub', pane, since: 0 });   // the server tells us once a log appears
             return;
           }
           data.items.forEach((item) => chat.items.set(item.id, item));
@@ -5869,7 +5907,7 @@
         chat.total = Math.max(chat.total, data.total);
         renderChat();
       }
-      // 본 채팅과 같은 방식: 사용자가 일부러 위로 올릴 때만 따라가기를 끄고, 끝까지 내리면 다시 켠다
+      // Same as the main chat: following is turned off only when the user scrolls up on purpose, and back on when scrolled to the end
       logEl.addEventListener('scroll', () => { if (logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 4) logStick = true; }, { passive: true });
       logEl.addEventListener('wheel', (event) => { if (event.deltaY < 0 && !event.ctrlKey) logStick = false; }, { passive: true });
       let tpTouchY = null;
@@ -5882,9 +5920,9 @@
         const button = event.target.closest('[data-copy]');
         if (!button) return;
         const item = chat.items.get(Number(button.dataset.copy));
-        try { await navigator.clipboard.writeText(item?.text || ''); toast('복사했습니다.', 'ok', null, 1200); } catch (e) { toast('복사하지 못했습니다.', 'error'); }
+        try { await navigator.clipboard.writeText(item?.text || ''); toast(t('복사했습니다.'), 'ok', null, 1200); } catch (e) { toast(t('복사하지 못했습니다.'), 'error'); }
       });
-      // 작업 중 · 응답 필요 카드 (메인과 같은 규칙)
+      // Working · Needs answer card (same rule as main)
       function renderStatus() {
         if (!lastScreen || !w || modeOf() !== 'log') { statusEl.className = 'chat-status tp-status hidden'; statusEl.innerHTML = ''; return; }
         const status = R.chatStatus(lastScreen, w);
@@ -5893,11 +5931,11 @@
         const showLive = status.kind === 'busy' && status.live && R.chatLiveOpen(w.agent);
         statusEl.innerHTML = status.kind === 'busy'
           ? `<div class="chat-status-row"><i class="fas fa-circle-notch fa-spin"></i><span class="chat-status-text">${escapeHtml(status.text)}</span>
-              ${status.live ? `<button type="button" class="chat-live-toggle" data-live-toggle title="실시간 출력 ${showLive ? '접기' : '펼치기'}"><i class="fas fa-chevron-${showLive ? 'down' : 'up'}"></i></button>` : ''}
-              <button type="button" data-status-keys="Escape">중단</button></div>${showLive ? `<pre class="chat-live">${escapeHtml(status.live)}</pre>` : ''}`
+              ${status.live ? `<button type="button" class="chat-live-toggle" data-live-toggle title="${showLive ? t('실시간 출력 접기') : t('실시간 출력 펼치기')}"><i class="fas fa-chevron-${showLive ? 'down' : 'up'}"></i></button>` : ''}
+              <button type="button" data-status-keys="Escape">${t('중단')}</button></div>${showLive ? `<pre class="chat-live">${escapeHtml(status.live)}</pre>` : ''}`
           : R.waitingCardHtml(status);
         const livePre = statusEl.querySelector('.chat-live');
-        if (livePre) livePre.scrollTop = livePre.scrollHeight;   // 새 글이 오면 맨 아래로
+        if (livePre) livePre.scrollTop = livePre.scrollHeight;   // go to the bottom when new text arrives
         if (logStick) logEl.scrollTop = logEl.scrollHeight;
       }
       statusEl.addEventListener('click', (event) => {
@@ -5911,7 +5949,7 @@
         const message = R.statusMessage(button, lastScreen ? R.chatStatus(lastScreen, w) : null, w?.agent, pane);
         if (message) send(message);
       });
-      // 머리글 · 모드 · 사용량 · 모델
+      // Header · mode · usage · model
       function applyMode() {
         const mode = modeOf();
         $$in('.tp-modes').classList.toggle('hidden', !w?.agent);
@@ -5919,7 +5957,7 @@
         logEl.classList.toggle('hidden', mode !== 'log');
         screenEl.classList.toggle('hidden', mode !== 'screen');
         if (mode === 'log' && direct) setDirect(false);
-        $$in('[data-tp-direct]').classList.toggle('hidden', mode === 'log');   // 채팅 모드에서는 ⌨ 숨김
+        $$in('[data-tp-direct]').classList.toggle('hidden', mode === 'log');   // ⌨ is hidden in chat mode
         if (mode === 'log') { if (!chat.items.size && pane) loadChat(); else send({ t: 'logsub', pane, since: chat.total }); renderStatus(); }
         else { send({ t: 'logunsub' }); renderScreen(); fitTmux(true); }
       }
@@ -5935,7 +5973,7 @@
         $$in('.tp-title').textContent = displayName(w);
         if (!direct) input.placeholder = promptHint();
         const pill = $$in('.tp-agent');
-        pill.className = `tp-agent ${w.agent ? `agent-pill agent-${w.agent}` : 'agent-pill agent-shell'}`;   // 메인 머리글과 같은 색
+        pill.className = `tp-agent ${w.agent ? `agent-pill agent-${w.agent}` : 'agent-pill agent-shell'}`;   // same colours as the main header
         pill.textContent = w.agent || 'shell';
         const statusLabel = STATUS[w.status]?.label || '';
         $$in('.tp-sub').textContent = [statusLabel, windowNote(w), w.path].filter(Boolean).join(' · ');
@@ -5947,7 +5985,7 @@
         $$in('[data-tp-update]').classList.toggle('hidden', !w.agent);
         const switchBtn = $$in('[data-tp-switch]');
         switchBtn.classList.toggle('hidden', !w.agent);
-        if (w.agent) switchBtn.textContent = '에이전트 바꾸기';
+        if (w.agent) switchBtn.textContent = t('에이전트 바꾸기');
         modelEl.querySelector('span').textContent = R.prettyModel(model.id);
       }
       async function refreshModel() {
@@ -5968,14 +6006,14 @@
       window.addEventListener('univdash:codex-account-changed', accountChanged);
       modelEl.addEventListener('click', async () => {
         if (!w?.agent || !pane) return;
-        if (w.status === 'busy') { toast('지금 작업 중입니다. 끝난 뒤에 모델을 바꿀 수 있습니다.', 'warn'); return; }
+        if (w.status === 'busy') { toast(t('지금 작업 중입니다. 끝난 뒤에 모델을 바꿀 수 있습니다.'), 'warn'); return; }
         const before = model.id;
         const watch = () => R.watchModelChange(refreshModel, () => disposed || model.id !== before);
         if (w.agent === 'gemini') { R.pickGeminiModel(pane, async (message) => send(message), watch); return; }
         await R.sendSlash(pane, w.agent, '/model', async (message) => send(message));
         watch();
       });
-      // ── 입력 (메인 입력창과 같은 구성: 특수 키 · 빠른 문구 · 모델 · 첨부 · 직접 입력 · 자동 제출 · 키 접기 · 이전 프롬프트) ──
+      // ── Input (same make-up as the main input: special keys · quick phrases · model · attachments · direct input · auto submit · key folding · previous prompts) ──
       const autosize = () => { input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 160)}px`; };
       const submit = true;
       let direct = false;
@@ -5985,7 +6023,7 @@
       function syncToggles() {
         const collapsed = store.get('keybar-folded', true);
         $$in('.tp-keys').classList.toggle('hidden', collapsed);
-        $$in('[data-tp-keybar]').innerHTML = collapsed ? '<i class="fas fa-chevron-up"></i> 키 펼치기' : '<i class="fas fa-chevron-down"></i> 키 접기';
+        $$in('[data-tp-keybar]').innerHTML = collapsed ? `<i class="fas fa-chevron-up"></i> ${t('키 펼치기')}` : `<i class="fas fa-chevron-down"></i> ${t('키 접기')}`;
       }
       syncToggles();
 
@@ -6007,19 +6045,19 @@
       $$in('[data-tp-switch]').addEventListener('click', () => pickAgentSwitch(w));
       $$in('[data-tp-update]').addEventListener('click', () => R.restartAgent({ pane, agent: w?.agent, busy: w?.status === 'busy', window: w }));
       $$in('[data-tp-snippet]').addEventListener('click', () => {
-        const snippets = store.get('snippets', ['계속 진행해줘', '커밋해줘', '테스트 돌려서 확인해줘', '/compact', '/clear']);
+        const snippets = store.get('snippets', [t('계속 진행해줘'), t('커밋해줘'), t('테스트 돌려서 확인해줘'), '/compact', '/clear']);
         const recent = store.get('recent', []).slice(0, 20);
         const put = (text) => { input.value = input.value ? `${input.value}${input.value.endsWith('\n') ? '' : ' '}${text}` : text; autosize(); input.focus(); };
         actionSheet({
-          title: '히스토리', subtitle: '누르면 입력창에 넣습니다.',
-          actions: [...recent.map((t) => ({ icon: 'fa-clock-rotate-left', label: t.replace(/\s+/g, ' ').slice(0, 80), onClick: () => put(t) })), ...(recent.length ? ['sep'] : []), ...snippets.map((t) => ({ icon: 'fa-bolt', label: t, onClick: () => put(t) }))],
+          title: t('히스토리'), subtitle: t('누르면 입력창에 넣습니다.'),
+          actions: [...recent.map((text) => ({ icon: 'fa-clock-rotate-left', label: text.replace(/\s+/g, ' ').slice(0, 80), onClick: () => put(text) })), ...(recent.length ? ['sep'] : []), ...snippets.map((text) => ({ icon: 'fa-bolt', label: text, onClick: () => put(text) }))],
         });
       });
-      // 첨부: 업로드해 두었다가 보낼 때 함께 (메인과 같은 /api/uploads)
+      // Attachments: uploaded ahead and sent along with the prompt (same /api/uploads as main)
       function renderTray() {
         tray.classList.toggle('hidden', !attachments.length);
         tray.classList.toggle('flex', attachments.length > 0);
-        tray.innerHTML = attachments.map((a, i) => `<span class="attach-chip ${a.status}"><i class="fas ${a.status === 'error' ? 'fa-triangle-exclamation' : a.status === 'done' ? 'fa-paperclip' : 'fa-circle-notch fa-spin'}"></i><span class="truncate max-w-[140px]">${escapeHtml(a.name)}</span><button type="button" data-tp-unattach="${i}" aria-label="빼기"><i class="fas fa-xmark"></i></button></span>`).join('');
+        tray.innerHTML = attachments.map((a, i) => `<span class="attach-chip ${a.status}"><i class="fas ${a.status === 'error' ? 'fa-triangle-exclamation' : a.status === 'done' ? 'fa-paperclip' : 'fa-circle-notch fa-spin'}"></i><span class="truncate max-w-[140px]">${escapeHtml(a.name)}</span><button type="button" data-tp-unattach="${i}" aria-label="${t('빼기')}"><i class="fas fa-xmark"></i></button></span>`).join('');
       }
       function addFiles(files) {
         for (const file of files) {
@@ -6041,7 +6079,7 @@
         const files = [...(event.clipboardData?.files || [])];
         if (files.length) { event.preventDefault(); addFiles(files); }
       });
-      // 직접 입력 모드: 누르는 키를 바로 터미널로
+      // Direct input mode: pressed keys go straight to the terminal
       const DIRECT_KEYS = { Enter: 'Enter', Backspace: 'BSpace', Tab: 'Tab', Escape: 'Escape', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right', Delete: 'DC', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown' };
       const promptHint = () => promptPlaceholder(w);
       function setDirect(on) {
@@ -6049,7 +6087,7 @@
         $$in('[data-tp-direct]').setAttribute('aria-pressed', String(on));
         $$in('[data-tp-direct]').classList.toggle('active', on);
         $$in('.tp-direct-banner').classList.toggle('hidden', !on);
-        input.placeholder = on ? '직접 입력 중 (Esc 두 번이면 해제)' : promptHint();
+        input.placeholder = on ? t('직접 입력 중 (Esc 두 번이면 해제)') : promptHint();
         if (on) { input.value = ''; autosize(); input.focus(); }
       }
       $$in('[data-tp-direct]').addEventListener('click', () => setDirect(!direct));
@@ -6068,7 +6106,7 @@
           return;
         }
         if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.shiftKey && !event.isComposing) {
-          // 메인과 같은 규칙: 비어 있을 때만 기록, 기록을 넘기는 중이면 계속, 아니면 커서 이동
+          // Same rule as main: history only when empty, keep going while browsing history, otherwise move the cursor
           const browsing = history.index !== -1;
           if (event.key === 'ArrowUp' && (browsing || !input.value)) { event.preventDefault(); recall(1); return; }
           if (event.key === 'ArrowDown' && browsing) { event.preventDefault(); recall(-1); return; }
@@ -6082,13 +6120,13 @@
         event.preventDefault();
         if (!pane || direct) return;
         const text = input.value;
-        if (attachments.some((a) => a.status === 'uploading')) { toast('첨부 업로드가 끝나면 보냅니다…', 'info'); await Promise.all(attachments.map((a) => a.promise)); }
+        if (attachments.some((a) => a.status === 'uploading')) { toast(t('첨부 업로드가 끝나면 보냅니다…'), 'info'); await Promise.all(attachments.map((a) => a.promise)); }
         const ready = attachments.filter((a) => a.status === 'done').map((a) => a.id);
         if (!text.trim() && !ready.length) send({ t: 'keys', pane, keys: ['Enter'] });
         else {
           send({ t: 'prompt', pane, text, submit, attachments: ready });
           if (text.trim() && !/^\/\S/.test(text.trim()) && modeOf() === 'log') { sent.push({ text, at: Date.now(), afterId: chat.total - 1 }); logStick = true; renderChat(); }
-          if (text.trim()) store.set('recent', [text, ...store.get('recent', []).filter((t) => t !== text)].slice(0, 100));   // ↑ 기록에도 남긴다
+          if (text.trim()) store.set('recent', [text, ...store.get('recent', []).filter((t) => t !== text)].slice(0, 100));   // also kept in the ↑ history
         }
         attachments.length = 0;
         renderTray();
@@ -6125,7 +6163,7 @@
             chat.total = 0;
             model.id = null;
             modelRequest += 1;
-            innerEl.innerHTML = '<div class="ln term-empty-note">화면을 불러오는 중...</div>';
+            innerEl.innerHTML = `<div class="ln term-empty-note">${t('화면을 불러오는 중...')}</div>`;
             stick = true;
             if (!ws || ws.readyState > 1) connect(); else send({ t: 'sub', pane, history: 300 });
             refreshModel();
@@ -6161,12 +6199,12 @@
       return g.mirror;
     }
 
-    // 파일 탭에서 뷰어를 닫아도 탭은 남는다 → "열린 파일 N" 으로 다시 열기
+    // Closing the viewer in the Files tab keeps the tabs → reopen via "Open files N"
     const chip = $('#wsOpenFiles');
     function syncChip() {
       const count = viewer?.count || 0;
       chip.classList.toggle('hidden', !count || document.body.classList.contains('file-open'));
-      chip.querySelector('span').textContent = `열린 파일 ${count}`;
+      chip.querySelector('span').textContent = t('열린 파일 {count}', { count });
     }
     chip.addEventListener('click', () => openFile(null));
     function openFile(entry) {
@@ -6196,11 +6234,11 @@
     }
     window.addEventListener('popstate', () => { if (document.body.classList.contains('file-open')) closeFile(true); });
 
-    // 경로를 지금 선택한 창의 프롬프트에 넣고 터미널로 돌아간다
+    // Insert the path into the prompt of the currently selected window and return to the terminal
     function insertPath(path) {
       const w = workspace.currentWindow();
       if (!w) {
-        window.UnivDashExplorer.copyText(path, '먼저 창을 선택하십시오. 경로는 복사했습니다');
+        window.UnivDashExplorer.copyText(path, t('먼저 창을 선택하십시오. 경로는 복사했습니다'));
         return;
       }
       const fromViewer = document.body.classList.contains('file-open');
@@ -6215,11 +6253,11 @@
       input.value = `${before}${pad}${text} ${after.replace(/^\s+/, '')}`;
       input.dispatchEvent(new Event('input', { bubbles: true }));
       if (!coarsePointer) { input.focus(); const pos = (before + pad + text).length + 1; input.setSelectionRange(pos, pos); }
-      toast(`${displayName(w)} 프롬프트에 경로를 넣었습니다.`, 'ok');
+      toast(t('{name} 프롬프트에 경로를 넣었습니다.', { name: displayName(w) }), 'ok');
     }
 
-    // 채팅 답변의 경로 링크: 파일이면 파일 탭으로, 폴더면 탐색기에서 펼쳐 보여 준다.
-    // 상대 경로는 그 채팅의 tmux 창 작업 폴더 기준 (분할 창이면 그 창).
+    // Path links in chat answers: a file opens as a file tab, a folder is expanded and shown in the explorer.
+    // Relative paths are resolved against the working folder of that chat's tmux window (for a split pane, that pane's).
     async function openChatPath(link) {
       const raw = link.dataset.openPath;
       const group = link.closest('.side-pane[data-group]')?.dataset.group;
@@ -6230,11 +6268,11 @@
       const path = /^(~|\/)/.test(raw) ? raw : `${cwd.replace(/\/$/, '')}/${raw}`;
       let info;
       try { info = await api('GET', `/api/fs/stat?path=${encodeURIComponent(path)}`); } catch (error) {
-        // 한글 폴더 이름 뒤에 조사가 붙어 링크가 된 경우("…/02_세이프덱에"): 끝 글자를 하나씩 빼 보며 다시 찾는다
+        // When a Korean particle got attached to a Hangul folder name and became part of the link ("…/02_<name>" + particle): retry while dropping trailing characters one at a time
         for (let cut = 1; !info && cut <= 3 && /\p{Script=Hangul}{2,}$/u.test(path.slice(0, path.length - cut + 1)); cut += 1) {
-          try { info = await api('GET', `/api/fs/stat?path=${encodeURIComponent(path.slice(0, -cut))}`); } catch (e) { /* 다음 */ }
+          try { info = await api('GET', `/api/fs/stat?path=${encodeURIComponent(path.slice(0, -cut))}`); } catch (e) { /* next */ }
         }
-        if (!info) { toast(`열 수 없습니다: ${raw} (${error.message})`, 'warn'); return; }
+        if (!info) { toast(t('열 수 없습니다: {path} ({error})', { path: raw, error: error.message }), 'warn'); return; }
       }
       if (info.type === 'dir') { reveal(info.path); return; }
       const name = info.path.split('/').pop();
@@ -6251,7 +6289,7 @@
       if (event.key === 'Enter' && event.target.matches?.('.path-link[data-open-path]')) openChatPath(event.target);
     });
 
-    // 창 메뉴 → "작업 폴더 파일 보기"
+    // Window menu → "Show working folder files"
     function reveal(path) {
       if (document.body.classList.contains('term-open') && !desktopQuery.matches) workspace.closeTerm();
       if (desktopQuery.matches) setSide('right', false);
@@ -6260,8 +6298,8 @@
     }
 
     setMode(store.get('ws-mode', 'windows'));
-    // explorer.js 는 app.js 뒤에 로드되므로 파일 탭이 처음부터 열려 있으면 로드 후에 붙인다
-    // ── 왼쪽(창) · 오른쪽(파일) 사이드바 접기 — 상태는 저장되어 새로고침해도 유지 ──
+    // explorer.js loads after app.js, so if the Files tab is open from the start it is attached after loading
+    // ── Collapsing the left (windows) · right (files) sidebars — the state is saved and survives a reload ──
     function setSide(side, collapsed) {
       const cls = `ws-${side}-collapsed`;
       document.documentElement.classList.toggle(cls, collapsed);
@@ -6269,7 +6307,7 @@
       if (side === 'right' && !collapsed) ensureTree();
       requestAnimationFrame(() => terminal?.refit());
     }
-    // 파일 사이드바 폭은 드래그로 조절하고, 저장된 폭은 새로고침 뒤에도 유지한다.
+    // The file sidebar width is adjusted by dragging, and the saved width is kept after a reload.
     const filePane = $('#filePane');
     const fileResize = $('[data-file-resize]');
     const fileWidthDefault = () => window.innerWidth >= 1280 ? 280 : 250;
@@ -6325,7 +6363,7 @@
       const delta = (event.key === 'ArrowRight' ? 16 : -16) * (document.documentElement.classList.contains('ws-swapped') ? -1 : 1);
       applyFileWidth(filePane.getBoundingClientRect().width + delta, true);
     });
-    // 창 목록 ↔ 파일 사이드바 좌우 바꾸기 (저장되어 새로고침해도 유지)
+    // Swap the window list ↔ file sidebar sides (saved and kept after a reload)
     $$('[data-ws-swap]').forEach((button) => button.addEventListener('click', () => {
       const swapped = document.documentElement.classList.toggle('ws-swapped');
       store.set('ws-swapped', swapped);
@@ -6337,10 +6375,10 @@
     }));
 
     window.addEventListener('DOMContentLoaded', () => {
-      // 데스크톱은 파일 사이드바가 늘 보이므로(접혀 있지 않으면) 바로 트리를 붙인다
+      // On desktop the file sidebar is always visible (unless collapsed), so attach the tree right away
       if (document.body.dataset.wsMode === 'files' || (desktopQuery.matches && !document.documentElement.classList.contains('ws-right-collapsed'))) ensureTree();
       if (!ensureViewer()) return;
-      // 떠날 때 파일을 보고 있었으면 그대로 다시 연다 (탭 · 스크롤 위치 포함)
+      // If a file was being viewed when leaving, reopen it as it was (including tabs · scroll position)
       if (store.get('ws-file-open', false) && viewer.count && (desktopQuery.matches || !location.hash) && !store.get('ws-pty-open', false)) openFile(null);
       else syncChip();
       renderBar();
@@ -6350,15 +6388,15 @@
     return { reveal, setMode };
   })();
 
-  // ── 시작 ────────────────────────────────────────────────────────────
+  // ── Start ───────────────────────────────────────────────────────────
   socket.on('windows', (message) => {
     onWindows(message.windows);
     workspace?.onWindowsChanged();
   });
-  // 이 기기 상태를 서버에 알린다 (push.js 의 웹 푸시 대상 고르기):
-  //  - keys: 지금 화면에 띄워 보고 있는 창 → 그 창 알림은 푸시 대신 화면 안 알림만
-  //  - present: 이 기기에서 대시보드를 쓰고 있음 → 알림은 이 기기로만 가고 다른 기기(폰 등)는 조용히
-  //    창이 앞에 있거나, 대시보드가 보이는 상태에서 PRESENT_MS 안에 만졌으면 쓰고 있는 것으로 본다.
+  // Report this device's state to the server (push.js uses it to pick web push targets):
+  //  - keys: windows currently shown on screen → notifications for them are in-page only, no push
+  //  - present: the dashboard is in use on this device → notifications go only to this device and other devices (phone etc.) stay quiet
+  //    It counts as in use when the window is in front, or the dashboard is visible and was touched within PRESENT_MS.
   const PRESENT_MS = 30 * 60 * 1000;
   let lastFocus = '';
   let lastInput = Date.now();
@@ -6378,12 +6416,12 @@
   window.addEventListener('focus', () => { touched(); reportFocus(); });
   window.addEventListener('blur', () => reportFocus());
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') touched(); reportFocus(); });
-  setInterval(() => reportFocus(), 1000);  // 보는 창 · 쓰는 중 여부가 바뀐 것도 반영
-  // Codex 새 계정 적용으로 창들이 다시 켜지면 보고 있던 채팅 · 모델 표시를 새로 읽는다
+  setInterval(() => reportFocus(), 1000);  // also picks up changes in viewed windows · in-use state
+  // When windows are restarted by applying a new Codex account, re-read the chat · model display being viewed
   window.addEventListener('univdash:codex-applied', () => {
     if (state.paneId) window.dispatchEvent(new CustomEvent('univdash:agent-switched', { detail: { pane: state.paneId } }));
   });
-  // 푸시 알림을 눌렀을 때 그 창 열기
+  // Open that window when a push notification is clicked
   window.addEventListener('univdash:open-window', (event) => {
     const key = event.detail?.key;
     if (workspace && state.windows.some((w) => w.key === key)) workspace.select(key);
@@ -6396,6 +6434,6 @@
     workspace?.restoreSelection();
     socket.connect();
   })();
-  // "n분 전" 표시 갱신
+  // Refresh the "n minutes ago" labels
   setInterval(() => renderAll(), 30000);
 })();

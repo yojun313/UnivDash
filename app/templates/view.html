@@ -1,11 +1,12 @@
 <!doctype html>
-<html lang="ko">
+<html lang="{{ ui_lang() }}">
 <head>
 <meta charset="utf-8">
+<script src="{{ i18n_src() }}"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow, noarchive">
 <meta name="referrer" content="no-referrer">
-<title>화면 보기</title>
+<title>{{ t("화면 보기") }}</title>
 <link rel="stylesheet" href="{{ asset('view.css') }}">
 <script src="{{ asset('vendor/marked.min.js') }}" defer></script>
 <script src="{{ asset('vendor/purify.min.js') }}" defer></script>
@@ -14,36 +15,36 @@
 <body>
 <header class="vw-head">
   <span class="vw-dot" id="vwDot" aria-hidden="true"></span>
-  <h1 id="vwTitle">화면 보기</h1>
-  <span class="vw-badge" title="이 화면은 보기만 할 수 있습니다. 입력은 보낼 수 없습니다.">읽기 전용</span>
+  <h1 id="vwTitle">{{ t("화면 보기") }}</h1>
+  <span class="vw-badge" title="{{ t('이 화면은 보기만 할 수 있습니다. 입력은 보낼 수 없습니다.') }}">{{ t("읽기 전용") }}</span>
   <span class="vw-meta" id="vwMeta"></span>
   <span class="vw-tabs hidden" id="vwTabs" role="tablist">
-    <button type="button" id="vwTabChat" role="tab" aria-selected="true">채팅</button>
-    <button type="button" id="vwTabTerm" role="tab" aria-selected="false">터미널</button>
+    <button type="button" id="vwTabChat" role="tab" aria-selected="true">{{ t("채팅") }}</button>
+    <button type="button" id="vwTabTerm" role="tab" aria-selected="false">{{ t("터미널") }}</button>
   </span>
   <span class="vw-tools">
-    <button type="button" id="vwFit" aria-pressed="true" title="화면 너비에 맞추기">맞춤</button>
-    <button type="button" id="vwPause" aria-pressed="false" title="잠시 멈추기">멈춤</button>
-    <button type="button" id="vwForget" class="hidden" title="이 브라우저에 기억해 둔 접근 코드를 지웁니다 (같이 쓰는 컴퓨터라면 눌러 주십시오)">코드 지우기</button>
+    <button type="button" id="vwFit" aria-pressed="true" title="{{ t('화면 너비에 맞추기') }}">{{ t("맞춤") }}</button>
+    <button type="button" id="vwPause" aria-pressed="false" title="{{ t('잠시 멈추기') }}">{{ t("멈춤") }}</button>
+    <button type="button" id="vwForget" class="hidden" title="{{ t('이 브라우저에 기억해 둔 접근 코드를 지웁니다 (같이 쓰는 컴퓨터라면 눌러 주십시오)') }}">{{ t("코드 지우기") }}</button>
   </span>
 </header>
 <main class="vw-main" id="vwMain">
   <form class="vw-code hidden" id="vwCode" autocomplete="off">
     <div class="vw-code-icon" aria-hidden="true">🔒</div>
-    <h2>접근 코드를 넣어 주십시오</h2>
-    <p>공유한 사람에게 따로 받은 코드입니다. 코드가 있어야 화면을 볼 수 있습니다.</p>
-    <input id="vwCodeInput" name="code" inputmode="text" autocapitalize="characters" autocomplete="one-time-code" spellcheck="false" maxlength="20" placeholder="XXXX-XXXX-XXXX" aria-label="접근 코드" required>
-    <button type="submit" id="vwCodeBtn">보기</button>
-    <p class="vw-code-hint">한 번 넣으면 이 브라우저에 기억해서, 공유가 끝날 때까지 다시 묻지 않습니다.</p>
+    <h2>{{ t("접근 코드를 넣어 주십시오") }}</h2>
+    <p>{{ t("공유한 사람에게 따로 받은 코드입니다. 코드가 있어야 화면을 볼 수 있습니다.") }}</p>
+    <input id="vwCodeInput" name="code" inputmode="text" autocapitalize="characters" autocomplete="one-time-code" spellcheck="false" maxlength="20" placeholder="XXXX-XXXX-XXXX" aria-label="{{ t('접근 코드') }}" required>
+    <button type="submit" id="vwCodeBtn">{{ t("보기") }}</button>
+    <p class="vw-code-hint">{{ t("한 번 넣으면 이 브라우저에 기억해서, 공유가 끝날 때까지 다시 묻지 않습니다.") }}</p>
     <p class="vw-code-err" id="vwCodeErr" role="alert"></p>
   </form>
   <div class="vw-chat hidden" id="vwChat">
-    <button type="button" class="vw-older hidden" id="vwOlder">이전 대화 더 보기</button>
+    <button type="button" class="vw-older hidden" id="vwOlder">{{ t("이전 대화 더 보기") }}</button>
     <div class="vw-list" id="vwList"></div>
   </div>
   <pre class="vw-term" id="vwTerm" aria-live="off"></pre>
-  <div class="vw-note" id="vwNote">불러오는 중…</div>
+  <div class="vw-note" id="vwNote">{{ t("불러오는 중…") }}</div>
 </main>
-<button type="button" class="vw-latest hidden" id="vwLatest">최신 ↓</button>
+<button type="button" class="vw-latest hidden" id="vwLatest">{{ t("최신 ↓") }}</button>
 </body>
 </html>

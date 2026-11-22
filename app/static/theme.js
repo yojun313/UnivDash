@@ -1,10 +1,10 @@
 // ============================================================================
-// UnivDash 공통 테마 시스템 (LecAI 테마 시스템 기반)
-// - [data-theme-settings] 버튼이 있는 페이지에 테마 설정 모달을 붙인다.
-// - 테마 스타일: <html data-ui-theme="mesh|apple|mono"> (기본 '오로라'는 속성 없음)
-// - 다크/라이트: <html data-ui-theme-mode="light"> (다크가 기본)
-// - 실제 배색은 /static/theme.css 가 담당한다.
-// - 첫 페인트 전 적용은 _theme.html 의 인라인 스니펫이 먼저 처리한다.
+// UnivDash shared theme system (based on the LecAI theme system)
+// - Attaches the theme settings modal to pages that have a [data-theme-settings] button.
+// - Theme style: <html data-ui-theme="mesh|apple|mono"> (the default 'Aurora' has no attribute)
+// - Dark/light: <html data-ui-theme-mode="light"> (dark is the default)
+// - The actual colors live in /static/theme.css.
+// - Applying before first paint is handled first by the inline snippet in _theme.html.
 // ============================================================================
 (function () {
   'use strict';
@@ -12,10 +12,10 @@
   var STYLE_KEY = 'univdash-theme-style';
   var MODE_KEY = 'univdash-theme';
   var THEMES = [
-    { id: 'default', label: '오로라' },
-    { id: 'mesh', label: '그라디언트 메시' },
-    { id: 'apple', label: '애플 글래스' },
-    { id: 'mono', label: '미니멀 플랫' },
+    { id: 'default', label: t('오로라') },
+    { id: 'mesh', label: t('그라디언트 메시') },
+    { id: 'apple', label: t('애플 글래스') },
+    { id: 'mono', label: t('미니멀 플랫') },
   ];
 
   var html = document.documentElement;
@@ -25,7 +25,7 @@
 
   function currentStyle() {
     var saved = get(STYLE_KEY);
-    return THEMES.some(function (t) { return t.id === saved; }) ? saved : 'default';
+    return THEMES.some(function (theme) { return theme.id === saved; }) ? saved : 'default';
   }
   function currentMode() {
     var saved = get(MODE_KEY);
@@ -49,7 +49,7 @@
     } catch (e) { /* noop */ }
   }
 
-  // 가벼운 모드: 블러 · 계속 도는 애니메이션 · 화면 밖 렌더링을 줄여 기기(GPU · CPU · RAM) 부담을 낮춘다. 기본은 꺼짐.
+  // Lite mode: reduces blur, continuously running animations and off-screen rendering to lighten the load on the device (GPU, CPU, RAM). Off by default.
   var LITE_KEY = 'univdash-lite';
   function currentLite() { return get(LITE_KEY) === '1'; }
   function applyLite(on, persist) {
@@ -63,7 +63,7 @@
   applyMode(currentMode(), false);
   applyLite(currentLite(), false);
 
-  // 다른 탭에서 켜고 끄면 이 탭에도 바로 적용
+  // Toggling it in another tab applies to this tab right away
   window.addEventListener('storage', function (e) {
     if (e.key === LITE_KEY) applyLite(e.newValue === '1', false);
   });
@@ -81,26 +81,26 @@
     overlay.className = 'pmd-theme-overlay';
     overlay.hidden = true;
 
-    var optionsHtml = THEMES.map(function (t) {
+    var optionsHtml = THEMES.map(function (theme) {
       return (
-        '<button type="button" class="pmd-theme-option" data-theme="' + t.id + '">'
-        + '<span class="pmd-theme-swatch pmd-swatch-' + t.id + '"></span>'
-        + '<span><span class="pmd-theme-check">✓</span>' + t.label + '</span>'
+        '<button type="button" class="pmd-theme-option" data-theme="' + theme.id + '">'
+        + '<span class="pmd-theme-swatch pmd-swatch-' + theme.id + '"></span>'
+        + '<span><span class="pmd-theme-check">✓</span>' + theme.label + '</span>'
         + '</button>'
       );
     }).join('');
 
     overlay.innerHTML =
-      '<div class="pmd-theme-modal" role="dialog" aria-modal="true" aria-label="테마 설정">'
+      '<div class="pmd-theme-modal" role="dialog" aria-modal="true" aria-label="' + t('테마 설정') + '">'
       + '<div class="pmd-theme-head">'
-      + '<div><h3>테마 설정</h3><p>원하는 테마를 선택하십시오. 모든 페이지에 동일하게 적용됩니다.</p></div>'
-      + '<button type="button" class="pmd-theme-close" aria-label="닫기">&times;</button>'
+      + '<div><h3>' + t('테마 설정') + '</h3><p>' + t('원하는 테마를 선택하십시오. 모든 페이지에 동일하게 적용됩니다.') + '</p></div>'
+      + '<button type="button" class="pmd-theme-close" aria-label="' + t('닫기') + '">&times;</button>'
       + '</div>'
       + '<div class="pmd-theme-body">' + optionsHtml + '</div>'
-      + '<div class="pmd-theme-mode-row"><span>다크 모드</span>'
-      + '<button type="button" class="pmd-mode-switch" aria-label="다크 모드 전환"></button></div>'
-      + '<div class="pmd-theme-mode-row pmd-lite-row"><span>가벼운 모드<small>블러 · 반짝임 효과를 줄여 GPU · CPU · 메모리를 아낍니다</small></span>'
-      + '<button type="button" class="pmd-mode-switch pmd-lite-switch" aria-label="가벼운 모드 전환"></button></div>'
+      + '<div class="pmd-theme-mode-row"><span>' + t('다크 모드') + '</span>'
+      + '<button type="button" class="pmd-mode-switch" aria-label="' + t('다크 모드 전환') + '"></button></div>'
+      + '<div class="pmd-theme-mode-row pmd-lite-row"><span>' + t('가벼운 모드') + '<small>' + t('블러 · 반짝임 효과를 줄여 GPU · CPU · 메모리를 아낍니다') + '</small></span>'
+      + '<button type="button" class="pmd-mode-switch pmd-lite-switch" aria-label="' + t('가벼운 모드 전환') + '"></button></div>'
       + '</div>';
 
     document.body.appendChild(overlay);

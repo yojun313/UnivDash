@@ -1,8 +1,8 @@
-// 화면 공유 보기 (읽기 전용) — 화면을 1초마다 받아 그리기만 한다. 서버로 보내는 것은 화면 요청뿐이다.
-// - 링크 토큰은 주소의 # 뒤에 있다 (서버로 가지 않음). 읽은 뒤 주소창에서 지우고 이 탭에만 기억한다.
-// - 접근 코드는 맞게 넣으면 이 브라우저에 기억한다 (공유가 끝날 때까지) → 링크를 다시 열 때 또 묻지 않는다.
-// - 접근 코드(공유한 사람이 따로 전달)를 넣어야 화면이 나온다. 코드를 넣기 전에는 제목조차 받지 않는다.
-// - 터미널 내용은 textContent 로만 넣고, 색은 직접 계산한 값만 style 에 넣는다 (내용이 HTML 로 해석되지 않는다).
+// Screen-share viewer (read-only) — only fetches the screen every second and draws it. The only thing sent to the server is the screen request.
+// - The link token is after the # in the address (never sent to the server). After reading it, it is removed from the address bar and remembered in this tab only.
+// - Once entered correctly, the access code is remembered in this browser (until the share ends) → not asked again when the link is reopened.
+// - The screen appears only after the access code (passed on separately by the sharer) is entered. Before that, not even the title is fetched.
+// - Terminal content is inserted via textContent only, and only colours computed here go into style (content is never interpreted as HTML).
 (function () {
   'use strict';
 
@@ -11,7 +11,7 @@
   const TOKEN = /^[A-Za-z0-9_-]{43}$/;
   const store = {
     get(key) { try { return sessionStorage.getItem(key) || ''; } catch (e) { return ''; } },
-    set(key, value) { try { sessionStorage.setItem(key, value); } catch (e) { /* 저장 불가 */ } },
+    set(key, value) { try { sessionStorage.setItem(key, value); } catch (e) { /* cannot save */ } },
     drop(key) { try { sessionStorage.removeItem(key); } catch (e) { /* noop */ } },
   };
   let token = '';
@@ -23,34 +23,34 @@
     token = store.get(TOKEN_KEY);
   }
   try { history.replaceState(null, '', location.pathname); } catch (e) { /* noop */ }
-  // 접근 코드는 한 번 맞게 넣으면 이 브라우저에 기억해 둔다 (공유가 끝나는 시각까지). 같은 링크를 새 탭 · 다음 날 다시
-  // 열어도 코드를 또 묻지 않는다. 공유마다 따로 기억하고, 코드가 틀렸다고 나오거나 공유가 끝나면 지운다.
+  // Once entered correctly, the access code is remembered in this browser (until the share's end time). Reopening the same
+  // link in a new tab or the next day does not ask for the code again. Remembered per share; removed when the code is rejected or the share ends.
   const codes = {
-    key: (t) => t.slice(0, 16),
+    key: (tok) => tok.slice(0, 16),
     all() {
       try {
         const data = JSON.parse(localStorage.getItem(CODE_KEY) || '{}');
         return data && typeof data === 'object' ? data : {};
       } catch (e) { return {}; }
     },
-    save(data) { try { localStorage.setItem(CODE_KEY, JSON.stringify(data)); } catch (e) { /* 저장 불가 */ } },
-    get(t) {
+    save(data) { try { localStorage.setItem(CODE_KEY, JSON.stringify(data)); } catch (e) { /* cannot save */ } },
+    get(tok) {
       const data = this.all();
       const now = Date.now() / 1000;
       let changed = false;
       Object.keys(data).forEach((k) => { if (!data[k] || !(data[k].expires > now)) { delete data[k]; changed = true; } });
       if (changed) this.save(data);
-      const saved = data[this.key(t)];
+      const saved = data[this.key(tok)];
       return saved && typeof saved.code === 'string' ? saved.code : '';
     },
-    set(t, value, expires) {
+    set(tok, value, expires) {
       const data = this.all();
-      data[this.key(t)] = { code: value, expires: Number(expires) || (Date.now() / 1000 + 86400) };
+      data[this.key(tok)] = { code: value, expires: Number(expires) || (Date.now() / 1000 + 86400) };
       this.save(data);
     },
-    drop(t) {
+    drop(tok) {
       const data = this.all();
-      if (data[this.key(t)]) { delete data[this.key(t)]; this.save(data); }
+      if (data[this.key(tok)]) { delete data[this.key(tok)]; this.save(data); }
     },
   };
   let code = TOKEN.test(token) ? codes.get(token) : '';
@@ -77,7 +77,7 @@
   let timer = 0;
   let last = null;
   let expires = 0;
-  let mode = 'term';   // 'chat' (에이전트 대화 기록) | 'term' (터미널 화면)
+  let mode = 'term';   // 'chat' (agent conversation transcript) | 'term' (terminal screen)
 
   function setNote(text) { note.textContent = text; note.classList.toggle('hidden', !text); }
   function setDot(kind) { dot.className = `vw-dot ${kind}`; }
@@ -92,7 +92,7 @@
     store.drop(TOKEN_KEY);
     if (TOKEN.test(token)) codes.drop(token);
   }
-  // keep: 기억해 둔 코드를 지우지 않는다 (틀려서가 아니라 잠시 막혔을 때)
+  // keep: do not remove the remembered code (when temporarily locked out rather than wrong)
   function askCode(message, keep) {
     clearTimeout(timer);
     code = '';
@@ -113,7 +113,7 @@
     setTimeout(() => codeInput.focus(), 30);
   }
 
-  // ── ANSI SGR → 스타일 ──
+  // ── ANSI SGR → style ──
   const PALETTE = ['#1f2430', '#f07178', '#a6da95', '#eed49f', '#7aa2f7', '#c6a0f6', '#7dcfff', '#cad3f5',
     '#5b6078', '#ff8a92', '#b8f0a8', '#ffe0a8', '#9ab8ff', '#dcb8ff', '#a4e0ff', '#ffffff'];
   const CUBE = [0, 95, 135, 175, 215, 255];
@@ -162,7 +162,7 @@
     span.textContent = text;
     let fg = st.fg;
     let bg = st.bg;
-    if (st.inv) { const t = fg || '#d4d8e1'; fg = bg || '#05070c'; bg = t; }
+    if (st.inv) { const swap = fg || '#d4d8e1'; fg = bg || '#05070c'; bg = swap; }
     if (fg) span.style.color = fg;
     if (bg) span.style.background = bg;
     if (st.b) span.style.fontWeight = '700';
@@ -203,7 +203,7 @@
     if (stick) main.scrollTop = main.scrollHeight;
   }
 
-  // ── 너비: pane 칸 수만큼에서 줄을 접는다. '맞춤'이면 그 너비가 화면에 들어가게 글자 크기를 줄인다 (8–14px) ──
+  // ── Width: lines wrap at the pane's column count. With 'fit' on, the font size shrinks so that width fits the screen (8–14px) ──
   let charRatio = 0;
   function measure() {
     const probe = document.createElement('span');
@@ -224,7 +224,7 @@
     term.style.fontSize = `${Math.max(8, Math.min(14, room / (cols * charRatio))).toFixed(2)}px`;
   }
 
-  // ── 받아 오기 ──
+  // ── Fetching ──
   function call(path) {
     const headers = { 'X-View-Token': token };
     if (code) headers['X-View-Code'] = code;
@@ -232,9 +232,9 @@
   }
   function leftText() {
     const minutes = Math.max(0, Math.ceil((expires * 1000 - Date.now()) / 60000));
-    if (minutes >= 1440) return `${Math.floor(minutes / 1440)}일 ${Math.floor((minutes % 1440) / 60)}시간 남음`;
-    if (minutes >= 60) return `${Math.floor(minutes / 60)}시간 ${minutes % 60}분 남음`;
-    return `${minutes}분 남음`;
+    if (minutes >= 1440) return t('{days}일 {hours}시간 남음', { days: Math.floor(minutes / 1440), hours: Math.floor((minutes % 1440) / 60) });
+    if (minutes >= 60) return t('{hours}시간 {minutes}분 남음', { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
+    return t('{minutes}분 남음', { minutes });
   }
   function schedule(ms) {
     clearTimeout(timer);
@@ -243,20 +243,20 @@
   async function lockedText(response) {
     let wait = Number(response.headers.get('Retry-After')) || 900;
     try { wait = Number((await response.json()).wait) || wait; } catch (e) { /* noop */ }
-    return `코드가 여러 번 틀려 잠시 막혔습니다. 약 ${Math.ceil(wait / 60)}분 뒤 다시 넣어 주십시오.`;
+    return t('코드가 여러 번 틀려 잠시 막혔습니다. 약 {minutes}분 뒤 다시 넣어 주십시오.', { minutes: Math.ceil(wait / 60) });
   }
-  // 화면 · 채팅 요청 공통: 받은 데이터(JSON)를 돌려준다. 바뀐 게 없으면 'same', 여기서 처리가 끝났으면 null.
+  // Shared by screen · chat requests: returns the received data (JSON). 'same' when nothing changed, null when handled here.
   async function fetchData(path, interval) {
     let response;
     try {
       response = await call(path);
     } catch (e) {
-      setDot('wait'); meta.textContent = '연결이 끊겼습니다 · 다시 시도하는 중'; schedule(3000); return null;
+      setDot('wait'); meta.textContent = t('연결이 끊겼습니다 · 다시 시도하는 중'); schedule(3000); return null;
     }
     if (response.status === 204) { setDot('live'); meta.textContent = leftText(); schedule(interval); return 'same'; }
-    if (response.status === 404) { end('공유가 끝났거나 없는 링크입니다.'); return null; }
-    if (response.status === 410) { end('공유한 창이 닫혔습니다.'); return null; }
-    if (response.status === 403) { askCode('접근 코드가 맞지 않습니다. 다시 넣어 주십시오.'); return null; }
+    if (response.status === 404) { end(t('공유가 끝났거나 없는 링크입니다.')); return null; }
+    if (response.status === 410) { end(t('공유한 창이 닫혔습니다.')); return null; }
+    if (response.status === 403) { askCode(t('접근 코드가 맞지 않습니다. 다시 넣어 주십시오.')); return null; }
     if (response.status === 429) {
       let state = '';
       try { state = (await response.clone().json()).state; } catch (e) { /* noop */ }
@@ -288,11 +288,11 @@
     ticking = true;
     const mine = mode;
     try { await (mine === 'chat' ? chatTick() : termTick()); } finally { ticking = false; }
-    if (mine !== mode) schedule(0);   // 받는 사이 탭을 바꿨다 → 바로 그 탭 것을 받는다
+    if (mine !== mode) schedule(0);   // the tab changed while fetching → fetch that tab's data right away
   }
 
   // ════════════════════════════════════════════════════════════════════
-  // 채팅: 에이전트 대화 기록 (읽기만). 처음엔 마지막 100개, 위로 올리면 이전 기록을 이어 받아 처음까지 볼 수 있다.
+  // Chat: agent conversation transcript (read-only). Starts with the last 100 items; scrolling up loads earlier ones, all the way to the start.
   // ════════════════════════════════════════════════════════════════════
   const chatBox = $('vwChat');
   const list = $('vwList');
@@ -314,9 +314,9 @@
     const date = ts ? new Date(ts) : null;
     if (!date || Number.isNaN(date.getTime())) return '';
     const sameDay = date.toDateString() === new Date().toDateString();
-    return date.toLocaleString('ko-KR', sameDay ? { hour: '2-digit', minute: '2-digit' } : { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleString(t.locale, sameDay ? { hour: '2-digit', minute: '2-digit' } : { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   }
-  // 마크다운 → 걸러 낸 HTML. 허용한 태그 · 속성만 남기고(스크립트 · 그림 · 스타일 · 이벤트 속성 없음) 링크는 새 탭 · http(s) 만.
+  // Markdown → sanitized HTML. Only allowed tags · attributes remain (no scripts · images · styles · event attributes); links open in a new tab · http(s) only.
   const MD_TAGS = ['p', 'br', 'strong', 'b', 'em', 'i', 'del', 's', 'code', 'pre', 'blockquote', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
     'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'a', 'span', 'sub', 'sup'];
   function markdown(text) {
@@ -336,12 +336,12 @@
     }
     return body;
   }
-  // 긴 내용은 앞부분만 그리고 '더 보기'로 나머지를 붙인다 (내용은 버리지 않는다)
+  // Long content renders only its beginning; 'show more' appends the rest (no content is dropped)
   function folded(host, nodes, limit) {
     const cut = nodes.length > limit + 8 ? limit : nodes.length;
     nodes.slice(0, cut).forEach((n) => host.append(n));
     if (cut >= nodes.length) return null;
-    const more = el('button', 'vw-more', `나머지 ${nodes.length - cut}줄 더 보기`);
+    const more = el('button', 'vw-more', t('나머지 {count}줄 더 보기', { count: nodes.length - cut }));
     more.type = 'button';
     more.addEventListener('click', () => { nodes.slice(cut).forEach((n) => host.append(n)); more.remove(); });
     return more;
@@ -350,10 +350,10 @@
     const box = el('details', `vt${item.error ? ' err' : ''}${item.output == null || item.running ? ' run' : ''}`);
     const summary = el('summary');
     const diffs = Array.isArray(item.diffs) ? item.diffs : [];
-    summary.append(el('span', 'vt-name', item.name === 'exec' && diffs.length ? 'apply_patch' : (item.name || '도구')));
+    summary.append(el('span', 'vt-name', item.name === 'exec' && diffs.length ? 'apply_patch' : (item.name || t('도구'))));
     if (diffs.length) {
       const names = diffs.map((d) => String(d.file || '').split('/').pop()).filter(Boolean);
-      summary.append(el('span', 'vt-sum', names.slice(0, 3).join(', ') + (names.length > 3 ? ` 외 ${names.length - 3}` : '')));
+      summary.append(el('span', 'vt-sum', names.length > 3 ? t('{names} 외 {count}', { names: names.slice(0, 3).join(', '), count: names.length - 3 }) : names.join(', ')));
       const stat = el('span', 'vt-stat');
       stat.append(el('b', 'a', `+${diffs.reduce((n, d) => n + (d.add || 0), 0)}`), ' ', el('b', 'd', `−${diffs.reduce((n, d) => n + (d.del || 0), 0)}`));
       summary.append(stat);
@@ -365,7 +365,7 @@
     diffs.forEach((d) => {
       const file = el('div', 'vd-file');
       const head = el('div', 'vd-head');
-      head.append(el('span', 'p', d.file || ''), el('span', '', { add: '새 파일', delete: '삭제' }[d.op] || ''));
+      head.append(el('span', 'p', d.file || ''), el('span', '', { add: t('새 파일'), delete: t('삭제') }[d.op] || ''));
       file.append(head);
       const rows = [];
       (d.hunks || []).forEach((h, index) => {
@@ -389,7 +389,7 @@
         file.append(bodyEl);
         if (more) file.append(more);
       }
-      if (d.cut) file.append(el('div', 'vd-cut', '… 길어서 일부만 표시합니다'));
+      if (d.cut) file.append(el('div', 'vd-cut', t('… 길어서 일부만 표시합니다')));
       box.append(file);
     });
     if (item.output && (!diffs.length || item.error)) {
@@ -399,7 +399,7 @@
       box.append(pre);
       if (more) box.append(more);
     }
-    // 기본은 펼침. 보는 사람이 접거나 편 것은 다시 그려도 그대로 둔다
+    // Expanded by default. Whatever the viewer collapsed or expanded stays that way across re-renders
     box.open = old && old.dataset.toggled ? old.open : true;
     if (old && old.dataset.toggled) box.dataset.toggled = '1';
     summary.addEventListener('click', () => { box.dataset.toggled = '1'; });
@@ -408,8 +408,8 @@
   function itemNode(item, old) {
     if (item.kind === 'user') {
       const box = el('div', 'vm vm-user');
-      box.append(el('div', 'vm-meta', `사용자 · ${timeOf(item.ts)}`));
-      const text = [item.images ? `[그림 ${item.images}개]` : '', item.text || ''].filter(Boolean).join('\n');
+      box.append(el('div', 'vm-meta', `${t('사용자')} · ${timeOf(item.ts)}`));
+      const text = [item.images ? t('[그림 {count}개]', { count: item.images }) : '', item.text || ''].filter(Boolean).join('\n');
       box.append(el('div', 'vm-body', text));
       return box;
     }
@@ -418,12 +418,12 @@
       box.append(el('div', 'vm-meta', `${{ claude: 'Claude', codex: 'Codex', gemini: 'Gemini' }[chat.agent] || 'Agent'} · ${timeOf(item.ts)}`), markdown(item.text || ''));
       return box;
     }
-    if (item.kind === 'system') return el('div', 'vm-sys', item.text || '');
+    if (item.kind === 'system') return el('div', 'vm-sys', t(item.text || ''));  // known system lines (compaction, interrupted) are translated
     if (item.kind === 'subagent') {
       const box = el('details', 'vt');
       const summary = el('summary');
-      summary.append(el('span', 'vt-name', item.name || '서브에이전트'), el('span', 'vt-sum', String(item.text || '').replace(/\s+/g, ' ').slice(0, 160)), el('span', 'vt-state', timeOf(item.ts)));
-      const body = markdown(item.text || '(내용 없음)');
+      summary.append(el('span', 'vt-name', item.name || t('서브에이전트')), el('span', 'vt-sum', String(item.text || '').replace(/\s+/g, ' ').slice(0, 160)), el('span', 'vt-state', timeOf(item.ts)));
+      const body = markdown(item.text || t('(내용 없음)'));
       body.style.padding = '8px 12px';
       box.append(summary, body);
       if (old && old.dataset.toggled) { box.open = old.open; box.dataset.toggled = '1'; }
@@ -439,7 +439,7 @@
     if (known && known.sig === sig) return;
     const node = itemNode(item, known && known.node);
     if (known) { known.node.replaceWith(node); chat.items.set(item.id, { sig, node }); return; }
-    // id 순서대로 끼워 넣는다
+    // insert in id order
     let at = chat.ids.length;
     while (at > 0 && chat.ids[at - 1] > item.id) at -= 1;
     const next = at < chat.ids.length ? chat.items.get(chat.ids[at]).node : null;
@@ -463,14 +463,14 @@
   async function chatTick() {
     const first = !chat.ids.length;
     const maxId = first ? -1 : chat.ids[chat.ids.length - 1];
-    // 뒤쪽 40개는 다시 받는다 (도구 결과가 나중에 채워지므로). 새 항목이 많으면 이어서 계속 받는다.
+    // The last 40 items are fetched again (tool results are filled in later). When there are many new items, keep fetching.
     const query = first ? 'limit=100' : `start=${Math.max(chat.ids[0], maxId - 40)}&limit=200`;
     const sameQuery = query === chat.query;
     const data = await fetchData(`/api/view/chat?${query}${sameQuery && chat.hash ? `&h=${encodeURIComponent(chat.hash)}` : ''}`, 2000);
     if (!data || data === 'same') return;
     if (mode !== 'chat') return;
     if (!data.available) { chatUnavailable(); return; }
-    if (Number(data.total) < chat.total) resetChat();   // 대화가 바뀌었다 (/clear · 새 세션) → 처음부터 다시
+    if (Number(data.total) < chat.total) resetChat();   // the conversation changed (/clear · new session) → start over
     chat.agent = String(data.agent || '');
     chat.total = Number(data.total) || 0;
     chat.query = query;
@@ -478,7 +478,7 @@
     const stick = follow;
     (data.items || []).forEach(upsert);
     (data.related || []).forEach((item) => { if (chat.items.has(item.id)) upsert(item); });
-    setNote(chat.ids.length ? '' : '아직 대화가 없습니다.');
+    setNote(chat.ids.length ? '' : t('아직 대화가 없습니다.'));
     olderBtn.classList.toggle('hidden', !chat.ids.length || chat.ids[0] === 0);
     if (stick) { main.scrollTop = main.scrollHeight; requestAnimationFrame(() => { if (follow) main.scrollTop = main.scrollHeight; }); }
     const newest = chat.ids.length ? chat.ids[chat.ids.length - 1] : -1;
@@ -488,7 +488,7 @@
     if (chat.loadingOlder || !chat.ids.length || chat.ids[0] === 0 || stopped) return;
     chat.loadingOlder = true;
     olderBtn.disabled = true;
-    olderBtn.textContent = '불러오는 중…';
+    olderBtn.textContent = t('불러오는 중…');
     try {
       const first = chat.ids[0];
       const start = Math.max(0, first - 150);
@@ -499,14 +499,14 @@
           const before = main.scrollHeight;
           const top = main.scrollTop;
           (data.items || []).filter((item) => item.id < first).forEach(upsert);
-          main.scrollTop = top + (main.scrollHeight - before);   // 보던 자리 그대로
+          main.scrollTop = top + (main.scrollHeight - before);   // keep the viewing position
           olderBtn.classList.toggle('hidden', chat.ids[0] === 0);
         }
       }
-    } catch (e) { /* 다음에 다시 */ }
+    } catch (e) { /* retry next time */ }
     chat.loadingOlder = false;
     olderBtn.disabled = false;
-    olderBtn.textContent = '이전 대화 더 보기';
+    olderBtn.textContent = t('이전 대화 더 보기');
   }
   olderBtn.addEventListener('click', loadOlder);
 
@@ -522,7 +522,7 @@
     chat.hash = '';
     follow = true;
     latest.classList.add('hidden');
-    setNote((isChat ? chat.ids.length : last) ? '' : '불러오는 중…');
+    setNote((isChat ? chat.ids.length : last) ? '' : t('불러오는 중…'));
     if (!isChat) applyFit();
     main.scrollTop = main.scrollHeight;
     if (!stopped && code) { clearTimeout(timer); tick(); }
@@ -530,54 +530,54 @@
   tabChat.addEventListener('click', () => { if (mode !== 'chat') setMode('chat'); });
   tabTerm.addEventListener('click', () => { if (mode !== 'term') setMode('term'); });
 
-  // 코드를 확인하고 (맞으면) 보기 시작
+  // Verify the code and (if correct) start viewing
   async function open() {
     let response;
-    try { response = await call('/api/view/info'); } catch (e) { setNote('연결하지 못했습니다. 잠시 뒤 새로 고쳐 주십시오.'); return; }
+    try { response = await call('/api/view/info'); } catch (e) { setNote(t('연결하지 못했습니다. 잠시 뒤 새로 고쳐 주십시오.')); return; }
     if (response.status === 401) { askCode(''); return; }
-    if (response.status === 403) { askCode('접근 코드가 맞지 않습니다.'); return; }
+    if (response.status === 403) { askCode(t('접근 코드가 맞지 않습니다.')); return; }
     if (response.status === 429) {
       let state = '';
       try { state = (await response.clone().json()).state; } catch (e) { /* noop */ }
       if (state === 'code_locked') { askCode(await lockedText(response), true); return; }
-      if (code) { askCode('잠시 뒤 다시 시도해 주십시오.'); return; }
-      setNote('잠시 뒤 새로 고쳐 주십시오.');
+      if (code) { askCode(t('잠시 뒤 다시 시도해 주십시오.')); return; }
+      setNote(t('잠시 뒤 새로 고쳐 주십시오.'));
       return;
     }
-    if (!response.ok) { end('공유가 끝났거나 없는 링크입니다.'); return; }
+    if (!response.ok) { end(t('공유가 끝났거나 없는 링크입니다.')); return; }
     const info = await response.json();
-    const title = String(info.title || '터미널 화면');
+    const title = String(info.title || t('터미널 화면'));
     $('vwTitle').textContent = title;
-    document.title = `${title} · 화면 보기`;
+    document.title = t('{title} · 화면 보기', { title });
     expires = Number(info.expires) || 0;
     codes.set(token, code, expires);
     forgetBtn.classList.remove('hidden');
     codeForm.classList.add('hidden');
-    // 에이전트(Claude · Codex) 창이면 채팅 · 터미널 탭을 둘 다 보여 주고 채팅부터 연다
+    // For an agent (Claude · Codex) window, show both the chat · terminal tabs and open chat first
     tabs.classList.toggle('hidden', !info.chat);
     setMode(info.chat ? 'chat' : 'term');
   }
 
-  // 같이 쓰는 컴퓨터용: 기억해 둔 코드를 지우고 코드 입력 화면으로 돌아간다
+  // For shared computers: remove the remembered code and go back to the code entry screen
   const forgetBtn = $('vwForget');
   forgetBtn.addEventListener('click', () => {
     if (stopped) return;
     tabs.classList.add('hidden');
     forgetBtn.classList.add('hidden');
-    askCode('기억해 둔 코드를 지웠습니다. 다시 보려면 코드를 넣어 주십시오.');
+    askCode(t('기억해 둔 코드를 지웠습니다. 다시 보려면 코드를 넣어 주십시오.'));
   });
 
   codeForm.addEventListener('submit', (event) => {
     event.preventDefault();
     const value = codeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (value.length !== 12) { codeErr.textContent = '코드는 12자리입니다 (예: ABCD-EFGH-JKLM).'; return; }
+    if (value.length !== 12) { codeErr.textContent = t('코드는 12자리입니다 (예: ABCD-EFGH-JKLM).'); return; }
     code = value;
     codeBtn.disabled = true;
     codeErr.textContent = '';
     open().finally(() => { codeBtn.disabled = false; });
   });
 
-  // ── 조작 (보기 설정만) ──
+  // ── Controls (view settings only) ──
   fitBtn.addEventListener('click', () => {
     fit = !fit;
     fitBtn.setAttribute('aria-pressed', String(fit));
@@ -586,14 +586,14 @@
   pauseBtn.addEventListener('click', () => {
     paused = !paused;
     pauseBtn.setAttribute('aria-pressed', String(paused));
-    pauseBtn.textContent = paused ? '이어 보기' : '멈춤';
-    if (paused) { setDot('wait'); meta.textContent = '멈춤'; } else tick();
+    pauseBtn.textContent = paused ? t('이어 보기') : t('멈춤');
+    if (paused) { setDot('wait'); meta.textContent = t('멈춤'); } else tick();
   });
   main.addEventListener('scroll', () => {
     const atBottom = main.scrollHeight - main.scrollTop - main.clientHeight < 4;
     if (atBottom) follow = true;
     latest.classList.toggle('hidden', atBottom || !(mode === 'chat' ? chat.ids.length : last));
-    // 채팅: 맨 위 가까이 올리면 이전 대화를 이어서 불러온다 (처음까지)
+    // Chat: scrolling near the top loads earlier conversation (all the way to the start)
     if (mode === 'chat' && main.scrollTop < 300) loadOlder();
   }, { passive: true });
   main.addEventListener('wheel', (event) => { if (event.deltaY < 0) follow = false; }, { passive: true });
@@ -602,6 +602,6 @@
   window.addEventListener('resize', applyFit);
   document.addEventListener('visibilitychange', () => { if (!document.hidden && !stopped && !paused && code) tick(); });
 
-  if (!TOKEN.test(token)) end('링크가 올바르지 않습니다. 받은 주소 전체를 그대로 열어 주십시오.');
+  if (!TOKEN.test(token)) end(t('링크가 올바르지 않습니다. 받은 주소 전체를 그대로 열어 주십시오.'));
   else open();
 })();

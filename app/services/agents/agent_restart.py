@@ -1,0 +1,1247 @@
+"""Update an agent (Claude Code · Codex) and restart it with the same conversation.
+
+Order: check it is not working → stop the agent with Ctrl+C (clear the input box → exit confirmation → exit) →
+type into the same shell
+  `claude update; claude <original options> --resume <session ID>`  or
+  `codex update; codex resume <session ID> <original options>`
+Only agents started directly from a shell are handled (if the pane itself is the agent, the window closes the moment it exits).
+"""
+
+import asyncio
+import json
+import logging
+import os
+import re
+import secrets
+import shlex
+import shutil
+import threading
+import time
+from pathlib import Path
+
+import psutil
+
+from app.i18n import N_, _
+from app.paths import data_dir
+from app.services.accounts.ai_usage_service import AIUsageService
+from app.services.agents import tmux_service, transcript_service
+
+logger = logging.getLogger(__name__)
+
+SHELLS = {"bash", "zsh", "fish", "sh", "dash", "ksh"}
+_UUID = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE
+)
+
+# Options passed on unchanged at restart (number of values). Model options are left out — the model may have
+# been changed with /model during the conversation.
+# Positional arguments such as a prompt, and --resume/--continue, are not passed on.
+CLAUDE_KEEP = {
+    "--dangerously-skip-permissions": 0,
+    "--allow-dangerously-skip-permissions": 0,
+    "--permission-mode": 1,
+    "--add-dir": 1,
+    "--settings": 1,
+    "--mcp-config": 1,
+    "--strict-mcp-config": 0,
+    "--append-system-prompt": 1,
+    "--system-prompt": 1,
+    "--allowedTools": 1,
+    "--allowed-tools": 1,
+    "--disallowedTools": 1,
+    "--disallowed-tools": 1,
+    "--agent": 1,
+    "--verbose": 0,
+    "--ide": 0,
+    "--chrome": 0,
+    "--no-chrome": 0,
+}
+CODEX_KEEP = {
+    "-s": 1,
+    "--sandbox": 1,
+    "-a": 1,
+    "--ask-for-approval": 1,
+    "-c": 1,
+    "--config": 1,
+    "-p": 1,
+    "--profile": 1,
+    "--enable": 1,
+    "--disable": 1,
+    "--add-dir": 1,
+    "--search": 0,
+    "--dangerously-bypass-approvals-and-sandbox": 0,
+    "--approve-for-me": 0,
+    "--no-alt-screen": 0,
+}
+
+
+# Gemini (Antigravity CLI · agy). --model · --effort are left out (may have been changed with /model during the conversation).
+GEMINI_KEEP = {
+    "--dangerously-skip-permissions": 0,
+    "--add-dir": 1,
+    "--agent": 1,
+    "--mode": 1,
+    "--project": 1,
+    "--sandbox": 0,
+}
+
+
+def keep_flags(argv: list[str], keep: dict[str, int]) -> list[str]:
+    out: list[str] = []
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        name, eq, _value = arg.partition("=")
+        if name in keep:
+            if eq or keep[name] == 0:
+                out.append(arg)
+            elif index + 1 < len(argv):
+                out += [arg, argv[index + 1]]
+                index += 1
+        index += 1
+    return out
+
+
+def _find(pane_id: str):
+    windows = tmux_service.list_windows()
+    for window in windows:
+        for pane in window.panes:
+            if pane.id == pane_id:
+                return window, pane
+    raise KeyError(_("존재하지 않는 pane 입니다."))
+
+
+def _agent_of(pane_id: str):
+    window, pane = _find(pane_id)
+    agent = tmux_service.agent_of(pane.command) or window.agent
+    if agent not in tmux_service.AGENTS:
+        raise ValueError(_("Claude Code · Codex · Gemini 가 실행 중인 창이 아닙니다."))
+    proc = transcript_service._agent_process(pane.pid, agent)
+    if proc is None:
+        raise ValueError(_("에이전트 프로세스를 찾지 못했습니다."))
+    return window, pane, agent, proc
+
+
+def _conversation_id(pane, agent: str) -> str:
+    log = transcript_service.find_log(pane.pid, agent, os.path.expanduser(pane.path))
+    session_id = transcript_service.conversation_id(log)
+    if not session_id:
+        raise ValueError(_("이어갈 대화(세션 ID)를 찾지 못했습니다."))
+    return session_id
+
+
+def fork_command(
+    pane_id: str, directory: Path, target: str | None = None
+) -> tuple[str, str]:
+    """Command that continues another window's conversation as a new one. The original window and conversation are untouched.
+
+    If target is the same agent as the original (or None), the conversation is cloned as is (fork);
+    if it differs (Claude ↔ Codex), the conversation so far is written to a handoff file for the new agent to read and continue.
+    """
+    window, pane, agent, proc = _agent_of(pane_id)
+    if target is not None and target not in LAUNCH:
+        raise ValueError(_("Claude · Codex · Gemini 만 켤 수 있습니다."))
+    # Gemini (Antigravity CLI) has no option to start from a cloned conversation, so the history is handed over
+    # even when continuing with Gemini itself
+    if (target is not None and target != agent) or agent == "gemini":
+        target = target or agent
+        cwd = os.path.expanduser(pane.path)
+        log = transcript_service.find_log(pane.pid, agent, cwd)
+        items = transcript_service.all_items(log, agent) if log else []
+        if not any(item.get("kind") in {"user", "assistant"} for item in items):
+            raise ValueError(_("넘겨줄 대화 기록이 없습니다."))
+        handoff = _write_handoff(
+            window.key, _handoff_markdown(items, agent, target, cwd, log)
+        )
+        prompt = _handoff_prompt(agent, handoff, same_folder=Path(cwd) == directory)
+        return target, shlex.join(
+            [*_launch_command(target, None, None), *_first_prompt(target, prompt)]
+        )
+    session_id = _conversation_id(pane, agent)
+    try:
+        argv = proc.cmdline()[1:]
+    except psutil.Error as error:
+        raise ValueError(_("에이전트 프로세스 정보를 읽지 못했습니다.")) from error
+    flags = max_permission(agent, keep_flags(argv, KEEP[agent]))
+    if agent == "claude":
+        carry_claude_log(session_id, directory)
+        command = ["claude", *flags, "--resume", session_id, "--fork-session"]
+    else:
+        command = ["codex", "fork", session_id, *flags]
+    return agent, shlex.join(command)
+
+
+def plan(pane_id: str) -> dict:
+    """Build the restart command (nothing is done yet)."""
+    window, pane, agent, proc = _agent_of(pane_id)
+    try:
+        parent = proc.parent()
+        parent_name = parent.name() if parent else ""
+        argv = proc.cmdline()[1:]
+    except psutil.Error as error:
+        raise ValueError(_("에이전트 프로세스 정보를 읽지 못했습니다.")) from error
+    if parent_name.lstrip("-") not in SHELLS:
+        raise ValueError(
+            _(
+                "셸에서 실행한 에이전트만 다시 켤 수 있습니다 (종료하면 창이 닫히는 구조입니다)."
+            )
+        )
+    session_id = _conversation_id(pane, agent)
+    if agent == "gemini":
+        resume = _launch_command("gemini", session_id, keep_flags(argv, GEMINI_KEEP))
+    elif agent == "claude":
+        resume = [
+            "claude",
+            *max_permission("claude", keep_flags(argv, CLAUDE_KEEP)),
+            "--resume",
+            session_id,
+        ]
+    else:
+        resume = [
+            "codex",
+            "resume",
+            session_id,
+            *max_permission("codex", keep_flags(argv, CODEX_KEEP)),
+        ]
+    return {
+        "window": window,
+        "pane": pane,
+        "agent": agent,
+        "proc": proc,
+        "session_id": session_id,
+        "resume": shlex.join(resume),
+        "update": shlex.join([tmux_service.AGENT_BIN[agent], "update"]),
+    }
+
+
+def _gone(proc: psutil.Process, timeout: float) -> bool:
+    try:
+        proc.wait(timeout=timeout)
+        return True
+    except psutil.TimeoutExpired:
+        return False
+    except psutil.Error:
+        return True
+
+
+def _stop(pane_id: str, proc: psutil.Process) -> None:
+    """Ctrl+C: clears the input box if it has text → the press-again notice → exit. Stops as soon as the agent ends."""
+    for _attempt in range(4):
+        tmux_service.send_keys(pane_id, ["C-c"])
+        if _gone(proc, 0.6):
+            break
+    else:
+        tmux_service.send_keys(pane_id, ["C-d"])
+        if not _gone(proc, 2.0):
+            raise RuntimeError(
+                _("에이전트가 종료되지 않았습니다. 터미널 화면을 확인해 주십시오.")
+            )
+    time.sleep(0.4)  # until the shell prompt is back
+
+
+BUSY_MESSAGE = N_(
+    "지금 작업 중입니다. 끝난 뒤에 다시 시도하십시오 (종료하면 작업이 끊깁니다)."
+)
+
+
+class BusyError(ValueError):
+    """The agent is working (message: translated BUSY_MESSAGE). Callers tell it apart by type, not by text."""
+
+    def __init__(self) -> None:
+        super().__init__(_(BUSY_MESSAGE))
+
+
+def claude_project_dir(directory: Path) -> Path:
+    """Where Claude Code keeps that folder's conversations: ~/.claude/projects/<path with non-alphanumeric characters as ->."""
+    slug = re.sub(r"[^A-Za-z0-9]", "-", str(directory))
+    # Claude shortens long paths with a hash; that rule is not reproduced here
+    if len(slug) > 200:
+        raise ValueError(_("폴더 경로가 너무 길어 Claude 대화를 옮길 수 없습니다."))
+    root = transcript_service._data_root("CLAUDE_DATA_DIR", ".claude")
+    return root / "projects" / slug
+
+
+def carry_claude_log(session_id: str, directory: Path) -> None:
+    """Claude can resume only conversations of the current folder, so the conversation log is copied to the new folder's side.
+
+    The original log is not deleted. Login data (~/.claude.json · .credentials.json) is not touched.
+    """
+    if not _UUID.fullmatch(session_id):
+        raise ValueError(_("대화 ID 가 올바르지 않습니다."))
+    target = claude_project_dir(directory)
+    root = target.parent
+    sources = sorted(
+        root.glob(f"*/{session_id}.jsonl"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if not sources:
+        raise ValueError(_("이어갈 Claude 대화 기록을 찾지 못했습니다."))
+    source = sources[0]
+    if source.parent == target:
+        return
+    target.mkdir(mode=0o700, parents=True, exist_ok=True)
+    copied = target / source.name
+    if not copied.exists() or copied.stat().st_mtime < source.stat().st_mtime:
+        shutil.copy2(source, copied)
+    extra = source.parent / session_id  # subagents · tool results
+    if extra.is_dir():
+        shutil.copytree(extra, target / session_id, dirs_exist_ok=True)
+
+
+def restart(pane_id: str, update: bool = True, cwd: Path | None = None) -> dict:
+    """Restart with the same conversation. With cwd, move to that folder first."""
+    info = plan(pane_id)
+    if info["window"].status == "busy":
+        raise BusyError
+    if cwd is not None and info["agent"] == "claude":
+        carry_claude_log(info["session_id"], cwd)
+    # Recorded so the window is not left stopped if the dashboard restarts between the stop and the restart
+    item = None
+    if info["agent"] == "codex":
+        item = {
+            "pane": pane_id,
+            "key": info["window"].key,
+            "session": info["session_id"],
+            "flags": max_permission(
+                "codex", keep_flags(info["proc"].cmdline()[1:], CODEX_KEEP)
+            ),
+        }
+        _write_relaunch(_read_relaunch() + [item])
+    _stop(pane_id, info["proc"])
+    resume = info["resume"]
+    if cwd is not None:
+        resume = f"cd -- {shlex.quote(str(cwd))} && {resume}"
+    command = f"{info['update']}; {resume}" if update else resume
+    tmux_service.send_literal(pane_id, command)
+    tmux_service.send_keys(pane_id, ["Enter"])
+    if item:
+        _write_relaunch([x for x in _read_relaunch() if x != item])
+    # With an update, the agent starts only after the install finishes
+    watch_startup(
+        pane_id,
+        timeout=120.0 if update else 30.0,
+        agent=info["agent"],
+        current_dir=cwd is not None,
+    )
+    tmux_service.invalidate_cache()
+    return {
+        "agent": info["agent"],
+        "session_id": info["session_id"],
+        "command": command,
+    }
+
+
+# Switch agent (Claude ↔ Codex) · start one in a shell-only window. Uses the same start command as creating a new session.
+# Agents started from the dashboard always get the highest permission (user request):
+# Claude = skip every permission check, Codex = no sandbox · never ask for approval
+MAX_PERMISSION = {
+    "claude": ["--dangerously-skip-permissions"],
+    "codex": ["--sandbox", "danger-full-access", "--ask-for-approval", "never"],
+    "gemini": ["--dangerously-skip-permissions"],
+}
+_PERMISSION_FLAGS = {
+    "gemini": {"--dangerously-skip-permissions": 0, "--sandbox": 0},
+    "claude": {
+        "--permission-mode": 1,
+        "--dangerously-skip-permissions": 0,
+        "--allow-dangerously-skip-permissions": 0,
+    },
+    "codex": {
+        "-s": 1,
+        "--sandbox": 1,
+        "-a": 1,
+        "--ask-for-approval": 1,
+        "--dangerously-bypass-approvals-and-sandbox": 0,
+        "--approve-for-me": 0,
+    },
+}
+
+
+def max_permission(agent: str, flags: list[str]) -> list[str]:
+    """Remove the permission options and append the highest-permission ones (other options unchanged)."""
+    drop = _PERMISSION_FLAGS[agent]
+    out: list[str] = []
+    index = 0
+    while index < len(flags):
+        arg = flags[index]
+        name, eq, _value = arg.partition("=")
+        if name in drop:
+            index += 1 if eq or drop[name] == 0 else 2
+            continue
+        out.append(arg)
+        index += 1
+    return [*out, *MAX_PERMISSION[agent]]
+
+
+LAUNCH = {
+    "claude": ["claude", "--dangerously-skip-permissions"],
+    "codex": [
+        "codex",
+        "--sandbox",
+        "danger-full-access",
+        "--ask-for-approval",
+        "never",
+    ],
+    "gemini": ["agy", "--dangerously-skip-permissions"],
+}
+
+
+# The last conversation of each agent is remembered per window (window key); switching back to that agent resumes it.
+_MEMORY_LOCK = threading.Lock()
+KEEP = {"claude": CLAUDE_KEEP, "codex": CODEX_KEEP, "gemini": GEMINI_KEEP}
+
+
+def _memory_file() -> Path:
+    return data_dir() / "agent-sessions.json"
+
+
+def _read_memory() -> dict:
+    try:
+        data = json.loads(_memory_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _remember(
+    window_key: str, agent: str, session_id: str, flags: list[str], cwd: str
+) -> None:
+    with _MEMORY_LOCK:
+        data = _read_memory()
+        data.setdefault(window_key, {})[agent] = {
+            "id": session_id,
+            "flags": flags,
+            "cwd": cwd,
+            "at": time.time(),
+        }
+        if len(data) > 300:  # drop the records of old windows
+            for key in sorted(
+                data,
+                key=lambda k: max(
+                    (v.get("at", 0) for v in data[k].values()), default=0
+                ),
+            )[:-300]:
+                data.pop(key, None)
+        path = _memory_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, ensure_ascii=False)
+        os.replace(tmp, path)
+
+
+def _session_exists(agent: str, session_id: str) -> bool:
+    if not _UUID.fullmatch(session_id or ""):
+        return False
+    if agent == "gemini":
+        return transcript_service.gemini_log_path(session_id) is not None
+    if agent == "claude":
+        root = AIUsageService._data_root("CLAUDE_DATA_DIR", ".claude") / "projects"
+        return any(root.glob(f"*/{session_id}.jsonl"))
+    root = AIUsageService._data_root("CODEX_DATA_DIR", ".codex") / "sessions"
+    return any(root.glob(f"*/*/*/rollout-*{session_id}.jsonl"))
+
+
+def _open_session_ids() -> set[str]:
+    """Conversations open in other windows right now (so the same conversation is not continued in two places)."""
+    found: set[str] = set()
+    for window in tmux_service.list_windows(with_status=False):
+        for pane in window.panes:
+            agent = tmux_service.agent_of(pane.command)
+            if agent is None:
+                continue
+            log = transcript_service.find_log(
+                pane.pid, agent, os.path.expanduser(pane.path)
+            )
+            session_id = transcript_service.conversation_id(log)
+            if session_id:
+                found.add(session_id)
+    return found
+
+
+def _latest_in_folder(agent: str, cwd: str, skip: set[str]) -> str | None:
+    """When no conversation is remembered: the most recent conversation of that folder."""
+    if agent == "gemini":
+        # Antigravity CLI records the last conversation per folder (cache/last_conversations.json)
+        path = transcript_service.gemini_root() / "cache" / "last_conversations.json"
+        try:
+            last = json.loads(path.read_text(encoding="utf-8")).get(cwd)
+        except (OSError, ValueError, AttributeError):
+            return None
+        if (
+            isinstance(last, str)
+            and last not in skip
+            and transcript_service.gemini_log_path(last) is not None
+        ):
+            return last
+        return None
+    if agent == "claude":
+        root = AIUsageService._data_root("CLAUDE_DATA_DIR", ".claude") / "projects"
+        folder = root / re.sub(r"[^A-Za-z0-9]", "-", cwd)
+        logs = (
+            sorted(
+                folder.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True
+            )
+            if folder.is_dir()
+            else []
+        )
+        return next(
+            (p.stem for p in logs if _UUID.fullmatch(p.stem) and p.stem not in skip),
+            None,
+        )
+    root = AIUsageService._data_root("CODEX_DATA_DIR", ".codex") / "sessions"
+    recent = (
+        sorted(
+            root.glob("*/*/*/rollout-*.jsonl"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )[:80]
+        if root.is_dir()
+        else []
+    )
+    for path in recent:
+        try:
+            with path.open(encoding="utf-8") as handle:
+                first = json.loads(handle.readline())
+        except (OSError, ValueError):
+            continue
+        if (first.get("payload") or {}).get("cwd") != cwd:
+            continue
+        ids = _UUID.findall(path.name)
+        if ids and ids[-1] not in skip:
+            return ids[-1]
+    return None
+
+
+def _launch_command(
+    agent: str, session_id: str | None, flags: list[str] | None
+) -> list[str]:
+    flags = max_permission(agent, LAUNCH[agent][1:] if flags is None else flags)
+    binary = tmux_service.AGENT_BIN[agent]
+    if not session_id:
+        return [binary, *flags]
+    if agent == "gemini":
+        return [binary, *flags, "--conversation", session_id]
+    if agent == "claude":
+        return ["claude", *flags, "--resume", session_id]
+    return ["codex", "resume", session_id, *flags]
+
+
+def _first_prompt(agent: str, prompt: str) -> list[str]:
+    """Command-line arguments for the first prompt sent right at start-up.
+
+    Claude · Codex take it appended to the command; Gemini (Antigravity CLI) needs it passed with -i
+    (appended as is, it exits without running).
+    """
+    return ["-i", prompt] if agent == "gemini" else [prompt]
+
+
+# ── Conversation handoff: write the current agent's conversation to a file for another agent to read and continue ──
+HANDOFF_KEEP = 40  # only the most recent handoff files are kept
+# Total characters of a handoff file (leaves the new agent room to work after reading it)
+HANDOFF_LIMIT = 240_000
+# This much of the recent conversation is included in full; what precedes it is shortened
+HANDOFF_FULL = 120_000
+# Number of calls in a run of tool calls that get a summary (the last few)
+HANDOFF_TOOLS = 6
+HANDOFF_SUMMARY = 160
+AGENT_LABEL = {"claude": "Claude", "codex": "Codex", "gemini": "Gemini"}
+
+
+def _handoff_dir() -> Path:
+    path = data_dir() / "handoff"
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return path
+
+
+def _clip_middle(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit // 2].rstrip()}\n…(중간 {len(text) - limit}자 생략)…\n{text[-limit // 2 :].lstrip()}"
+
+
+def _handoff_blocks(items: list[dict], name: str) -> list[tuple[str, str]]:
+    """The conversation as (full, shortened) text blocks. A run of tool calls is grouped into one block."""
+    blocks: list[tuple[str, str]] = []
+    tools: list[dict] = []
+
+    def flush() -> None:
+        if not tools:
+            return
+        counts: dict[str, int] = {}
+        for tool in tools:
+            counts[tool.get("name") or "tool"] = (
+                counts.get(tool.get("name") or "tool", 0) + 1
+            )
+        head = (
+            f"- (도구 {len(tools)}번: "
+            + ", ".join(f"{k} ×{v}" if v > 1 else k for k, v in counts.items())
+            + ")"
+        )
+        rows = []
+        for tool in tools[-HANDOFF_TOOLS:]:
+            summary = " ".join((tool.get("summary") or "").split())[:HANDOFF_SUMMARY]
+            mark = " · 실패" if tool.get("error") else ""
+            rows.append(f"  - {tool.get('name') or 'tool'}{mark}: {summary}")
+        if len(tools) > HANDOFF_TOOLS:
+            rows.insert(0, f"  - …앞의 {len(tools) - HANDOFF_TOOLS}번은 생략")
+        blocks.append(("\n".join([head, *rows]) + "\n", head + "\n"))
+        tools.clear()
+
+    for item in items:
+        kind, text, ts = item.get("kind"), item.get("text") or "", item.get("ts") or ""
+        if kind == "tool":
+            tools.append(item)
+            continue
+        flush()
+        stamp = f" ({ts[:16].replace('T', ' ')})" if ts else ""
+        if kind == "user":
+            head = f"## 사용자{stamp}\n\n"
+            blocks.append((head + text + "\n", head + _clip_middle(text, 1500) + "\n"))
+        elif kind == "assistant":
+            head = f"## {name}{stamp}\n\n"
+            blocks.append((head + text + "\n", head + _clip_middle(text, 500) + "\n"))
+        elif kind == "system":
+            line = f"> [시스템] {' '.join(text.split())[:200]}\n"
+            blocks.append((line, line))
+        elif kind == "subagent":
+            head = f"### 서브에이전트 보고 · {item.get('name') or '서브에이전트'}{stamp}\n\n"
+            blocks.append(
+                (
+                    head + _clip_middle(text, 4000) + "\n",
+                    head + _clip_middle(text, 400) + "\n",
+                )
+            )
+    flush()
+    return blocks
+
+
+def _handoff_markdown(
+    items: list[dict], source: str, target: str, cwd: str, log: Path
+) -> str:
+    """Handoff record. If long, the recent conversation stays in full and the earlier part is shortened; if it still overflows, the very beginning is dropped."""
+    name = AGENT_LABEL[source]
+    blocks = _handoff_blocks(items, name)
+    kept: list[str] = []
+    used = 0
+    for full, short in reversed(blocks):
+        text = full if used + len(full) <= HANDOFF_FULL else short
+        if used + len(text) > HANDOFF_LIMIT:
+            break
+        kept.append(text)
+        used += len(text)
+    kept.reverse()
+    dropped = len(blocks) - len(kept)
+    lines = [
+        f"# 대화 인계 기록 ({name} → {AGENT_LABEL[target]})",
+        "",
+        f"- 작업 폴더: {cwd}",
+        f"- 원본 대화 기록(JSONL, 모든 도구 결과 포함): {log}",
+        f"- 만든 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}",
+        "",
+        (
+            f"아래는 사용자와 {name} 가 이 폴더에서 나눈 대화를 순서대로 옮긴 것이다. "
+            "도구 호출은 요약만 적었고, 오래된 메시지는 줄였을 수 있다. "
+            "자세한 내용이 필요하면 원본 기록을 찾아본다."
+        ),
+        "",
+    ]
+    if dropped:
+        # Even when the beginning is dropped, the first request (the goal) is kept
+        first = next(
+            (short for full, short in blocks[:dropped] if full.startswith("## 사용자")),
+            None,
+        )
+        lines += [
+            f"> 너무 길어서 앞의 {dropped}개 덩어리는 뺐다 (원본 기록에 있다).",
+            "",
+        ]
+        if first:
+            lines += ["(처음 요청)", "", first, "> …(중간 생략)…", ""]
+    return "\n".join([*lines, *kept])
+
+
+def _write_handoff(window_key: str, text: str) -> Path:
+    folder = _handoff_dir()
+    safe = re.sub(r"[^A-Za-z0-9_-]", "-", window_key)[:40]
+    path = folder / f"{time.strftime('%Y%m%d-%H%M%S')}-{safe}-{secrets.token_hex(3)}.md"
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    for old in sorted(folder.glob("*.md"))[:-HANDOFF_KEEP]:
+        old.unlink(missing_ok=True)
+    return path
+
+
+def _handoff_prompt(source: str, path: Path, same_folder: bool = True) -> str:
+    where = (
+        "이 폴더에서" if same_folder else "다른 폴더에서(기록 맨 위에 적힌 작업 폴더)"
+    )
+    return (
+        f"이 작업은 다른 에이전트({AGENT_LABEL[source]})에서 넘어왔어요. "
+        f"지금까지 {where} 나눈 대화 전체가 {path} 파일에 있어요. "
+        "이 파일을 처음부터 끝까지 읽고(길면 나눠서) 목표, 결정한 것, 진행 상황, 남은 일을 파악해 주세요. "
+        "기록 안에 다른 인계 파일이 언급돼 있으면 그것도 읽어 주세요. "
+        "다 읽으면 파악한 맥락을 짧게 정리해 알려 주고, 새 작업은 시작하지 말고 제 다음 지시를 기다려 주세요."
+    )
+
+
+def switch_agent(pane_id: str, target: str, carry: bool = False) -> dict:
+    """Stop the current agent (if any) and start another agent in the same shell.
+
+    If this window had a conversation with target, that one is resumed; otherwise the folder's most recent conversation;
+    otherwise a new conversation. The stopped agent's conversation is remembered too, so switching back resumes it.
+    With carry, the whole current conversation is written to a handoff file and target starts a new conversation
+    that reads the file and continues.
+    """
+    if target not in LAUNCH:
+        raise ValueError(_("Claude · Codex · Gemini 만 켤 수 있습니다."))
+    window, pane = _find(pane_id)
+    cwd = os.path.expanduser(pane.path)
+    current = tmux_service.agent_of(pane.command)
+    if current is None and pane.command.lstrip("-") not in SHELLS:
+        # Another program (vim, etc.) is running, or the agent runs somewhere other than this pane
+        agent_proc = (
+            transcript_service._agent_process(pane.pid, window.agent)
+            if window.agent
+            else None
+        )
+        if agent_proc is None:
+            raise ValueError(
+                _(
+                    "이 창은 셸 프롬프트가 아닙니다 (지금 실행 중: {command}). 터미널을 확인해 주십시오.",
+                    command=pane.command,
+                )
+            )
+        current = window.agent
+    if current == target:
+        raise ValueError(_("이미 {agent} 가 켜져 있습니다.", agent=AGENT_LABEL[target]))
+    if current:
+        if window.status == "busy":
+            raise BusyError
+        proc = transcript_service._agent_process(pane.pid, current)
+        if proc is None:
+            raise ValueError(_("에이전트 프로세스를 찾지 못했습니다."))
+        try:
+            parent = proc.parent()
+            parent_name = parent.name() if parent else ""
+            argv = proc.cmdline()[1:]
+        except psutil.Error as error:
+            raise ValueError(_("에이전트 프로세스 정보를 읽지 못했습니다.")) from error
+        if parent_name.lstrip("-") not in SHELLS:
+            raise ValueError(
+                _(
+                    "셸에서 실행한 에이전트만 바꿀 수 있습니다 (종료하면 창이 닫히는 구조입니다)."
+                )
+            )
+        # Remember the current conversation before stopping (switching back to this agent resumes it)
+        log = transcript_service.find_log(pane.pid, current, cwd)
+        current_id = transcript_service.conversation_id(log)
+        if current_id:
+            _remember(
+                window.key, current, current_id, keep_flags(argv, KEEP[current]), cwd
+            )
+        if carry:
+            # Write the record before stopping (if it cannot be written, do not stop)
+            items = transcript_service.all_items(log, current) if log else []
+            if not any(item.get("kind") in {"user", "assistant"} for item in items):
+                raise ValueError(_("넘겨줄 대화 기록이 없습니다."))
+            handoff = _write_handoff(
+                window.key, _handoff_markdown(items, current, target, cwd, log)
+            )
+        _stop(pane_id, proc)
+    else:
+        if carry:
+            raise ValueError(
+                _("넘겨줄 대화가 없습니다 (지금 켜진 에이전트가 없습니다).")
+            )
+        # Clear any half-typed command in the shell
+        tmux_service.send_keys(pane_id, ["C-u"])
+        time.sleep(0.1)
+    # Conversation to continue: this window's conversation → the folder's most recent one → a new one
+    remembered = (_read_memory().get(window.key) or {}).get(target) or {}
+    open_ids = _open_session_ids()
+    session_id, flags, resumed = None, None, "new"
+    if carry:
+        # Start a new conversation from the handed-over record (options follow what that window used)
+        flags = (
+            remembered.get("flags")
+            if isinstance(remembered.get("flags"), list)
+            else None
+        )
+        command = shlex.join(
+            [
+                *_launch_command(target, None, flags),
+                *_first_prompt(target, _handoff_prompt(current, handoff)),
+            ]
+        )
+        tmux_service.send_literal(pane_id, command)
+        tmux_service.send_keys(pane_id, ["Enter"])
+        watch_startup(pane_id, agent=target)
+        tmux_service.invalidate_cache()
+        return {
+            "from": current,
+            "to": target,
+            "command": command,
+            "resumed": "carried",
+            "items": len(items),
+        }
+    if remembered.get("id") not in open_ids and _session_exists(
+        target, remembered.get("id", "")
+    ):
+        session_id, resumed = remembered["id"], "window"
+        flags = (
+            remembered.get("flags")
+            if isinstance(remembered.get("flags"), list)
+            else None
+        )
+    else:
+        session_id = _latest_in_folder(target, cwd, open_ids)
+        resumed = "folder" if session_id else "new"
+    command = shlex.join(_launch_command(target, session_id, flags))
+    tmux_service.send_literal(pane_id, command)
+    tmux_service.send_keys(pane_id, ["Enter"])
+    watch_startup(pane_id, agent=target, ask_model=resumed == "new")
+    tmux_service.invalidate_cache()
+    return {"from": current, "to": target, "command": command, "resumed": resumed}
+
+
+# If the dashboard restarts between the stop and the restart (pm2 watch, etc.), the restart step is lost and
+# the window stays stopped. So the list is written to a file before stopping and picked up next time.
+def _relaunch_file() -> Path:
+    return data_dir() / "codex-relaunch.json"
+
+
+def _read_relaunch() -> list[dict]:
+    try:
+        data = json.loads(_relaunch_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return data if isinstance(data, list) else []
+
+
+def _write_relaunch(items: list[dict]) -> None:
+    path = _relaunch_file()
+    if not items:
+        path.unlink(missing_ok=True)
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump(items, handle, ensure_ascii=False)
+    os.replace(tmp, path)
+
+
+def _leftover_relaunch() -> list[dict]:
+    """Windows stopped last time but not restarted: only those where the same window still shows just a shell."""
+    items = _read_relaunch()
+    if not items:
+        return []
+    panes = {
+        pane.id: (window, pane)
+        for window in tmux_service.list_windows()
+        for pane in window.panes
+    }
+    left = []
+    for item in items:
+        found = panes.get(item.get("pane"))
+        if (
+            found
+            and found[0].key == item.get("key")
+            and found[1].command in SHELLS
+            and _session_exists("codex", item.get("session"))
+        ):
+            left.append(item)
+    return left
+
+
+def _start_again(item: dict) -> None:
+    command = shlex.join(_launch_command("codex", item["session"], item["flags"]))
+    tmux_service.send_literal(item["pane"], command)
+    tmux_service.send_keys(item["pane"], ["Enter"])
+    watch_startup(item["pane"], agent="codex")
+
+
+def recover_relaunch(restart_daemon=None) -> list[str]:
+    """At dashboard start-up: restart the Codex windows that could not be restarted last time, with the same conversation."""
+    left = _leftover_relaunch()
+    if left and restart_daemon:
+        restart_daemon()
+    for item in left:
+        _start_again(item)
+    _write_relaunch([])
+    tmux_service.invalidate_cache()
+    return [item["key"] for item in left]
+
+
+def codex_panes() -> list[tuple]:
+    return [
+        (window, pane)
+        for window in tmux_service.list_windows()
+        for pane in window.panes
+        if pane.command == "codex"
+    ]
+
+
+def relaunch_codex(after_stop=None) -> dict:
+    """Stop every Codex window → (after_stop: e.g. restart the daemon) → restart with the same conversation.
+
+    Used after switching accounts. If any window is working, nothing is done and the request is refused.
+    """
+    targets = codex_panes()
+    busy = [window.key for window, _pane in targets if window.status == "busy"]
+    if busy:
+        raise ValueError(
+            _(
+                "Codex 가 작업 중인 창이 있습니다 ({windows}). 끝난 뒤에 다시 시도하십시오.",
+                windows=", ".join(busy),
+            )
+        )
+    home = AIUsageService._data_root("CODEX_DATA_DIR", ".codex").resolve()
+    plans, skipped = [], []
+    for window, pane in targets:
+        proc = transcript_service._agent_process(pane.pid, "codex")
+        try:
+            parent = proc.parent() if proc else None
+            parent_name = parent.name() if parent else ""
+            argv = proc.cmdline()[1:] if proc else []
+            proc_home = Path(
+                (proc.environ().get("CODEX_HOME") if proc else None)
+                or Path.home() / ".codex"
+            ).expanduser()
+        except psutil.Error:
+            parent_name, proc_home = "", None
+        # Windows using another Codex folder (CODEX_HOME) have nothing to do with this account, so leave them alone
+        if not proc or proc_home is None or proc_home.resolve() != home:
+            continue
+        if parent_name.lstrip("-") not in SHELLS:
+            skipped.append(window.key)
+            continue
+        cwd = os.path.expanduser(pane.path)
+        log = transcript_service.find_log(pane.pid, "codex", cwd)
+        ids = _UUID.findall(log.name) if log else []
+        if not ids:
+            # Do not stop it when the conversation to resume is unknown (so it does not turn into a new
+            # conversation) — it has to be restarted by hand
+            skipped.append(window.key)
+            continue
+        flags = keep_flags(argv, CODEX_KEEP)
+        _remember(window.key, "codex", ids[-1], flags, cwd)
+        plans.append((window, pane, proc, ids[-1], flags))
+    items = _leftover_relaunch() + [
+        {"pane": pane.id, "key": window.key, "session": session_id, "flags": flags}
+        for window, pane, _proc, session_id, flags in plans
+    ]
+    _write_relaunch(items)
+    for _window, pane, proc, _session, _flags in plans:
+        _stop(pane.id, proc)
+    extra = after_stop() if after_stop else None
+    for item in items:
+        _start_again(item)
+    _write_relaunch([])
+    tmux_service.invalidate_cache()
+    return {
+        "relaunched": [item["key"] for item in items],
+        "skipped": skipped,
+        "after_stop": extra,
+    }
+
+
+# ── Automatic answers right after start-up: the folder trust question · the Codex update notice ──────
+# An agent started from the dashboard runs in a folder the user already chose, so the trust question is answered "yes".
+# The Codex update notice is skipped so start-up is not blocked (updating is done separately with the 'Update' button).
+_CURSOR = re.compile(r"^\s*[❯›>]")
+AUTO_TRUST_INTERVAL = 2.0
+
+
+def _screen_lines(pane_id: str) -> list[str]:
+    try:
+        text = tmux_service._run(["capture-pane", "-p", "-t", pane_id])
+    except tmux_service.TmuxError:
+        return []
+    return [line.rstrip() for line in text.split("\n")]
+
+
+_OPTION = re.compile(r"^\s*(?:[❯›>]\s*)?(?:\d\.\s+)?(.+?)\s*$")
+
+
+def _option_line(lines: list[str], label: str) -> str | None:
+    """The option line (the line whose text, without the cursor mark · number, equals label exactly)."""
+    for line in lines:
+        match = _OPTION.match(line)
+        if match and match.group(1) == label:
+            return line
+    return None
+
+
+def _answer_codex_trust(pane_id: str, lines: list[str]) -> str | None:
+    """Codex: "Trust this folder? …" + "› 1. Trust and continue" + at the very bottom "enter continue · esc back"."""
+    bottom = [line for line in lines if line.strip()][-16:]
+    footer = bottom[-1].strip() if bottom else ""
+    yes = _option_line(bottom, "Trust and continue")
+    if (
+        yes
+        and any("Trust this folder?" in line for line in bottom)
+        and footer.startswith("enter continue")
+    ):
+        key = "Enter" if _CURSOR.match(yes) else "Up"
+        tmux_service.send_keys(pane_id, [key])
+        return f"codex-trust:{key}"
+    return None
+
+
+def _answer_gemini_trust(pane_id: str, lines: list[str]) -> str | None:
+    """Antigravity CLI: "Do you trust the contents of this project?" + "> Yes, I trust this folder / No, exit"
+
+    + near the bottom "↑/↓ Navigate · enter Confirm" (the line below it has the model name).
+    """
+    bottom = [line for line in lines if line.strip()][-16:]
+    yes = _option_line(bottom, "Yes, I trust this folder")
+    if (
+        yes
+        and _option_line(bottom, "No, exit")
+        and any("Do you trust the contents" in line for line in bottom)
+        and any("enter Confirm" in line for line in bottom[-2:])
+    ):
+        key = "Enter" if _CURSOR.match(yes) else "Up"
+        tmux_service.send_keys(pane_id, [key])
+        return f"gemini-trust:{key}"
+    return None
+
+
+def _trust_waiting_codex() -> None:
+    for window in tmux_service.cached_windows():
+        if window.agent not in {"codex", "gemini"} or window.status != "waiting":
+            continue
+        pane = next((p for p in window.panes if p.active), None)
+        if pane is None:
+            continue
+        lines = _screen_lines(pane.id)
+        if window.agent == "gemini":
+            if _answer_gemini_trust(pane.id, lines):
+                logger.info(
+                    "Gemini folder trust question accepted automatically: %s",
+                    window.key,
+                )
+            continue
+        if _answer_codex_trust(pane.id, lines):
+            logger.info(
+                "Codex folder trust question accepted automatically: %s", window.key
+            )
+        elif _answer_codex_cwd(pane.id, lines, only_if_gone=True):
+            logger.info(
+                "Codex working folder question → the current (moved) folder: %s",
+                window.key,
+            )
+
+
+async def auto_trust_loop() -> None:
+    """Accept the "Trust and continue" question right away, however the Codex window was started.
+
+    If the conversation's original folder was moved away and Codex asks which folder to continue in, the current (moved) folder is chosen.
+    """
+    while True:
+        await asyncio.sleep(AUTO_TRUST_INTERVAL)
+        try:
+            await asyncio.to_thread(_trust_waiting_codex)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # so the watcher never stops
+            logger.debug("Codex trust question check failed", exc_info=True)
+
+
+_CWD_ROW = re.compile(r"^\s*(?:[❯›>]\s*)?(?:\d\.\s+)?(.+?)\s*$")
+_CWD_SESSION = re.compile(r"^Use session directory \((.+)\)$")
+_CWD_CURRENT = re.compile(r"^Use current directory \((.+)\)$")
+
+
+def _answer_codex_cwd(
+    pane_id: str, lines: list[str], *, only_if_gone: bool = False
+) -> str | None:
+    """Codex: when the folder the conversation started in differs from the current one, it asks where to continue → the current folder (this time only).
+
+    "› 1. Use session directory (…)" / "2. Use current directory (…)" / "3. Always use …" …
+    Whether there are 3 or 4 options (it varies by Codex version), it is recognized by the shape of the first two lines.
+    only_if_gone: only when the conversation's original folder is gone (the folder was moved → it cannot continue in the original one).
+    """
+    bottom = [line for line in lines if line.strip()][-16:]
+    rows = []
+    for line in bottom:
+        text = _CWD_ROW.match(line).group(1)
+        if (
+            _CWD_SESSION.match(text)
+            or _CWD_CURRENT.match(text)
+            or text.startswith("Always use ")
+        ):
+            rows.append((line, text))
+    if len(rows) < 3:
+        return None
+    session = _CWD_SESSION.match(rows[0][1])
+    current = _CWD_CURRENT.match(rows[1][1])
+    if (
+        not session
+        or not current
+        or not all(text.startswith("Always use ") for _line, text in rows[2:])
+    ):
+        return None
+    if only_if_gone:
+        old, new = session.group(1), current.group(1)
+        if "…" in old or "…" in new or os.path.exists(old) or not os.path.isdir(new):
+            # A truncated path, or the original folder still exists → leave it to the user
+            return None
+    cursor = next(
+        (index for index, (line, _text) in enumerate(rows) if _CURSOR.match(line)),
+        None,
+    )
+    if cursor is None:
+        return None
+    step = 1 - cursor
+    keys = ["Down" if step > 0 else "Up"] * abs(step) + ["Enter"]
+    tmux_service.send_keys(pane_id, keys)
+    return "codex-cwd:current"
+
+
+def _answer_once(pane_id: str, lines: list[str]) -> str | None:
+    """Answer the question dialog at the very bottom of the screen (the line shape is checked too, so the same wording inside chat text does not trigger it)."""
+    bottom = [line for line in lines if line.strip()][-16:]
+    footer = bottom[-1].strip() if bottom else ""
+    # Claude: "❯ No, exit / Yes, I trust this folder" + at the very bottom "Enter to confirm · Esc to cancel"
+    yes = _option_line(bottom, "Yes, I trust this folder")
+    if (
+        yes
+        and _option_line(bottom, "No, exit")
+        and footer.startswith("Enter to confirm")
+    ):
+        key = "Enter" if _CURSOR.match(yes) else "Down"
+        tmux_service.send_keys(pane_id, [key])
+        return f"claude-trust:{key}"
+    # Claude: the skip-permission-checks warning "❯ No, exit / Yes, I accept" (shown only the first time)
+    yes = _option_line(bottom, "Yes, I accept")
+    if (
+        yes
+        and _option_line(bottom, "No, exit")
+        and footer.startswith("Enter to confirm")
+    ):
+        key = "Enter" if _CURSOR.match(yes) else "Down"
+        tmux_service.send_keys(pane_id, [key])
+        return f"claude-bypass:{key}"
+    answered = _answer_codex_trust(pane_id, lines) or _answer_gemini_trust(
+        pane_id, lines
+    )
+    if answered:
+        return answered
+    if update_prompt_version(lines) is not None:
+        tmux_service.send_keys(pane_id, ["Escape"])
+        return "codex-update:skip"
+    return None
+
+
+_UPDATE_VERSION = re.compile(r"Update available\s*·\s*\S+\s*→\s*v?([0-9][\w.\-]*)")
+
+
+def update_prompt_version(lines: list[str]) -> str | None:
+    """The new version ("" if unknown) when the Codex update notice is showing at the very bottom. Otherwise None.
+
+    "Update available · …" + "› 1. Update now" + at the very bottom "enter continue · esc skip"
+    """
+    bottom = [line for line in lines if line.strip()][-16:]
+    footer = bottom[-1].strip() if bottom else ""
+    if not footer.endswith("esc skip") or not (
+        _option_line(bottom, "Update now") is not None
+        or any(line.lstrip(" ›>").startswith("1. Update now") for line in bottom)
+    ):
+        return None
+    for line in bottom:
+        if "Update available" in line:
+            match = _UPDATE_VERSION.search(line)
+            return match.group(1) if match else ""
+    return None
+
+
+def _bottom(lines: list[str], count: int = 5) -> list[str]:
+    return [line for line in lines if line.strip()][-count:]
+
+
+def _ready(lines: list[str], agent: str | None) -> bool:
+    """That agent's input box is showing.
+
+    Claude: two separator lines (────) near the bottom, above and below the input field. Codex: the "› …" input line and the "? for shortcuts" hint.
+    """
+    bottom = _bottom(lines, 6)
+    # Antigravity CLI also has separator lines above and below the input field
+    if agent in {"claude", "gemini"}:
+        return sum(1 for line in bottom if re.match(r"^\s*─{20,}\s*$", line)) >= 2
+    if agent == "codex":  # in a narrow window "? for shortcuts" is cut off
+        return tmux_service.has_input_box(lines, "codex")
+    tail = "\n".join(bottom)
+    return "for shortcuts" in tail or "⏵⏵" in tail
+
+
+def _send_model_command(pane_id: str, agent: str) -> None:
+    """Open the model picker when started with a new conversation (the options appear in the card below the chat)."""
+    tmux_service.send_literal(pane_id, "/model")
+    # Codex takes an Enter right after a paste as a line break
+    time.sleep(0.45 if agent == "codex" else 0.25)
+    tmux_service.send_keys(pane_id, ["Enter"])
+
+
+# Stay quiet after the input box appears, while the resumed conversation is still being drawn
+STARTUP_GRACE = 8.0
+
+
+def watch_startup(
+    pane_id: str,
+    timeout: float = 30.0,
+    agent: str | None = None,
+    ask_model: bool = False,
+    current_dir: bool = False,
+) -> None:
+    """Watch the screen right after start-up and answer the folder trust · permission warning · update questions (in the background).
+
+    Content that was on screen before the start (e.g. the footer hint of the agent just stopped) is ignored.
+    Stops when that agent's input box appears; with ask_model, /model is sent then so the user picks a model.
+    current_dir: started in a moved folder — if Codex asks between the conversation's original folder and the current one, the current one is chosen.
+    """
+    # The 'working → done' during start-up (reloading the conversation, etc.) is not notified
+    tmux_service.mark_starting(pane_id, timeout + STARTUP_GRACE)
+    initial = "\n".join(_screen_lines(pane_id))
+    initial_bottom = _bottom(_screen_lines(pane_id))
+
+    def run() -> None:
+        try:
+            watch()
+        finally:
+            tmux_service.settle_starting(pane_id, STARTUP_GRACE)
+
+    def watch() -> None:
+        deadline = time.monotonic() + timeout
+        actions = 0
+        answered = False
+        while time.monotonic() < deadline and actions < 8:
+            time.sleep(0.4)
+            lines = _screen_lines(pane_id)
+            if not lines:
+                return
+            if "\n".join(lines) == initial:
+                continue  # not a new screen yet
+            done = (current_dir and _answer_codex_cwd(pane_id, lines)) or _answer_once(
+                pane_id, lines
+            )
+            if done:
+                actions += 1
+                answered = True
+                time.sleep(0.6)  # until the screen is redrawn
+                continue
+            fresh = _bottom(lines) != initial_bottom
+            if fresh and _ready(lines, agent) and (agent or answered):
+                # The Gemini (Antigravity CLI) model picker has no numbers, so it cannot be turned into a chat
+                # card → the model is picked from the model button
+                if ask_model and agent in tmux_service.AGENTS and agent != "gemini":
+                    time.sleep(0.5)
+                    _send_model_command(pane_id, agent)
+                return
+
+    threading.Thread(target=run, daemon=True, name=f"startup-{pane_id}").start()

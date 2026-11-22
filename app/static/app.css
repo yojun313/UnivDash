@@ -1,7 +1,7 @@
 /* ============================================================================
-   UnivDash 화면 전용 스타일 — theme.css(공통 테마) 위에 얹는다.
-   모바일 우선: 화면 높이는 visualViewport 기준(--app-h)으로 맞춰 키보드가 올라와도
-   입력창이 가려지지 않게 한다.
+   UnivDash screen-specific styles — layered on top of theme.css (shared theme).
+   Mobile first: the screen height follows visualViewport (--app-h) so that the input
+   is not covered even when the keyboard comes up.
    ============================================================================ */
 :root { --app-h: 100%; --vv-top: 0px; --term-font: 12px; --shell-bg: #070a13; }
 html[data-ui-theme-mode="light"] { --shell-bg: #eef0f7; }
@@ -13,16 +13,16 @@ body.app-shell { min-height: 0; }
 button, a, .key-chip, [role="button"] { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 .no-scrollbar { scrollbar-width: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
-/* 노치 · 상태바 · 홈 인디케이터 영역. Tailwind(h-14, p-5 등)가 CSS 순서상 뒤에 오므로 !important 로 이긴다.
-   (홈 화면 앱에서만 inset 이 0 이 아니라 Safari 탭에서는 티가 안 나던 문제) */
+/* Notch · status bar · home indicator areas. Tailwind (h-14, p-5 etc.) comes later in CSS order, so !important wins.
+   (the inset is non-zero only in the home-screen app, so the problem did not show in a Safari tab) */
 .safe-bottom { padding-bottom: max(0.5rem, env(safe-area-inset-bottom)) !important; }
 .safe-top { padding-top: max(1.25rem, env(safe-area-inset-top)) !important; }
 header.safe-top-header { padding-top: env(safe-area-inset-top) !important; height: calc(3.5rem + env(safe-area-inset-top)) !important; }
 
-/* ── 사이드바 아래 버튼 · 새 세션 ── */
+/* ── Sidebar bottom buttons · new session ── */
 .sb-icon { width: 36px; height: 36px; flex-shrink: 0; border-radius: 11px; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,.5); transition: background 150ms, color 150ms; }
 @media (hover: hover) { .sb-icon:hover { background: rgba(255,255,255,.08); color: #fff; } }
-.sb-account .sb-collapse { margin-left: auto; }   /* 테마 · 설정은 왼쪽, 접기 버튼만 오른쪽 끝 */
+.sb-account .sb-collapse { margin-left: auto; }   /* theme · settings on the left, only the collapse button at the right end */
 html.sidebar-collapsed #sidebar .sb-account .sb-collapse { margin-left: 0; }
 .sb-new { color: #dbeafe; background: rgba(59,130,246,.16); border: 1px solid rgba(96,165,250,.3); transition: background 150ms; }
 .sidebar-link.nav-dragging { opacity: .4; cursor: grabbing; }
@@ -35,7 +35,7 @@ html[data-ui-theme-mode="light"] .sb-icon { color: #5a6781; }
 @media (hover: hover) { html[data-ui-theme-mode="light"] .sb-icon:hover { background: rgba(15,23,42,.07); color: #101828; } }
 html[data-ui-theme-mode="light"] .sb-new { color: #1d4ed8; background: rgba(37,99,235,.08); border-color: rgba(37,99,235,.25); }
 
-/* 데스크톱에서 사이드바 접기: 아이콘만 남는 좁은 막대 (아래 » 로 다시 펼침) */
+/* Collapsing the sidebar on desktop: a narrow rail with icons only (expand again with » at the bottom) */
 @media (min-width: 768px) {
     html.sidebar-collapsed #sidebar { width: 68px; }
     html.sidebar-collapsed #sidebar .sb-label,
@@ -43,7 +43,7 @@ html[data-ui-theme-mode="light"] .sb-new { color: #1d4ed8; background: rgba(37,9
     html.sidebar-collapsed #sidebar .sb-overview { display: none !important; }
     html.sidebar-collapsed #sidebar .sb-spacer { display: block; }
     html.sidebar-collapsed #sidebar .sb-top { padding: 14px 10px; }
-    html.sidebar-collapsed #sidebar .sb-brand { display: none; }   /* 접으면 이름이 숨어 빈 줄만 남으므로 */
+    html.sidebar-collapsed #sidebar .sb-brand { display: none; }   /* when collapsed the name is hidden and only an empty row would remain */
     html.sidebar-collapsed #sidebar .sb-new { padding: 8px 0; }
     html.sidebar-collapsed #sidebar nav { padding-left: 10px; padding-right: 10px; }
     html.sidebar-collapsed #sidebar nav a { justify-content: center; padding-left: 0; padding-right: 0; }
@@ -53,7 +53,7 @@ html[data-ui-theme-mode="light"] .sb-new { color: #1d4ed8; background: rgba(37,9
     html.sidebar-collapsed #sidebar .sb-bottom { padding: 10px 6px; }
 }
 
-/* ── 필터 칩 ─────────────────────────────────────────────────────── */
+/* ── Filter chips ─────────────────────────────────────────────────────── */
 .filter-chip {
     display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
     padding: 6px 12px; border-radius: 999px;
@@ -70,7 +70,7 @@ html[data-ui-theme-mode="light"] .filter-chip { border-color: rgba(15,23,42,0.10
 html[data-ui-theme-mode="light"] .filter-chip.active,
 html[data-ui-theme-mode="light"] .filter-chip[aria-pressed="true"] { background: rgba(59,130,246,0.10); border-color: rgba(37,99,235,0.3); color: #1d4ed8; }
 
-/* ── 창 목록 ─────────────────────────────────────────────────────── */
+/* ── Window list ─────────────────────────────────────────────────────── */
 .folder-head {
     display: flex; align-items: center; gap: 8px; width: 100%;
     padding: 6px 8px; border-radius: 10px; text-align: left;
@@ -104,7 +104,7 @@ html[data-ui-theme-mode="light"] .win-more { color: #8a92aa; }
 @media (hover: hover) { html[data-ui-theme-mode="light"] .win-more:hover { background: rgba(15,23,42,0.07); color: #101828; } }
 .unread-dot { position: absolute; top: 9px; left: 7px; width: 7px; height: 7px; border-radius: 50%; background: #60a5fa; box-shadow: 0 0 0 2px var(--shell-bg); }
 
-/* 상태 아이콘 */
+/* Status icons */
 .status-icon {
     width: 36px; height: 36px; border-radius: 11px; flex-shrink: 0;
     display: flex; align-items: center; justify-content: center; font-size: 13px;
@@ -142,13 +142,13 @@ html[data-ui-theme-mode="light"] .agent-codex { color: #0b7a5f; }
 html[data-ui-theme-mode="light"] .agent-gemini { color: #1a56c4; }
 html[data-ui-theme-mode="light"] .agent-shell { color: #475569; }
 
-/* 폴더 색상 */
+/* Folder colours */
 .fc-blue { color: #60a5fa; } .fc-purple { color: #c084fc; } .fc-emerald { color: #34d399; }
 .fc-amber { color: #fbbf24; } .fc-rose { color: #fb7185; } .fc-cyan { color: #22d3ee; } .fc-slate { color: #94a3b8; }
 .fb-blue { background: #3b82f6; } .fb-purple { background: #a855f7; } .fb-emerald { background: #10b981; }
 .fb-amber { background: #f59e0b; } .fb-rose { background: #f43f5e; } .fb-cyan { background: #06b6d4; } .fb-slate { background: #64748b; }
 
-/* ── 터미널 패널 ─────────────────────────────────────────────────── */
+/* ── Terminal panel ─────────────────────────────────────────────────── */
 .term-shell { background: transparent; }
 #termView.open { display: flex; }
 .term-tool {
@@ -169,7 +169,7 @@ html[data-ui-theme-mode="light"] .term-tool { color: #47536e; }
 html[data-ui-theme-mode="light"] .pane-tab { color: #5a6781; border-color: rgba(15,23,42,0.1); }
 html[data-ui-theme-mode="light"] .pane-tab.active { color: #1d4ed8; }
 
-/* 모바일/태블릿: 터미널은 전체 화면으로 밀려 들어오는 패널 */
+/* Mobile/tablet: the terminal is a panel that slides in full screen */
 @media (max-width: 1023.98px) {
     #termPane {
         position: fixed; left: 0; right: 0; top: var(--vv-top); height: var(--app-h);
@@ -214,7 +214,7 @@ html[data-ui-theme-mode="light"] .pane-tab.active { color: #1d4ed8; }
 }
 .jump-bottom.hidden { display: none; }
 
-/* ── 입력부 ──────────────────────────────────────────────────────── */
+/* ── Composer ──────────────────────────────────────────────────────── */
 .key-chip {
     flex-shrink: 0; min-width: 42px; height: 34px; padding: 0 11px; border-radius: 10px;
     font-family: 'JetBrains Mono', monospace; font-size: 12.5px; font-weight: 700;
@@ -240,14 +240,14 @@ html[data-ui-theme-mode="light"] .composer-btn { color: #47536e; background: rgb
 html[data-ui-theme-mode="light"] .composer-btn[aria-pressed="true"] { color: #fff; }
 .send-btn { width: 42px; height: 42px; flex-shrink: 0; border-radius: 14px; display: flex; align-items: center; justify-content: center; }
 .send-btn:disabled { opacity: 0.5; }
-/* 16px 이상이어야 iOS 가 입력창 포커스 때 화면을 확대하지 않는다 */
+/* Must be at least 16px so iOS does not zoom the screen when the input is focused */
 .prompt-input { font-size: 16px; line-height: 1.4; max-height: 38vh; min-height: 42px; display: block; }
 @media (min-width: 1024px) { .prompt-input { font-size: 14px; } }
 .submit-toggle { display: inline-flex; align-items: center; gap: 5px; font-weight: 700; }
 .submit-toggle[aria-pressed="true"] { color: #34d399; }
 html[data-ui-theme-mode="light"] .submit-toggle[aria-pressed="true"] { color: #059669; }
 
-/* 직접 입력 모드: 화면 밖에 있지만 포커스 가능한 입력 받개 */
+/* Direct input mode: an input sink that is off-screen but focusable */
 .direct-input { position: fixed; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; font-size: 16px; pointer-events: none; }
 body.direct-mode #promptInput { display: none; }
 body.direct-mode .direct-banner { display: flex; }
@@ -258,7 +258,7 @@ body.direct-mode .direct-banner { display: flex; }
 }
 html[data-ui-theme-mode="light"] .direct-banner { color: #b45309; }
 
-/* ── 시트 / 모달 ─────────────────────────────────────────────────── */
+/* ── Sheet / modal ─────────────────────────────────────────────────── */
 .sheet-overlay {
     position: fixed; inset: 0; z-index: 400;
     background: rgba(5, 7, 15, 0.55);
@@ -266,10 +266,10 @@ html[data-ui-theme-mode="light"] .direct-banner { color: #b45309; }
     display: flex; align-items: flex-end; justify-content: center;
 }
 .sheet-overlay[hidden] { display: none; }
-body.ud-settings-open .sheet-overlay { z-index: 490; }   /* 설정 창에서 띄운 확인 창은 설정 창 위에 */
-/* 키보드 대응: 화면을 덮는 시트 · 모달은 레이아웃 전체(inset 0)가 아니라 실제로 보이는 영역(키보드 위)에 맞춘다.
-   iOS 는 키보드가 떠도 레이아웃 높이를 줄이지 않아서, inset 0 이면 아래쪽 시트가 키보드 뒤에 숨는다.
-   --vv-top · --app-h 는 app.js syncViewport 가 visualViewport 로 계속 맞춘다 (평소에는 0 · 100%). */
+body.ud-settings-open .sheet-overlay { z-index: 490; }   /* a confirmation opened from the Settings window goes above the Settings window */
+/* Keyboard handling: sheets · modals that cover the screen fit the actually visible area (above the keyboard), not the whole layout (inset 0).
+   iOS does not shrink the layout height when the keyboard is up, so with inset 0 a bottom sheet hides behind the keyboard.
+   --vv-top · --app-h are kept in sync with visualViewport by app.js syncViewport (normally 0 · 100%). */
 .sheet-overlay, .pmd-theme-overlay, .ud-settings-overlay, #sidebarOverlay, #logModal, #gitCommitModal {
     top: var(--vv-top) !important; bottom: auto !important; height: var(--app-h) !important;
 }
@@ -305,7 +305,7 @@ html[data-ui-theme-mode="light"] .tdx-sheet { background: rgba(255,255,255,0.97)
 .sheet-action i.lead { width: 20px; text-align: center; opacity: 0.7; }
 .sheet-action .sub { margin-left: auto; font-size: 11px; opacity: 0.5; font-weight: 500; }
 .sheet-action.danger { color: #f87171; }
-/* 줄 오른쪽에 따로 붙는 버튼 (계정마다 로그아웃 등) */
+/* A separate button attached to the right of a row (per-account sign out etc.) */
 .sheet-row { display: flex; align-items: center; gap: 6px; }
 .sheet-row .sheet-action { flex: 1; min-width: 0; }
 .sheet-side { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; height: 32px; margin-right: 6px; padding: 0 11px; border-radius: 9px; font-size: 11.5px; font-weight: 700; white-space: nowrap; color: #fca5a5; background: rgba(248,113,113,.08); border: 1px solid rgba(248,113,113,.28); }
@@ -322,10 +322,10 @@ html[data-ui-theme-mode="light"] .sheet-action.danger { color: #dc2626; }
 }
 .sheet-form input:focus, .sheet-form textarea:focus { outline: none; border-color: rgba(96,165,250,0.7); box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
 .sheet-buttons { display: flex; gap: 8px; padding: 8px 20px 4px; }
-/* 내용이 길어 시트가 스크롤될 때도(키보드가 떠서 시트가 낮아졌을 때 등) 저장 · 취소 버튼은 늘 보이게 */
+/* Keep the Save · Cancel buttons always visible even when the sheet scrolls because the content is long (e.g. the sheet got shorter with the keyboard up) */
 .tdx-sheet .sheet-buttons { position: sticky; bottom: calc(-1 * max(12px, env(safe-area-inset-bottom))); z-index: 2; padding-bottom: max(12px, env(safe-area-inset-bottom)); margin-bottom: calc(-1 * max(12px, env(safe-area-inset-bottom))); background: rgb(20, 25, 40); }
 html[data-ui-theme-mode="light"] .tdx-sheet .sheet-buttons { background: #fff; }
-.tdx-sheet :is(input, textarea, select) { scroll-margin: 16px 0 96px; }   /* 포커스로 스크롤될 때 고정된 버튼 뒤에 숨지 않게 */
+.tdx-sheet :is(input, textarea, select) { scroll-margin: 16px 0 96px; }   /* so it does not hide behind the pinned buttons when scrolled into view on focus */
 @media (min-width: 640px) { .tdx-sheet .sheet-buttons { bottom: -12px; padding-bottom: 12px; margin-bottom: -12px; } }
 .sheet-buttons button { flex: 1; min-height: 44px; border-radius: 12px; font-size: 14px; font-weight: 800; }
 .sheet-cancel { background: rgba(148,163,184,0.14); }
@@ -343,7 +343,7 @@ html[data-ui-theme-mode="light"] .seg button.on { color: #1d4ed8; }
 .snippet-del { width: 40px; height: 40px; border-radius: 10px; opacity: 0.45; flex-shrink: 0; }
 @media (hover: hover) { .snippet-del:hover { opacity: 1; color: #f87171; } }
 
-/* ── 토스트 ──────────────────────────────────────────────────────── */
+/* ── Toast ──────────────────────────────────────────────────────── */
 .toast-host {
     position: fixed; left: 50%; transform: translateX(-50%); z-index: 600;
     top: max(12px, env(safe-area-inset-top)); display: grid; gap: 8px; width: min(92vw, 380px); pointer-events: none;
@@ -364,10 +364,10 @@ html[data-ui-theme-mode="light"] .toast { background: rgba(255,255,255,0.98); co
 .ex-progress-text { font-size: 11px; font-weight: 500; opacity: 0.75; font-variant-numeric: tabular-nums; }
 .toast button:disabled { opacity: 0.4; }
 
-/* ── 창 정리 페이지 ─────────────────────────────────────────────── */
+/* ── Window organizer page ─────────────────────────────────────────────── */
 .org-folder .org-list { min-height: 48px; }
 .org-list:empty::after {
-    content: "여기로 창을 끌어다 놓으세요"; display: block; padding: 14px; text-align: center;
+    content: "여기로 창을 끌어다 놓으십시오"; display: block; padding: 14px; text-align: center;
     font-size: 11px; color: rgba(148,163,184,0.7); border: 1px dashed rgba(148,163,184,0.3); border-radius: 12px;
 }
 .org-item { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 4px; border-radius: 12px; min-height: 54px; }
@@ -389,7 +389,7 @@ html[data-ui-theme-mode="light"] .toast { background: rgba(255,255,255,0.98); co
 .sortable-chosen { background: rgba(59,130,246,0.08); }
 .sortable-drag { opacity: 0.95 !important; }
 
-/* ── 첨부 ────────────────────────────────────────────────────────── */
+/* ── Attachments ────────────────────────────────────────────────────────── */
 .attach-btn {
     position: absolute; right: 4px; bottom: 3px; width: 36px; height: 36px; border-radius: 12px;
     display: flex; align-items: center; justify-content: center;
@@ -432,7 +432,7 @@ html[data-ui-theme-mode="light"] .attach-chip { background: rgba(15,23,42,0.04);
 .drop-card { padding: 24px; }
 .win-item.drop-target { background: rgba(59,130,246,0.2); border-color: rgba(96,165,250,0.6); border-style: dashed; }
 
-/* ── 정렬 버튼 ───────────────────────────────────────────────────── */
+/* ── Sort button ───────────────────────────────────────────────────── */
 .sort-btn {
     flex-shrink: 0; height: 38px; padding: 0 12px; border-radius: 12px;
     display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; white-space: nowrap;
@@ -443,7 +443,7 @@ html[data-ui-theme-mode="light"] .attach-chip { background: rgba(15,23,42,0.04);
 html[data-ui-theme-mode="light"] .sort-btn { color: #47536e; background: rgba(255,255,255,0.7); border-color: rgba(15,23,42,0.12); }
 @media (hover: hover) { html[data-ui-theme-mode="light"] .sort-btn:hover { background: rgba(15,23,42,0.06); color: #101828; } }
 
-/* ── 화면 / 대화 기록 전환 ───────────────────────────────────────── */
+/* ── Screen / transcript switch ───────────────────────────────────────── */
 #termModes:not(.hidden) { display: flex; }
 .mode-switch { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: rgba(148,163,184,0.12); flex-shrink: 0; }
 .mode-switch button { padding: 5px 12px; border-radius: 8px; font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.55); white-space: nowrap; }
@@ -459,9 +459,9 @@ html[data-ui-theme-mode="light"] .mode-switch button.on { background: rgba(59,13
 }
 .alt-hint button { font-weight: 800; color: #fff; padding: 3px 10px; border-radius: 8px; background: rgba(59,130,246,0.45); }
 
-/* ── 대화 기록 (터미널 영역 안이라 항상 어두운 배경) ─────────────── */
+/* ── Transcript (inside the terminal area, so always a dark background) ─────────────── */
 .chat-list { padding: 12px 12px 20px; display: flex; flex-direction: column; gap: 10px; font-family: 'Inter', 'Pretendard', system-ui, sans-serif; color: #dbe1ea; }
-/* 채팅 검색 */
+/* Chat search */
 .chat-search { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 20; display: flex; flex-direction: column; gap: 6px; max-width: 640px; margin-left: auto; font-family: 'Inter', 'Pretendard', system-ui, sans-serif; }
 .chat-search.hidden { display: none; }
 .cs-bar { display: flex; align-items: center; gap: 4px; padding: 4px 6px 4px 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.12); background: rgba(15,20,35,0.92); backdrop-filter: blur(12px); box-shadow: 0 10px 30px rgba(0,0,0,0.35); }
@@ -484,11 +484,11 @@ html[data-ui-theme-mode="light"] .mode-switch button.on { background: rgba(59,13
 .cs-time { font-size: 10px; color: #64748b; white-space: nowrap; margin-top: 2px; }
 .cs-empty { padding: 10px; text-align: center; font-size: 11px; color: #64748b; }
 .cs-item mark, mark.cs-mark { background: rgba(250,204,21,0.35); color: inherit; border-radius: 3px; padding: 0 1px; }
-/* 화면 밖 렌더링 생략(content-visibility)은 바깥 그림을 잘라서 outline-offset 대신 안쪽 테두리로 */
+/* Skipping off-screen rendering (content-visibility) clips what is drawn outside, so an inner border is used instead of outline-offset */
 .msg.msg-hit { box-shadow: inset 0 0 0 2px rgba(250,204,21,0.6); border-radius: 14px; }
 html[data-ui-theme-mode="light"] .cs-bar, html[data-ui-theme-mode="light"] .cs-results { background: rgba(255,255,255,0.97); border-color: rgba(15,23,42,0.12); box-shadow: 0 10px 30px rgba(15,23,42,0.15); }
 html[data-ui-theme-mode="light"] .cs-bar input { color: #0f172a; }
-/* 사용 현황 패널 (스킬 · 플러그인 · MCP · 서브에이전트 · 내장 도구) */
+/* Usage overview panel (skills · plugins · MCP · subagents · built-in tools) */
 .chat-usage { position: absolute; top: 8px; right: 8px; z-index: 21; width: min(340px, calc(100% - 16px)); max-height: min(70vh, 560px); display: flex; flex-direction: column; border-radius: 12px; border: 1px solid rgba(255,255,255,0.12); background: rgba(15,20,35,0.96); backdrop-filter: blur(12px); box-shadow: 0 10px 30px rgba(0,0,0,0.35); font-family: 'Inter', 'Pretendard', system-ui, sans-serif; font-size: 12px; color: #cbd5e1; outline: none; }
 .chat-usage.hidden { display: none; }
 .cu-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 8px 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); font-weight: 700; }
@@ -527,7 +527,7 @@ html[data-ui-theme-mode="light"] .cs-bar input { color: #0f172a; }
 .cu-empty { padding: 6px 0; color: #64748b; font-size: 11px; }
 .chat-usage > .cu-empty { padding: 12px; text-align: center; }
 #chatUsageBtn.on { color: #93c5fd; }
-/* 하단바 오른쪽 사용 현황 요약 (넓은 화면만) */
+/* Usage overview summary at the right of the bottom bar (wide screens only) */
 .usage-summary { display: none; align-items: center; gap: 8px; min-width: 0; max-width: min(520px, 42vw); margin-right: 6px; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); font-size: 11px; color: #cbd5e1; font-variant-numeric: tabular-nums; white-space: nowrap; }
 @media (min-width: 768px) { .usage-summary:not(.hidden) { display: inline-flex; } }
 .usage-summary .us-light { display: inline-flex; align-items: center; gap: 3px; font-weight: 700; }
@@ -556,10 +556,10 @@ html[data-ui-theme-mode="light"] .cs-item mark, html[data-ui-theme-mode="light"]
 .log-older button { font-weight: 700; color: #93c5fd; }
 .log-empty { padding: 40px 16px; text-align: center; color: #64748b; font-size: 13px; line-height: 1.6; }
 .msg { max-width: 100%; min-width: 0; }
-/* 채팅 목록은 가로로 밀리지 않는다 (iOS Safari 에서 넓은 요소 하나 때문에 대화 전체가 옆으로 밀려 나가던 문제).
-   긴 코드 블록 · 표는 그 상자 안에서만 가로로 스크롤된다. :where 는 .msg-user 의 88% 폭을 덮어쓰지 않게 */
+/* The chat list never shifts sideways (on iOS Safari a single wide element used to push the whole conversation sideways).
+   Long code blocks · tables scroll horizontally only inside their own box. :where keeps it from overriding .msg-user's 88% width */
 #logScroll, .tp-log { overflow-x: hidden; }
-.chat-list { overflow-x: clip; }   /* 넘치는 요소가 있어도 스크롤 폭이 화면을 넘지 않게 (hidden 은 프로그램 스크롤까지 막지 못함) */
+.chat-list { overflow-x: clip; }   /* so the scroll width never exceeds the screen even with overflowing elements (hidden cannot stop programmatic scrolling) */
 :where(.chat-list > *), .msg-body, .msg-tool { min-width: 0; max-width: 100%; }
 .msg-tool { overflow: hidden; }
 .msg-body code { overflow-wrap: anywhere; }
@@ -571,7 +571,7 @@ html[data-ui-theme-mode="light"] .cs-item mark, html[data-ui-theme-mode="light"]
 .msg-ai .msg-body { padding: 2px 2px; }
 .msg-ai .copy-btn { margin-left: auto; padding: 2px 6px; border-radius: 6px; color: #64748b; font-size: 11px; }
 @media (hover: hover) { .msg-ai .copy-btn:hover { color: #cbd5e1; background: rgba(255,255,255,0.06); } }
-/* 복사 버튼은 내 프롬프트와 최종 답변에만 (중간 진행 안내에는 숨김) */
+/* The copy button only on my prompts and final answers (hidden on intermediate progress notes) */
 .msg-ai:not(.final) > .msg-meta .copy-btn { display: none; }
 .msg-user .copy-btn { padding: 2px 6px; border-radius: 6px; color: #64748b; font-size: 11px; }
 @media (hover: hover) { .msg-user .copy-btn:hover { color: #cbd5e1; background: rgba(255,255,255,0.06); } }
@@ -600,7 +600,7 @@ html[data-ui-theme-mode="light"] .cs-item mark, html[data-ui-theme-mode="light"]
 .msg-sub summary .sub-time { flex-shrink: 0; font-size: 10px; color: #64748b; }
 .msg-tool .sub-live { max-height: 420px; overflow: auto; padding: 8px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 6px; background: rgba(0,0,0,.12); }
 .msg-tool .sub-live:empty { display: none; }
-/* 코드 변경 (diff) — 터미널처럼 */
+/* Code changes (diff) — like the terminal */
 .msg-diff summary .df-stat, .df-head .df-stat { flex-shrink: 0; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; }
 .df-stat b { font-weight: 700; }
 .df-stat b.a { color: #4ade80; }
@@ -609,21 +609,21 @@ html[data-ui-theme-mode="light"] .cs-item mark, html[data-ui-theme-mode="light"]
 .df-head { display: flex; align-items: center; gap: 8px; padding: 5px 10px; background: rgba(255,255,255,0.025); font-size: 11px; }
 .df-path { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; font-family: 'JetBrains Mono', monospace; color: #cbd5e1; }
 .df-op { flex-shrink: 0; padding: 0 6px; border-radius: 999px; font-size: 10px; font-weight: 700; color: #93c5fd; background: rgba(96,165,250,.14); }
-/* 카드는 가로로만 스크롤 (긴 코드 줄은 터미널처럼 접지 않는다). 세로 휠 · 비스듬한 트랙패드 제스처는
-   app.js 의 휠 처리기가 채팅 전체로 보낸다 → 카드가 채팅 스크롤을 빼앗지 않는다. */
+/* Cards scroll horizontally only (long code lines are not wrapped, like the terminal). Vertical wheel · diagonal trackpad gestures
+   are forwarded to the whole chat by the wheel handler in app.js → the card does not steal the chat scroll. */
 .df-body { overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; padding: 2px 0 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.55; }
 .df-row { display: block; min-width: max-content; white-space: pre; color: #e6edf3; }
 .df-no { display: inline-block; width: 3.4em; padding-right: 6px; text-align: right; color: #64748b; user-select: none; font-variant-numeric: tabular-nums; vertical-align: top; }
 .df-sign { display: inline-block; width: 1.4em; text-align: center; user-select: none; vertical-align: top; }
 .df-text { padding-right: 10px; color: #e6edf3; }
-/* 긴 diff · 출력: 앞부분만 그리고 나머지는 <template> 에 (눌러야 그린다 · 내용은 그대로 다 있다) */
+/* Long diff · output: only the beginning is rendered and the rest sits in a <template> (rendered on click · the content is all still there) */
 .fold-more { display: block; width: 100%; padding: 5px 10px; border-top: 1px dashed rgba(255,255,255,0.1); text-align: left; font-family: 'Inter', 'Pretendard', system-ui, sans-serif; font-size: 11px; font-weight: 700; color: #93c5fd; background: rgba(96,165,250,0.06); }
 @media (hover: hover) { .fold-more:hover { background: rgba(96,165,250,0.14); } }
 html[data-ui-theme-mode="light"] .fold-more { color: #1d4ed8; border-top-color: rgba(15,23,42,0.12); background: rgba(37,99,235,0.05); }
-/* 채팅 항목: 화면 밖은 그리지 않는다 (DOM 은 그대로 → 지워지는 것 없음 · 검색 · 이동도 그대로). 크기는 한 번 그린 값을 기억 */
+/* Chat items: off-screen ones are not rendered (the DOM stays → nothing is removed · search · jumping still work). The size from the first render is remembered */
 .chat-list > * { content-visibility: auto; contain-intrinsic-size: auto 72px; }
-/* 터미널(Claude Code)처럼: 줄 전체는 빨강 / 초록, 바뀐 단어는 한 단계 밝게 · 글자는 문법 색.
-   배경은 테마와 상관없이 고정 (다크: GitHub 다크 바탕, 라이트: 흰 바탕) → 어느 테마에서도 대비 4:1 이상 */
+/* Like the terminal (Claude Code): the whole line is red / green, changed words one step brighter · text in syntax colours.
+   The background is fixed regardless of theme (dark: GitHub dark base, light: white base) → contrast of at least 4:1 in every theme */
 .df-add { background: rgb(22, 58, 33); }
 .df-del { background: rgb(74, 24, 31); }
 .df-add .df-no, .df-del .df-no { color: rgba(255,255,255,0.6); }
@@ -632,7 +632,7 @@ html[data-ui-theme-mode="light"] .fold-more { color: #1d4ed8; border-top-color: 
 .df-add .df-word { background: rgb(35, 96, 54); border-radius: 2px; }
 .df-del .df-word { background: rgb(118, 38, 52); border-radius: 2px; }
 .df-body { background: #0d1117; }
-/* diff 안의 문법 색: 어두운 파랑 · 회색은 줄 배경 위에서 안 보여 밝게, 바뀐 단어 안은 한 단계 더 밝게 */
+/* Syntax colours inside a diff: dark blue · grey are invisible on the line background so they are brightened, and one step brighter inside changed words */
 :is(.df-text, .do-line) :is(.hljs-addition, .hljs-deletion) { background: transparent; }
 html:not([data-ui-theme-mode="light"]) :is(.df-text, .do-line) .hljs-section { color: #79c0ff; }
 html:not([data-ui-theme-mode="light"]) :is(.df-text, .do-line) :is(.hljs-comment, .hljs-code, .hljs-formula) { color: #a7b1bc; }
@@ -656,7 +656,7 @@ html[data-ui-theme-mode="light"] .df-add { background: #e6ffec; }
 html[data-ui-theme-mode="light"] .df-del { background: #ffebe9; }
 html[data-ui-theme-mode="light"] .df-add .df-word { background: #c2f0cf; }
 html[data-ui-theme-mode="light"] .df-del .df-word { background: #ffd0cd; }
-/* 라이트: 주황 · 빨강 · 초록 · 회색 글자를 진하게 (연한 줄 배경 위에서도 4:1 이상) */
+/* Light: orange · red · green · grey text made darker (at least 4:1 even on the pale line background) */
 html[data-ui-theme-mode="light"] :is(.df-text, .do-line) :is(.hljs-built_in, .hljs-symbol) { color: #9a4a00; }
 html[data-ui-theme-mode="light"] :is(.df-text, .do-line) :is(.hljs-keyword, .hljs-doctag, .hljs-type, .hljs-template-tag, .hljs-template-variable) { color: #b31d28; }
 html[data-ui-theme-mode="light"] :is(.df-text, .do-line) :is(.hljs-name, .hljs-quote, .hljs-selector-pseudo, .hljs-selector-tag) { color: #1a6b30; }
@@ -672,7 +672,7 @@ html[data-ui-theme-mode="light"] .df-stat b.d { color: #b91c1c; }
 .msg-sub .sub-body { padding: 8px 12px 10px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 13px; }
 .msg-sub .sub-body .copy-btn { display: inline-flex; gap: 5px; align-items: center; margin-top: 6px; padding: 2px 8px; border-radius: 6px; font-size: 11px; color: #94a3b8; background: rgba(255,255,255,.05); }
 
-/* 시트 폼 안의 체크박스 줄 */
+/* Checkbox row inside a sheet form */
 .sheet-form label.check-row { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; opacity: 0.9; }
 .sheet-form input[type="checkbox"] { width: 18px; height: 18px; padding: 0; flex-shrink: 0; accent-color: #8b5cf6; }
 .sheet-check { padding: 4px 20px 6px; }
@@ -681,17 +681,17 @@ html[data-ui-theme-mode="light"] .df-stat b.d { color: #b91c1c; }
 .sheet-check small { display: block; margin-top: 2px; font-size: 11.5px; font-weight: 500; opacity: .65; line-height: 1.45; }
 
 /* ============================================================================
-   휴대폰에서 앱처럼 — 확대 막기, 키보드 대응, 하단 탭바, 터치 반응
+   App-like on phones — no zoom, keyboard handling, bottom tab bar, touch feedback
    ============================================================================ */
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; touch-action: manipulation; }
-/* 한글 문장이 낱말 중간에서 끊기지 않게: 띄어쓰기에서만 줄을 바꾸고, 칸보다 긴 낱말(경로 · 주소)만 넘칠 때 자른다.
-   터미널 화면처럼 글자 단위로 잘라야 하는 곳은 그쪽 규칙(word-break: break-all)이 우선한다. */
+/* So Korean sentences do not break mid-word: wrap only at spaces, and cut only words longer than the box (paths · URLs) when they overflow.
+   Where text must break per character, like the terminal screen, that place's rule (word-break: break-all) takes precedence. */
 body { word-break: keep-all; overflow-wrap: break-word; }
 p, li, dd, h1, h2, h3, h4, label, figcaption, .sheet-head p, .toast, .ud-set-desc, .ud-set-note { text-wrap: pretty; }
 
-/* 앱 전체를 실제로 보이는 영역(visualViewport)에 고정한다.
-   iOS 는 키보드가 올라오면 레이아웃은 그대로 두고 보이는 영역만 밀어 올리는데(offsetTop),
-   그 움직임을 따라가야 화면이 잘리거나 아래에 빈 공간이 생기지 않는다. */
+/* Pin the whole app to the actually visible area (visualViewport).
+   When the keyboard comes up, iOS leaves the layout as is and only pushes the visible area up (offsetTop);
+   following that movement keeps the screen from being cut off or leaving empty space at the bottom. */
 html:has(body.app-shell) { height: 100%; overflow: hidden; }
 body.app-shell {
     position: fixed; left: 0; right: 0; top: var(--vv-top);
@@ -699,10 +699,10 @@ body.app-shell {
 }
 
 @media (pointer: coarse), (max-width: 767.98px) {
-    /* 16px 미만 입력창은 iOS 가 포커스할 때 화면을 확대한다 */
+    /* iOS zooms the screen when focusing an input smaller than 16px */
     input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), textarea, select { font-size: 16px !important; }
 
-    /* 버튼 · 메뉴는 길게 눌러도 글자 선택 · 미리보기가 뜨지 않게 (내용 영역은 그대로 선택 가능) */
+    /* Buttons · menus do not trigger text selection · previews on long press (content areas stay selectable) */
     body.app-shell { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
     body.app-shell :is(input, textarea, pre, code, table, .term-screen, .chat-list, .git-diff, .msg-body, .select-text, #gitConsole) {
         -webkit-user-select: text; user-select: text; -webkit-touch-callout: default;
@@ -711,10 +711,10 @@ body.app-shell {
     .overflow-y-auto, .overflow-auto, .overflow-x-auto { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 }
 
-/* 하단 탭바 */
+/* Bottom tab bar */
 .tabbar {
     display: flex; flex-shrink: 0; z-index: 30;
-    /* 홈 인디케이터와 살짝 겹치게 해서 네이티브 탭바처럼 낮게 (전체 inset 을 다 쓰면 아래가 붕 뜬다) */
+    /* Overlaps the home indicator slightly to sit low like a native tab bar (using the full inset leaves it floating) */
     padding: 6px 6px max(6px, calc(env(safe-area-inset-bottom) - 12px));
     background: rgba(10, 13, 24, 0.92);
     backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%);
@@ -737,19 +737,19 @@ html[data-ui-theme-mode="light"] .tab-item.active { color: #2563eb; }
     display: flex; align-items: center; justify-content: center; font-family: 'Inter', system-ui, sans-serif;
 }
 .tab-badge.hidden { display: none; }
-/* 키보드가 올라와 있으면 탭바를 숨겨 입력 공간을 확보한다 */
+/* While the keyboard is up, hide the tab bar to make room for typing */
 html.kb-open .tabbar { display: none; }
 @media (max-width: 767.98px) {
-    /* 탭바가 홈 인디케이터 영역을 맡으므로 본문 스크롤 영역은 그만큼 띄우지 않는다 */
+    /* The tab bar covers the home indicator area, so the body scroll area does not add that inset */
     main .safe-bottom:not(.composer) { padding-bottom: 0.75rem !important; }
 }
-/* 키보드가 덮고 있으니 입력창 아래 안전 영역 여백은 필요 없다 */
+/* The keyboard covers it, so no safe-area padding is needed below the input */
 html.kb-open .composer.safe-bottom { padding-bottom: 0.25rem !important; }
 
-/* ── 채팅: 대기열 · 보내는 중 말풍선, 에이전트 상태 카드 (터미널 영역이라 항상 어두운 배경) ── */
+/* ── Chat: queued · sending bubbles, agent status card (terminal area, so always a dark background) ── */
 .chat-pending { padding-top: 0; padding-bottom: 0; }
 .chat-pending:empty { display: none; }
-/* 사용자가 첨부한 그림: 높이를 정해 두어 그림이 늦게 떠도 스크롤 위치가 밀리지 않는다 */
+/* Images attached by the user: the height is fixed so the scroll position does not shift even when the image loads late */
 .msg-imgs { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 100%; margin-bottom: 4px; }
 .msg-img { display: block; height: 180px; max-width: 100%; border-radius: 12px; overflow: hidden; border: 1px solid rgba(96,165,250,0.28); background: rgba(15,23,42,.5); }
 .msg-img img { display: block; height: 100%; width: auto; max-width: 100%; object-fit: contain; }
@@ -780,7 +780,7 @@ html[data-ui-theme-mode="light"] .msg-img { border-color: rgba(37,99,235,.22); b
 .chat-status-options button b { color: #93c5fd; margin-right: 4px; }
 .chat-status-options button.muted { color: #94a3b8; background: rgba(148,163,184,.12); border-color: rgba(148,163,184,.25); }
 
-/* ── Explorer (폴더 트리 · 파일 뷰어) ─────────────────────────────── */
+/* ── Explorer (folder tree · file viewer) ─────────────────────────────── */
 .ex { display: flex; flex-direction: column; min-height: 0; position: relative; }
 .ex-head { display: flex; align-items: center; gap: 6px; padding: 10px 10px 6px 12px; flex-shrink: 0; }
 .ex-root { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; padding: 6px 8px; border-radius: 10px; font-size: 13px; font-weight: 800; color: rgba(255,255,255,.88); text-align: left; }
@@ -855,9 +855,9 @@ html[data-ui-theme-mode="light"] .exv-line-flash { background: rgba(234,179,8,.2
 .exv-gallery button:disabled { opacity: 0.3; }
 .exv-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 48px 16px; text-align: center; font-size: 13px; color: #94a3b8; }
 
-/* 휴대폰 · 태블릿: 뷰어는 오른쪽에서 밀려 들어오는 전체 화면 패널 (터미널 패널과 같은 방식) */
+/* Phone · tablet: the viewer is a full-screen panel sliding in from the right (same as the terminal panel) */
 @media (max-width: 1023.98px) {
-    body .slide-panel {   /* tailwind(.relative · .flex-1)가 뒤에 로드되므로 선택자 우선순위를 높인다 */
+    body .slide-panel {   /* tailwind (.relative · .flex-1) loads later, so selector specificity is raised */
         position: fixed; left: 0; right: 0; top: var(--vv-top); height: var(--app-h);
         z-index: 60; background: var(--shell-bg);
         transform: translateX(100%); visibility: hidden;
@@ -868,13 +868,13 @@ html[data-ui-theme-mode="light"] .exv-line-flash { background: rgba(234,179,8,.2
 }
 @media (prefers-reduced-motion: reduce) { body .slide-panel { transition: none !important; } }
 
-/* 가로 모드 휴대폰: 노치 · 홈 인디케이터를 피해 좌우 안전 영역 확보 */
+/* Landscape phone: keep left/right safe areas clear of the notch · home indicator */
 @media (orientation: landscape) and (max-height: 500px) {
     main, #termPane, .slide-panel { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
     .ex-row { height: 34px; }
 }
 
-/* ── Workspace 보기 전환 (창 · 파일 · 정리) ── */
+/* ── Workspace view switch (windows · files · organize) ── */
 .ws-switch { display: flex; gap: 4px; margin: 10px 12px 0; padding: 3px; border-radius: 12px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.07); }
 .ws-switch button { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; height: 32px; border-radius: 9px; font-size: 12.5px; font-weight: 800; color: rgba(255,255,255,.5); transition: background 150ms, color 150ms; -webkit-tap-highlight-color: transparent; }
 .ws-switch button i { font-size: 11px; }
@@ -884,7 +884,7 @@ html[data-ui-theme-mode="light"] .ws-switch button { color: #64748b; }
 html[data-ui-theme-mode="light"] .ws-switch button.active { background: rgba(37,99,235,.12); color: #1d4ed8; }
 #fileMode .ex-head { padding-top: 8px; }
 
-/* ── Markdown 미리보기 (뷰어 배경이 항상 어두우므로 어두운 색 기준) ── */
+/* ── Markdown preview (the viewer background is always dark, so based on dark colours) ── */
 .exv-md-toggle { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border-radius: 10px; flex-shrink: 0; font-size: 12px; font-weight: 800; color: #bfdbfe; background: rgba(59,130,246,.16); border: 1px solid rgba(96,165,250,.3); }
 .exv-md-toggle.hidden { display: none; }
 .exv-md-toggle i { font-size: 11px; }
@@ -920,7 +920,7 @@ html[data-ui-theme-mode="light"] .ws-switch button.active { background: rgba(37,
 @media (pointer: coarse) { .hist-btn { width: 32px; height: 26px; } }
 html[data-ui-theme-mode="light"] .hist-btn { color: #5a6781; border-color: rgba(15,23,42,.12); }
 
-/* ── 뷰어 탭 · PDF · 미디어 ── */
+/* ── Viewer tabs · PDF · media ── */
 .exv { position: relative; }
 .exv-tabs { display: flex; gap: 2px; overflow-x: auto; padding: 0 6px; height: 36px; align-items: flex-end; border-top: 1px solid rgba(255,255,255,.05); -webkit-overflow-scrolling: touch; }
 .exv-tabs.hidden { display: none; }
@@ -942,7 +942,7 @@ html[data-ui-theme-mode="light"] .exv-tab.active { color: #fff; }
 .exv-zoom-label { min-width: 40px; text-align: center; font-size: 11px; font-weight: 700; color: rgba(255,255,255,.6); font-variant-numeric: tabular-nums; }
 html[data-ui-theme-mode="light"] .exv-zoom button, html[data-ui-theme-mode="light"] .exv-zoom-label { color: #47536e; }
 .exv-pdf { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 12px 12px 40px; min-width: max-content; }
-.exv-pdf-page { margin: 0 auto; }  /* 확대로 넘쳐도 왼쪽이 잘리지 않게 (auto 여백은 넘치면 0) */
+.exv-pdf-page { margin: 0 auto; }  /* so the left side is not cut off when zoom overflows (auto margins become 0 on overflow) */
 .exv-pdf-page { position: relative; max-width: none; background: #fff; box-shadow: 0 4px 18px rgba(0,0,0,.45); border-radius: 2px; overflow: hidden; }
 .exv-pdf-page::before { content: attr(data-page); position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #cbd5e1; font-size: 28px; font-weight: 800; }
 .exv-pdf-page img { position: relative; display: block; width: 100%; height: 100%; }
@@ -951,7 +951,7 @@ html[data-ui-theme-mode="light"] .exv-zoom button, html[data-ui-theme-mode="ligh
 .exv-image.actual { display: block; overflow: visible; }
 .exv-image.actual img { max-width: none; max-height: none; cursor: zoom-out; }
 .exv-image img { cursor: zoom-in; }
-.exv-image.zoomed { display: block; overflow: visible; }   /* 두 손가락으로 확대한 그림: 스크롤로 구석까지 */
+.exv-image.zoomed { display: block; overflow: visible; }   /* image zoomed with two fingers: scroll to reach every corner */
 .exv-image.zoomed img { display: block; margin: 0 auto; max-width: none; max-height: none; }
 .exv-media { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 20px 12px; min-height: 50%; }
 .exv-media video { width: 100%; max-height: 75vh; border-radius: 10px; background: #000; }
@@ -960,7 +960,7 @@ html[data-ui-theme-mode="light"] .exv-zoom button, html[data-ui-theme-mode="ligh
 .open-files-chip.hidden { display: none; }
 
 
-/* ── 파일 편집기 ── */
+/* ── File editor ── */
 .exv-body:has(.exv-editor) { display: flex; flex-direction: column; overflow: hidden; }
 .exv-editor { flex: 1; min-height: 0; display: flex; overflow: hidden; background: #0b0f19; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: var(--editor-font, 13px); line-height: 1.55; }
 @media (pointer: coarse) { .exv-editor { font-size: max(14px, var(--editor-font, 13px)); } }
@@ -989,14 +989,14 @@ html[data-ui-theme-mode="light"] .exv-zoom button, html[data-ui-theme-mode="ligh
 .exv-find button:disabled { opacity: .35; }
 .exv-find-count { min-width: 45px; max-width: 40%; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .exv-find-count.none { color: #f87171; }
-/* 편집기 현재 줄: textarea 뒤의 띠 (미리보기에서 옮겨 오면 반짝) */
+/* Editor current line: a band behind the textarea (flashes when jumping over from the preview) */
 .exv-caretline { position: absolute; z-index: 0; pointer-events: none; background: rgba(148,163,184,.06); box-shadow: inset 3px 0 0 rgba(96,165,250,.35); }
 .exv-caretline.focused { background: rgba(96,165,250,.12); box-shadow: inset 3px 0 0 #60a5fa; }
 .exv-caretline.flash { animation: exv-caret-flash 1.1s ease-out; }
 @keyframes exv-caret-flash { 0%, 25% { background: rgba(96,165,250,.45); box-shadow: inset 4px 0 0 #93c5fd, 0 0 0 1px rgba(96,165,250,.6); } 100% { background: rgba(96,165,250,.12); } }
 html[data-ui-theme-mode="light"] .exv-caretline { background: rgba(15,23,42,.035); box-shadow: inset 3px 0 0 rgba(37,99,235,.3); }
 html[data-ui-theme-mode="light"] .exv-caretline.focused { background: rgba(37,99,235,.08); box-shadow: inset 3px 0 0 #2563eb; }
-/* 편집기 검색 표시: textarea 뒤에 깐 같은 모양의 층 */
+/* Editor search highlights: an identically shaped layer laid behind the textarea */
 .exv-editor { position: relative; }
 .exv-editor .exv-textarea { position: relative; z-index: 1; }
 .exv-find-layer { position: absolute; z-index: 0; overflow: hidden; pointer-events: none; }
@@ -1013,7 +1013,7 @@ html[data-ui-theme-mode="light"] .exv-find-layer mark.active { background: rgba(
 html[data-ui-theme-mode="light"] .exv-find { background: #f1f5f9; border-color: #cbd5e1; color: #0f172a; }
 html[data-ui-theme-mode="light"] .exv-find-query { background: white; border-color: #94a3b8; }
 html[data-ui-theme-mode="light"] .exv-find button:hover, html[data-ui-theme-mode="light"] .exv-find button[aria-pressed="true"] { background: #cbd5e1; }
-/* 마크다운 편집: 편집기 | 실시간 미리보기 (좁은 화면은 위 · 아래) */
+/* Markdown editing: editor | live preview (top · bottom on narrow screens) */
 .exv-body:has(.exv-split) { display: flex; flex-direction: column; overflow: hidden; }
 .exv-split { --split: 50%; flex: 1; min-height: 0; display: flex; overflow: hidden; }
 .exv-split > .exv-editor { flex: 0 0 var(--split); min-width: 0; }
@@ -1024,7 +1024,7 @@ html[data-ui-theme-mode="light"] .exv-find button:hover, html[data-ui-theme-mode
 .exv-live .exv-md { padding-bottom: 40vh; }
 .exv-live .exv-htmldoc:not(.hv-paper) { min-height: 100%; background: #fff; }
 .exv-live-plain { margin: 0; padding: 18px 20px; white-space: pre-wrap; }
-/* 편집기 커서가 있는 줄을 그린 블록: 왼쪽 파란 막대 + 옅은 바탕 (자리는 안 밀리게 그림자 · 가상 요소로) */
+/* The block rendering the line the editor cursor is on: blue bar on the left + faint background (via shadow · pseudo-element so nothing shifts) */
 .exv-live { --md-cur-bg: rgba(96,165,250,.09); --md-cur-bar: #60a5fa; }
 html[data-ui-theme-mode="light"] .exv-live { --md-cur-bg: rgba(37,99,235,.07); --md-cur-bar: #2563eb; }
 .exv-live .md-cursor:not(tr) { position: relative; background: var(--md-cur-bg); box-shadow: -8px 0 0 var(--md-cur-bg); border-radius: 0 4px 4px 0; }
@@ -1057,13 +1057,13 @@ html[data-ui-theme-mode="light"] .exv-done-btn { color: #334155; border-color: r
 @media (max-width: 640px) { .exv-edit-btn span, .exv-save-btn span, .exv-md-toggle span { display: none; } .exv-edit-btn, .exv-save-btn, .exv-md-toggle { padding: 0 10px; } }
 .ex-row.dragging { opacity: .45; }
 .ex-row[draggable="true"] { -webkit-user-drag: element; }
-/* .gitignore 로 무시되는 항목: VS Code 처럼 흐리게 */
+/* Items ignored by .gitignore: dimmed like VS Code */
 .ex-row.ignored { opacity: .45; }
 .ex-row.ignored .ex-name { color: #94a3b8; }
 .ex-row.ignored.selected { opacity: .7; }
 html[data-ui-theme-mode="light"] .ex-row.ignored .ex-name { color: #64748b; }
 
-/* ── 한글(hwpx) 미리보기: 흰 종이 위에 문서처럼 ── */
+/* ── Hangul (hwpx) preview: like a document on white paper ── */
 .hwp-doc { --hwp-font: 'Noto Serif KR', 'Nanum Myeongjo', 'Batang', serif; display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 12px 12px 40px; }
 .hwp-page { background: #fff; color: #000; box-shadow: 0 4px 18px rgba(0,0,0,.45); border-radius: 2px; font-family: var(--hwp-font); font-size: 10pt; line-height: 1.6; box-sizing: border-box; max-width: none; overflow-wrap: anywhere; }
 .hwp-p { margin: 0; min-height: 1em; white-space: pre-wrap; }
@@ -1075,7 +1075,7 @@ html[data-ui-theme-mode="light"] .ex-row.ignored .ex-name { color: #64748b; }
 .hwp-eq { font-family: 'JetBrains Mono', monospace; background: #f1f5f9; padding: 0 4px; }
 .hwp-missing { color: #94a3b8; font-size: 9pt; }
 
-/* ── 표 보기 (CSV · 압축 목록 · SQLite) ── */
+/* ── Table view (CSV · archive listing · SQLite) ── */
 .data-wrap { padding: 10px 12px 32px; overflow-x: auto; }
 .data-table { border-collapse: collapse; font-size: 12.5px; color: #d7dce6; min-width: 100%; }
 .data-table th, .data-table td { padding: 5px 10px; border: 1px solid rgba(255,255,255,.09); text-align: left; white-space: nowrap; max-width: 420px; overflow: hidden; text-overflow: ellipsis; }
@@ -1091,7 +1091,7 @@ html[data-ui-theme-mode="light"] .ex-row.ignored .ex-name { color: #64748b; }
 .db-tabs button.on { color: #bfdbfe; background: rgba(59,130,246,.2); border-color: rgba(96,165,250,.4); }
 .db-tabs small { opacity: .6; margin-left: 3px; }
 
-/* ── Jupyter 노트북 ── */
+/* ── Jupyter notebook ── */
 .nb { max-width: 980px; margin: 0 auto; padding: 14px 14px 48px; display: flex; flex-direction: column; gap: 12px; }
 .nb-cell.nb-md .exv-md { padding: 0; max-width: none; }
 .nb-code { border: 1px solid rgba(255,255,255,.08); border-radius: 10px; overflow: hidden; background: #0f1524; }
@@ -1107,11 +1107,11 @@ html[data-ui-theme-mode="light"] .ex-row.ignored .ex-name { color: #64748b; }
 .nb-html th, .nb-html td { border: 1px solid rgba(255,255,255,.12); padding: 3px 8px; }
 .nb-svg svg { max-width: 100%; height: auto; background: #fff; }
 
-/* ── 헥스 덤프 ── */
+/* ── Hex dump ── */
 .exv-hex { margin: 0; padding: 10px 14px 32px; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.55; color: #cbd5e1; white-space: pre; }
 .exv-note-info { color: #93c5fd; position: static; }
 
-/* ── tmux 창 탭 ── */
+/* ── tmux window tabs ── */
 .term-tabs { display: flex; gap: 2px; align-items: flex-end; height: 38px; padding: 4px 8px 0; overflow-x: auto; border-bottom: 1px solid rgba(255,255,255,.06); -webkit-overflow-scrolling: touch; }
 .term-tabs.hidden { display: none; }
 .tt-tab { display: flex; align-items: center; gap: 7px; flex-shrink: 0; max-width: 210px; height: 33px; padding: 0 4px 0 11px; border-radius: 9px 9px 0 0; border: 1px solid transparent; border-bottom: 0;
@@ -1129,7 +1129,7 @@ html[data-ui-theme-mode="light"] .tt-tab.active { color: #0f172a; background: rg
 html[data-ui-theme-mode="light"] .tt-close { color: #64748b; }
 html[data-ui-theme-mode="light"] .term-tabs { border-bottom-color: rgba(15,23,42,.08); }
 
-/* ── Workspace 공용 탭바: tmux 창 탭 + 파일 탭 ── */
+/* ── Workspace shared tab bar: tmux window tabs + file tabs ── */
 .ws-tabbar { display: flex; gap: 2px; align-items: flex-end; flex-shrink: 0; height: 40px; padding: 5px 8px 0; overflow-x: auto; overflow-y: hidden;
     border-bottom: 1px solid rgba(255,255,255,.08); background: rgba(8,11,20,.55); -webkit-overflow-scrolling: touch; }
 .ws-tabbar.hidden { display: none; }
@@ -1138,7 +1138,7 @@ html[data-ui-theme-mode="light"] .term-tabs { border-bottom-color: rgba(15,23,42
     user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; position: relative; }
 @media (hover: hover) { .wt:hover { color: rgba(255,255,255,.85); background: rgba(255,255,255,.04); } }
 .wt.active { color: #fff; background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.1); }
-/* 종류 구분: tmux 탭은 파란 >_ 배지 · 파란 윗줄, 파일 탭은 파일 아이콘 · 기울임 없는 이름 + 호박색 윗줄 */
+/* Telling kinds apart: tmux tabs have a blue >_ badge · blue top line, file tabs a file icon · non-italic name + amber top line */
 .wt-term.active { box-shadow: inset 0 2px 0 #60a5fa; }
 .wt-file.active { box-shadow: inset 0 2px 0 #fbbf24; }
 .wt-kind { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 5px; flex-shrink: 0;
@@ -1148,7 +1148,7 @@ html[data-ui-theme-mode="light"] .term-tabs { border-bottom-color: rgba(15,23,42
 .wt-file.active { color: #fef3c7; }
 .wt .status-dot { flex-shrink: 0; }
 .wt-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 탭 모두 닫기: 탭이 많아 옆으로 넘쳐도 오른쪽 끝에 붙어 있다 */
+/* Close all tabs: stays pinned to the right end even when many tabs overflow sideways */
 .wt-close-all { position: sticky; right: 0; margin-left: auto; flex-shrink: 0; align-self: center; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 8px; font-size: 11px; font-weight: 700; white-space: nowrap; color: rgba(255,255,255,.6); background: rgba(15,23,42,.92); border: 1px solid rgba(255,255,255,.12); }
 @media (hover: hover) { .wt-close-all:hover { color: #fca5a5; border-color: rgba(248,113,113,.45); } }
 @media (max-width: 640px) { .wt-close-all span { display: none; } .wt-close-all { padding: 0 8px; } }
@@ -1161,13 +1161,13 @@ html[data-ui-theme-mode="light"] .wt { color: #64748b; }
 html[data-ui-theme-mode="light"] .wt.active { color: #0f172a; background: rgba(15,23,42,.05); border-color: rgba(15,23,42,.1); }
 html[data-ui-theme-mode="light"] .wt-file { color: #b45309; }
 html[data-ui-theme-mode="light"] .wt-kind { color: #1d4ed8; background: rgba(37,99,235,.12); }
-/* 휴대폰: 탭바가 맨 위이므로 노치 여백은 탭바가 갖고, 아래 머리글은 여백 없이 */
+/* Phone: the tab bar is at the very top, so it takes the notch padding and the header below has none */
 @media (max-width: 1023.98px) {
     #termPane.has-tabs .ws-tabbar { padding-top: calc(5px + env(safe-area-inset-top)); height: calc(40px + env(safe-area-inset-top)); }
     #termPane.has-tabs .safe-top-term { padding-top: 0 !important; }
 }
 
-/* ── Workspace: 왼쪽 창 목록 · 가운데 터미널/파일 · 오른쪽 파일 트리 ── */
+/* ── Workspace: window list on the left · terminal/file in the centre · file tree on the right ── */
 .ws-side-head { align-items: center; justify-content: space-between; gap: 8px; height: 40px; padding: 0 8px 0 14px; flex-shrink: 0;
     border-bottom: 1px solid rgba(255,255,255,.08); font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: rgba(255,255,255,.5); }
 #filePane .ws-side-head { padding: 0 14px 0 8px; }
@@ -1179,14 +1179,14 @@ html[data-ui-theme-mode="light"] .wt-kind { color: #1d4ed8; background: rgba(37,
 html[data-ui-theme-mode="light"] .ws-side-head { color: #5a6781; border-bottom-color: rgba(15,23,42,.08); }
 html[data-ui-theme-mode="light"] .ws-side-btn { color: #5a6781; }
 
-/* 휴대폰 · 태블릿: 세 칸을 둘 자리가 없으니 창 ↔ 파일 전환 (위 전환 버튼) */
+/* Phone · tablet: no room for three columns, so switch windows ↔ files (the switch buttons on top) */
 @media (max-width: 1023.98px) {
     body[data-ws-mode="files"] #listPane { display: none !important; }
     body:not([data-ws-mode="files"]) #filePane { display: none !important; }
 }
-/* 데스크톱: 두 사이드바 모두 접으면 얇은 막대만 남는다 (막대를 누르면 다시 펼침) */
+/* Desktop: both sidebars collapse to a thin rail (clicking the rail expands it again) */
 @media (min-width: 1024px) {
-    #fileMode .open-files-chip { display: none !important; }   /* 열린 파일은 가운데 탭바에 있다 */
+    #fileMode .open-files-chip { display: none !important; }   /* open files are in the centre tab bar */
     html.ws-left-collapsed #listPane, html.ws-right-collapsed #filePane { width: 44px !important; min-width: 44px; }
     html.ws-right-collapsed #filePane { flex-basis: 44px !important; }
     html.ws-left-collapsed #listPane > :not(.ws-rail), html.ws-right-collapsed #filePane > :not(.ws-rail) { display: none !important; }
@@ -1198,7 +1198,7 @@ html[data-ui-theme-mode="light"] .ws-side-btn { color: #5a6781; }
     .ws-rail-label i { writing-mode: horizontal-tb; margin-bottom: 6px; }
     html[data-ui-theme-mode="light"] .ws-rail { color: #5a6781; }
 }
-/* 파일 탐색기 폭은 경계선을 끌어서 바꾸고, 제목의 초기화 버튼으로 기본 폭에 복귀 */
+/* The file explorer width is changed by dragging the divider, and the reset button in the title restores the default width */
 @media (min-width: 1024px) {
     #filePane { position: relative; }
     .ws-file-resize { position: absolute; z-index: 30; top: 0; bottom: 0; left: -4px; width: 8px; cursor: col-resize; touch-action: none; }
@@ -1217,17 +1217,17 @@ html[data-ui-theme-mode="light"] .ws-side-btn { color: #5a6781; }
     html.ex-resizing-pane, html.ex-resizing-pane * { cursor: col-resize !important; user-select: none !important; }
 }
 @media (max-width: 1023.98px) { .ex-page-resize { display: none !important; } }
-/* 좁은 오른쪽 파일 사이드바: 도구 버튼을 작게 해서 루트 폴더 이름이 보이게 */
+/* Narrow right file sidebar: smaller tool buttons so the root folder name stays visible */
 @media (min-width: 1024px) {
     #filePane .ex-tools button { width: 26px; height: 28px; font-size: 11.5px; }
     #filePane .ex-head { padding: 8px 6px 6px 8px; gap: 2px; }
     #filePane .ex-root { padding: 6px 4px; }
 }
 .sheet-form [data-mode-field].hidden { display: none; }
-/* 선택 해제 상태(빈 곳 클릭): 새 항목은 루트로 → 루트 이름을 살짝 강조 */
+/* Nothing selected (clicked on empty space): new items go to the root → the root name is slightly emphasized */
 .ex-body.root-target { box-shadow: inset 0 0 0 1px rgba(96,165,250,.18); border-radius: 8px; }
 
-/* ── 자동 저장 ── */
+/* ── Auto save ── */
 .exv-auto-btn { display: flex; align-items: center; gap: 5px; height: 32px; padding: 0 10px; border-radius: 10px; flex-shrink: 0; font-size: 11.5px; font-weight: 800;
     color: rgba(255,255,255,.55); border: 1px solid rgba(255,255,255,.12); }
 .exv-auto-btn.on { color: #6ee7b7; border-color: rgba(52,211,153,.35); background: rgba(16,185,129,.12); }
@@ -1254,7 +1254,7 @@ html[data-ui-theme-mode="light"] .wt-kind.pty { color: #15803d; background: rgba
 .pty-keys { background: rgba(8,11,20,.9); border-top: 1px solid rgba(255,255,255,.08); padding-bottom: 8px; }
 html.kb-open .pty-keys.safe-bottom { padding-bottom: 6px !important; }
 
-/* ── 속성 창 ── */
+/* ── Properties window ── */
 .sheet-info { padding: 2px 2px 6px; max-height: 60vh; overflow-y: auto; }
 .prop-list { display: grid; gap: 0; margin: 0; }
 .prop-row { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 10px; padding: 8px 2px; border-bottom: 1px solid rgba(148,163,184,.12); font-size: 12.5px; }
@@ -1270,7 +1270,7 @@ html.kb-open .pty-keys.safe-bottom { padding-bottom: 6px !important; }
 .prop-tag.warn { background: rgba(245,158,11,.15); color: #fbbf24; }
 @media (max-width: 480px) { .prop-row { grid-template-columns: 92px minmax(0, 1fr); } }
 
-/* ════════ 라이트 모드: 채팅 · 터미널 화면 · 파일 뷰어 · 편집기도 밝게 ════════ */
+/* ════════ Light mode: chat · terminal screen · file viewer · editor go light too ════════ */
 html[data-ui-theme-mode="light"] .terminal { background: #f8fafc; color: #1e293b; border-color: rgba(15,23,42,.08); }
 html[data-ui-theme-mode="light"] .term-screen { color: #1e293b; }
 html[data-ui-theme-mode="light"] .term-screen .cur { background: #0f172a; color: #f8fafc; }
@@ -1278,7 +1278,7 @@ html[data-ui-theme-mode="light"] .term-screen .t-rule { background: linear-gradi
 html[data-ui-theme-mode="light"] .term-screen ::selection { background: rgba(37,99,235,.2); }
 html[data-ui-theme-mode="light"] .term-empty-note { color: #94a3b8; }
 
-/* 채팅 */
+/* Chat */
 html[data-ui-theme-mode="light"] .chat-list { color: #1e293b; }
 html[data-ui-theme-mode="light"] .msg-meta, html[data-ui-theme-mode="light"] .log-older, html[data-ui-theme-mode="light"] .log-empty { color: #64748b; }
 html[data-ui-theme-mode="light"] .log-older button { color: #2563eb; }
@@ -1310,7 +1310,7 @@ html[data-ui-theme-mode="light"] .chat-status-options button.muted { color: #475
 html[data-ui-theme-mode="light"] .chat-live-toggle { background: rgba(15,23,42,.05) !important; border-color: rgba(15,23,42,.12) !important; color: #334155 !important; }
 html[data-ui-theme-mode="light"] .chat-live { background: #f1f5f9; border-color: rgba(15,23,42,.08); color: #334155; }
 
-/* 파일 뷰어 · 편집기 */
+/* File viewer · editor */
 html[data-ui-theme-mode="light"] .exv-body, html[data-ui-theme-mode="light"] .exv-editor, html[data-ui-theme-mode="light"] .exv-gutter { background: #f8fafc; color: #1e293b; }
 html[data-ui-theme-mode="light"] .exv-gutter { color: #94a3b8; border-right-color: rgba(15,23,42,.08); }
 html[data-ui-theme-mode="light"] .exv-meta { color: #64748b; border-bottom-color: rgba(15,23,42,.06); }
@@ -1332,7 +1332,7 @@ html[data-ui-theme-mode="light"] .exv-md a { color: #2563eb; }
 html[data-ui-theme-mode="light"] .exv-md blockquote { color: #475569; background: rgba(15,23,42,.03); }
 html[data-ui-theme-mode="light"] .exv-md code { background: rgba(15,23,42,.06); color: #be185d; }
 html[data-ui-theme-mode="light"] .exv-md pre { background: #f1f5f9; border-color: rgba(15,23,42,.08); }
-html[data-ui-theme-mode="light"] .exv-md pre code { color: #1e293b; background: transparent; padding: 0; }   /* 인라인 코드 배경이 코드 블록에 줄무늬로 남지 않게 */
+html[data-ui-theme-mode="light"] .exv-md pre code { color: #1e293b; background: transparent; padding: 0; }   /* so the inline-code background does not leave stripes in code blocks */
 html[data-ui-theme-mode="light"] .exv-md th, html[data-ui-theme-mode="light"] .exv-md td { border-color: rgba(15,23,42,.14); }
 html[data-ui-theme-mode="light"] .exv-md th { background: rgba(15,23,42,.04); }
 html[data-ui-theme-mode="light"] .exv-hex { color: #334155; }
@@ -1361,7 +1361,7 @@ html[data-ui-theme-mode="light"] .md-code { background: #f1f5f9; border-color: r
 .ex-copy.done { color: #34d399 !important; opacity: 1 !important; }
 @media (pointer: coarse) { .ex-copy { width: 32px; } }
 
-/* ── 모델 칩 (입력창 ⚡ 옆) ── */
+/* ── Model chip (next to the ⚡ in the composer) ── */
 .model-chip { display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 11px; border-radius: 14px; flex-shrink: 0; max-width: 150px;
     font-size: 12px; font-weight: 800; color: #c4b5fd; background: rgba(139,92,246,.12); border: 1px solid rgba(167,139,250,.3); }
 .model-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1371,7 +1371,7 @@ html[data-ui-theme-mode="light"] .md-code { background: #f1f5f9; border-color: r
 @media (max-width: 480px) { .model-chip { max-width: 92px; padding: 0 8px; } .model-chip i { display: none; } }
 html[data-ui-theme-mode="light"] .model-chip { color: #6d28d9; background: rgba(139,92,246,.08); border-color: rgba(139,92,246,.3); }
 
-/* ── 남은 사용량 게이지 (머리글 오른쪽) ── */
+/* ── Remaining usage gauge (right side of the header) ── */
 .usage-mini { display: none; align-items: center; gap: 12px; flex-shrink: 0; margin-right: 4px; }
 .usage-mini:not(.hidden) { display: flex; }
 @media (max-width: 639.98px) { .usage-mini { gap: 8px; } .um-label { font-size: 10px; } .um-bar { width: 30px !important; height: 6px; } .um-val { min-width: 26px; font-size: 10.5px; } }
@@ -1387,7 +1387,7 @@ html[data-ui-theme-mode="light"] .model-chip { color: #6d28d9; background: rgba(
 .um-val { font-size: 11px; font-weight: 800; font-variant-numeric: tabular-nums; color: rgba(255,255,255,.8); min-width: 32px; }
 .um-reset { font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255,255,255,.6); white-space: nowrap; }
 .um-reset-label { color: rgba(255,255,255,.4); }
-.um-reset-week { display: none; }   /* 주간 초기화 시각은 PC 큰 화면에서만 */
+.um-reset-week { display: none; }   /* the weekly reset time only on large desktop screens */
 @media (min-width: 1024px) { .um-reset-week { display: inline; } }
 @media (max-width: 1279.98px) { .um-provider { display: none; } .um-bar { width: 44px; } }
 @media (max-width: 639.98px) { .um-reset-label { display: none; } }
@@ -1397,25 +1397,25 @@ html[data-ui-theme-mode="light"] .um-val { color: #1e293b; }
 html[data-ui-theme-mode="light"] .um-reset { color: #475569; }
 html[data-ui-theme-mode="light"] .um-reset-label { color: #94a3b8; }
 
-/* 창 목록 ↔ 파일 사이드바 좌우 바꾸기 (데스크톱) */
+/* Swap the window list ↔ file sidebar sides (desktop) */
 @media (min-width: 1024px) {
     html.ws-swapped #filePane { order: 1; border-left-width: 0; border-right: 1px solid rgba(255,255,255,.1); }
     html.ws-swapped #editorArea { order: 2; }
     html.ws-swapped #listPane { order: 3; border-right-width: 0; border-left: 1px solid rgba(255,255,255,.1); }
-    html.ws-swapped .ws-flip i { transform: scaleX(-1); }   /* 접기 화살표 방향도 반대로 */
+    html.ws-swapped .ws-flip i { transform: scaleX(-1); }   /* the collapse arrow direction flips too */
     html.ws-swapped #listPane .ws-side-head { flex-direction: row-reverse; padding: 0 14px 0 8px; }
     html.ws-swapped #filePane .ws-side-head { flex-direction: row-reverse; padding: 0 8px 0 14px; }
     html[data-ui-theme-mode="light"].ws-swapped #filePane, html[data-ui-theme-mode="light"].ws-swapped #listPane { border-color: rgba(15,23,42,.1); }
 }
 
 
-/* ════════ 분할 화면 (가운데 편집 영역 안에서만 — 좌우 사이드바와 섞이지 않게) ════════ */
+/* ════════ Split view (only inside the centre editor area — never mixed with the left/right sidebars) ════════ */
 @media (min-width: 1024px) {
-    /* 좌우 사이드바는 항상 제 폭 그대로 양쪽 끝에, 편집 영역만 남는 폭을 쓴다 */
+    /* The left/right sidebars always keep their own width at both ends; only the editor area uses the remaining width */
     #workspace > #listPane, #workspace > #filePane { flex-shrink: 0; }
     #editorArea { display: flex; flex: 1 1 0%; min-width: 0; min-height: 0; flex-direction: row; position: relative; overflow: hidden; }
     #editorArea > #termPane { flex: 1 1 0%; min-width: 0; min-height: 0; }
-    /* 분할: 2×2 격자 (칸 배치는 grid-template-areas 로 JS 가 정함) */
+    /* Split: a 2×2 grid (JS sets the cell layout via grid-template-areas) */
     #editorArea.is-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
     #editorArea.is-split > #termPane, #editorArea.is-split > .side-pane { min-width: 0; min-height: 0; box-shadow: inset 1px 0 0 rgba(255,255,255,.09), inset 0 1px 0 rgba(255,255,255,.09); }
 }
@@ -1432,11 +1432,11 @@ html[data-ui-theme-mode="light"] .um-reset-label { color: #94a3b8; }
 .side-empty { align-items: center; justify-content: center; gap: 10px; color: rgba(255,255,255,.35); font-size: 13px; }
 .side-empty i { font-size: 26px; }
 #sideFileView.exv { position: absolute; }
-/* 놓을 자리 표시 */
+/* Drop target indicator */
 .drop-zones { position: absolute; inset: 0; z-index: 70; pointer-events: none; }
 .drop-zones.hidden { display: none; }
 .dz-highlight { position: absolute; opacity: 0; border-radius: 10px; background: rgba(59,130,246,.18); border: 2px solid rgba(96,165,250,.65); transition: all 90ms ease-out; }
-/* 두 번째 그룹의 tmux 화면 */
+/* The tmux screen of the second group */
 .mirror-head { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 6px 0 12px; flex-shrink: 0; font-size: 12px; font-weight: 700; color: rgba(255,255,255,.7); border-bottom: 1px solid rgba(255,255,255,.06); }
 .mirror-head .side-bar-btn { margin: 0 0 0 auto; }
 .mirror-scroll { flex: 1; min-height: 0; overflow: auto; }
@@ -1453,7 +1453,7 @@ html[data-ui-theme-mode="light"] .mirror-head { color: #334155; border-bottom-co
 html[data-ui-theme-mode="light"] .mirror-form input { color: #0f172a; background: rgba(15,23,42,.04); border-color: rgba(15,23,42,.12); }
 html[data-ui-theme-mode="light"] #editorArea.is-split > #termPane, html[data-ui-theme-mode="light"] #editorArea.is-split > .side-pane { box-shadow: inset 1px 0 0 rgba(15,23,42,.1), inset 0 1px 0 rgba(15,23,42,.1); }
 
-/* ── 새 tmux 세션: 작업 폴더 고르기 ── */
+/* ── New tmux session: choosing the working folder ── */
 .fp { display: grid; gap: 8px; margin-top: -4px; }
 .fp-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .fp-toggle, .fp-chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px; border-radius: 10px; font-size: 12px; font-weight: 700; }
@@ -1469,7 +1469,7 @@ html[data-ui-theme-mode="light"] #editorArea.is-split > #termPane, html[data-ui-
 .fp-where { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; }
 .fp-search { display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px 12px; border-bottom: 1px solid rgba(255,255,255,.08); }
 .fp-search > .fa-magnifying-glass { font-size: 12px; opacity: .45; }
-.sheet-form .fp-search input { flex: 1; min-width: 0; width: auto; height: 32px; margin: 0; padding: 0; background: transparent; border: 0; border-radius: 0; box-shadow: none; outline: none; font-size: 16px; color: inherit; }   /* 16px: iOS 가 입력할 때 확대하지 않게 */
+.sheet-form .fp-search input { flex: 1; min-width: 0; width: auto; height: 32px; margin: 0; padding: 0; background: transparent; border: 0; border-radius: 0; box-shadow: none; outline: none; font-size: 16px; color: inherit; }   /* 16px: so iOS does not zoom while typing */
 .sheet-form .fp-search input:focus { border: 0; box-shadow: none; }
 .fp-search:focus-within { background: rgba(96,165,250,.06); }
 .fp-search input::-webkit-search-cancel-button { display: none; }
@@ -1496,27 +1496,27 @@ html[data-ui-theme-mode="light"] .fp-btn { color: #475569; }
 @media (hover: hover) { html[data-ui-theme-mode="light"] .fp-row:hover { background: rgba(15,23,42,.05); } }
 html[data-ui-theme-mode="light"] .fp-use, html[data-ui-theme-mode="light"] .fp-pick { color: #059669; }
 
-/* 시트 폼의 label 은 display:grid 라 tailwind .hidden 이 안 먹는다 → 명시 */
+/* Sheet-form labels are display:grid, so tailwind's .hidden has no effect → stated explicitly */
 .sheet-form label.hidden, .sheet-form .hidden { display: none !important; }
 
-/* 파일 탐색기 여러 개 선택 */
+/* File explorer multi-select */
 .ex-body:focus { outline: none; }
 .ex-body:focus-visible { box-shadow: inset 0 0 0 1px rgba(96,165,250,.35); border-radius: 8px; }
 .ex-body.multi .ex-row.selected { background: rgba(59,130,246,.22); }
 .ex-multi { display: inline-block; margin-right: 6px; padding: 1px 8px; border-radius: 999px; font-weight: 800; color: #bfdbfe; background: rgba(59,130,246,.25); }
 html[data-ui-theme-mode="light"] .ex-multi { color: #1d4ed8; background: rgba(37,99,235,.12); }
-/* 확인 창: Enter 로 누를 버튼 표시 */
+/* Confirmation dialog: marks the button that Enter will press */
 .sheet-buttons [data-yes]:focus { outline: 2px solid rgba(255,255,255,.6); outline-offset: 2px; }
 html[data-ui-theme-mode="light"] .sheet-buttons [data-yes]:focus { outline-color: rgba(15,23,42,.45); }
 
-/* ── 분할 화면 tmux 패널 (메인 머리글과 같은 모양) ── */
+/* ── Split-view tmux panel (same look as the main header) ── */
 .tp-head { flex-shrink: 0; background: rgba(12,16,28,.6); border-bottom: 1px solid rgba(255,255,255,.08); }
-.tp-row1 { display: flex; align-items: center; gap: 8px; height: 56px; padding: 0 8px 0 16px; }   /* 메인 머리글(h-14)과 같은 높이 */
+.tp-row1 { display: flex; align-items: center; gap: 8px; height: 56px; padding: 0 8px 0 16px; }   /* same height as the main header (h-14) */
 .tp-title { font-size: 13.5px; font-weight: 800; color: rgba(255,255,255,.92); }
 .tp-sub { font-size: 11px; color: rgba(255,255,255,.42); margin-top: 1px; }
 .tp-row2 { display: flex; align-items: center; gap: 8px; padding: 0 12px 8px; min-height: 8px; overflow-x: auto; }
 .tp-row2 .usage-mini { margin-right: 0; }
-/* PC 에서 분할해 좁아진 창: 초기화 시각이 잘리지 않게 덜 중요한 것부터 줄인다 */
+/* A window narrowed by splitting on desktop: less important things shrink first so the reset time is not cut off */
 @media (min-width: 1024px) {
   #termModes, .tp-row2 { container-type: inline-size; }
   @container (max-width: 760px) { .um-provider, .um-reset-label { display: none; } .um-bar { width: 44px; } }
@@ -1535,10 +1535,10 @@ html[data-ui-theme-mode="light"]
 .tp-direct-banner.hidden { display: none; }
 [data-tp-direct].active { color: #fcd34d; background: rgba(245,158,11,.15); }
 
-/* 두 번째 그룹 탭바 높이를 메인 탭바(40px, 아래 테두리 포함)와 같게 */
+/* Make the second group's tab bar the same height as the main tab bar (40px, including the bottom border) */
 .side-bar .ws-tabbar { height: 39px; }
 
-/* 입력줄 버튼 · 모델 칩 · 입력창 높이를 모두 같게 (PC 42px · 휴대폰 44px) */
+/* Composer buttons · model chip · input all the same height (desktop 42px · phone 44px) */
 .composer form .composer-btn, .composer form .send-btn, .composer form .model-chip { height: 42px; }
 .composer form .composer-btn, .composer form .send-btn { width: 42px; }
 .composer form .prompt-input { min-height: 42px; padding-top: 9px !important; padding-bottom: 9px !important; }
@@ -1548,23 +1548,23 @@ html[data-ui-theme-mode="light"]
     .composer form .prompt-input { min-height: 44px; padding-top: 10px !important; padding-bottom: 10px !important; }
 }
 .composer form .model-chip { border-radius: 14px; }
-/* 빠른 문구: 아래 줄에 작은 글자로, 앞 항목과 · 로 구분 */
+/* Quick phrases: small text on the row below, separated from the previous item by · */
 .qs-btn::before { content: '·'; margin: 0 6px 0 2px; opacity: .5; }
 
 /* ============================================================================
-   아이폰 앱처럼 누르는 느낌 (common.js 가 .is-pressed / .press-release 를 붙인다)
-   - 누르는 순간 0ms 로 바뀌고, 뗄 때 200ms 에 걸쳐 돌아온다 (iOS UIButton 과 같은 비대칭)
-   - 버튼 · 칩: 흐려짐 + 살짝 작아짐 / 목록 줄: 배경이 진해짐 (UITableViewCell 하이라이트)
-   - transform 대신 개별 scale 속성을 써서 기존 transform(translate 등)을 건드리지 않는다
+   Press feedback like an iPhone app (common.js adds .is-pressed / .press-release)
+   - Changes in 0ms the moment it is pressed and returns over 200ms on release (the same asymmetry as iOS UIButton)
+   - Buttons · chips: dim + shrink slightly / list rows: background darkens (UITableViewCell highlight)
+   - Uses the individual scale property instead of transform so existing transforms (translate etc.) are untouched
    ============================================================================ */
 button, a, summary, label, .key-chip, [role="button"], .win-item, .ex-row, .wt, .tt-tab, .exv-tab, .fp-row {
     touch-action: manipulation; -webkit-tap-highlight-color: transparent;
 }
 .is-pressed { transition: none !important; opacity: .5; scale: .96; }
 .is-pressed:disabled { opacity: .3; scale: none; }
-/* 탭 · 탭바 · 넓은 것은 작아지지 않고 흐려지기만 */
+/* Tabs · tab bar · wide things only dim, without shrinking */
 :is(.wt, .tt-tab, .exv-tab, .tab-item, .sheet-form button[type="submit"], .w-full).is-pressed { scale: none; }
-/* 목록 줄: 흐려지지 않고 배경만 진해진다 */
+/* List rows: only the background darkens, without dimming */
 :is(.win-item, .ex-row, .ex-root, .sheet-action, .fp-row, .folder-head, .org-item, .git-file-row, .git-repo-item).is-pressed {
     opacity: 1; scale: none; box-shadow: inset 0 0 0 999px rgba(255,255,255,.08);
 }
@@ -1572,11 +1572,11 @@ html[data-ui-theme-mode="light"] :is(.win-item, .ex-row, .ex-root, .sheet-action
     box-shadow: inset 0 0 0 999px rgba(15,23,42,.07);
 }
 .press-release { transition: opacity .2s ease-out, scale .2s cubic-bezier(.2,.9,.3,1.2), box-shadow .25s ease-out, background-color .2s ease-out !important; }
-/* 오래 걸리는 버튼: 누르자마자 반응하고 끝날 때까지 다시 못 누른다 */
+/* Long-running buttons: react immediately on press and cannot be pressed again until done */
 .is-busy { opacity: .55; pointer-events: none; cursor: progress; }
 @media (prefers-reduced-motion: reduce) { .is-pressed { scale: none; } .press-release { transition: opacity .15s !important; } }
 
-/* 손가락용 누르는 영역: 보이는 크기는 그대로, 터치 영역만 사방 8px 넓힌다 (≈ 44pt) */
+/* Finger-sized hit area: the visible size stays, only the touch area grows by 8px on every side (≈ 44pt) */
 @media (pointer: coarse) {
     .wt-close, .tt-close, .exv-tab-close, .hist-btn, .side-bar-btn, .fp-btn, .ws-side-btn, .folder-more, .ex-copy, .ex-more, .msg-ai .copy-btn, .msg-user .copy-btn { position: relative; }
     :is(.wt-close, .tt-close, .exv-tab-close, .hist-btn, .side-bar-btn, .fp-btn, .ws-side-btn, .folder-more, .ex-copy, .ex-more, .attach-remove, .msg-ai .copy-btn, .msg-user .copy-btn)::after {
@@ -1584,12 +1584,12 @@ html[data-ui-theme-mode="light"] :is(.win-item, .ex-row, .ex-root, .sheet-action
     }
 }
 
-/* 페이지 이동: 새 페이지가 그려질 준비가 될 때까지 이전 화면을 그대로 둔다 (흰 화면 깜빡임 없음).
-   애니메이션은 0 — 모양은 그대로, 깜빡임만 없앤다. (Chrome 126+ · Safari 18.2+) */
+/* Page navigation: the previous screen stays until the new page is ready to render (no white flash).
+   The animation is 0 — the look is unchanged, only the flash is removed. (Chrome 126+ · Safari 18.2+) */
 @view-transition { navigation: auto; }
 ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation-duration: 0s; }
 
-/* 목록형 선택 창 카드 (/model 등): 누르면 커서만 옮기고 아래 버튼으로 확정 */
+/* List-style picker card (/model etc.): clicking only moves the cursor; the button below confirms */
 .chat-picker { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; max-height: 320px; overflow-y: auto; overscroll-behavior: contain; }
 .chat-status .chat-picker button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 8px 10px; border-radius: 10px;
     border: 1px solid transparent; background: rgba(148,163,184,.07); color: #e2e8f0; font-size: 13px; font-weight: 600; }
@@ -1609,11 +1609,11 @@ html[data-ui-theme-mode="light"] .chat-status .chat-picker-effort button { backg
 html[data-ui-theme-mode="light"] .chat-status .chat-picker button.on { background: rgba(37,99,235,.08); border-color: rgba(37,99,235,.35); }
 html[data-ui-theme-mode="light"] .chat-picker-effort, html[data-ui-theme-mode="light"] .chat-status .chat-picker-effort button { color: #1e293b; }
 
-/* 채팅 수식 (KaTeX): 말풍선은 줄바꿈을 그대로 쓰는(pre-wrap) 곳이라 수식 안은 일반 공백 처리 */
+/* Chat math (KaTeX): bubbles keep line breaks as they are (pre-wrap), so whitespace inside math is handled normally */
 .msg-body .katex { white-space: normal; font-size: 1.05em; }
 .msg-body .katex-display { margin: .4em 0; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
 
-/* AI Usage: Codex 계정 전환 · 추가 */
+/* AI Usage: switching · adding Codex accounts */
 .ai-accounts-btn { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 8px; font-size: 11px; font-weight: 700; color: #93c5fd; background: rgba(59,130,246,.12); border: 1px solid rgba(96,165,250,.28); }
 html[data-ui-theme-mode="light"] .ai-accounts-btn { color: #1d4ed8; background: rgba(37,99,235,.07); border-color: rgba(37,99,235,.25); }
 .ai-account-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
@@ -1637,7 +1637,7 @@ html[data-ui-theme-mode="light"] .ai-login-alert { color: #92400e; background: r
 .cx-done { color: #34d399; font-weight: 700; }
 .cx-error { color: #f87171; font-weight: 600; }
 
-/* Git: AI 커밋 메시지 */
+/* Git: AI commit message */
 .git-ai-btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 8px; font-size: 11px; font-weight: 700;
     color: #c4b5fd; background: rgba(139,92,246,.12); border: 1px solid rgba(167,139,250,.3); }
 .git-ai-btn:disabled { opacity: .7; cursor: progress; }
@@ -1654,22 +1654,22 @@ html[data-ui-theme-mode="light"] .git-ai-gear { color: #64748b; border-color: rg
 .git-ai-model-row button { flex: none; padding: 0 12px; white-space: nowrap; }
 html[data-ui-theme-mode="light"] .git-ai-fallback { border-top-color: rgba(15,23,42,.1); }
 
-/* 탐색기: 끌어서 순서 바꾸기 (직접 지정) — 놓을 자리에 선 */
+/* Explorer: drag to reorder (manual order) — a line at the drop position */
 .ex-row.drop-before { box-shadow: inset 0 2px 0 #3b82f6; }
 .ex-row.drop-after { box-shadow: inset 0 -2px 0 #3b82f6; }
 
-/* 채팅 답변 속 경로 링크 (누르면 파일 · 폴더 열기) */
+/* Path links inside chat answers (click to open the file · folder) */
 .path-link, .md-link { color: #93c5fd; text-decoration: underline; text-decoration-color: rgba(147,197,253,.4); text-underline-offset: 2px; cursor: pointer; overflow-wrap: anywhere; }
 @media (hover: hover) { .path-link:hover, .md-link:hover { text-decoration-color: currentColor; } }
 html[data-ui-theme-mode="light"] .path-link, html[data-ui-theme-mode="light"] .md-link { color: #1d4ed8; text-decoration-color: rgba(29,78,216,.35); }
 
-/* 탐색기: 잘린 이름 위에 바로 뜨는 전체 이름 */
+/* Explorer: the full name shown right over a truncated name */
 .ex-name-tip { position: fixed; z-index: 700; transform: translateY(-50%); padding: 3px 4px; border-radius: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     pointer-events: none; color: #f1f5f9; background: #1e293b; border: 1px solid rgba(148,163,184,.35); box-shadow: 0 6px 18px rgba(0,0,0,.4); }
 .ex-name-tip[hidden] { display: none; }
 html[data-ui-theme-mode="light"] .ex-name-tip { color: #0f172a; background: #fff; border-color: rgba(15,23,42,.18); box-shadow: 0 6px 18px rgba(15,23,42,.15); }
 
-/* 마크다운 → PDF 미리보기 창 */
+/* Markdown → PDF preview window */
 @media (min-width: 640px) { .tdx-sheet.wide { max-width: min(920px, 94vw); } }
 .mdpdf { display: flex; flex-direction: column; gap: 10px; padding: 0 20px 4px; }
 .mdpdf-bar { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; }
@@ -1699,12 +1699,12 @@ html[data-ui-theme-mode="light"] .ex-name-tip { color: #0f172a; background: #fff
 .mdpdf-bar .mdpdf-seg button.on { background: #3b82f6; color: #fff; opacity: 1; }
 .mdpdf-bar .mdpdf-seg button:not(.on):hover { opacity: 1; background: rgba(148,163,184,.18); }
 .mdpdf-page.landscape { width: 100%; }
-/* 좁은 화면에서 방향 줄이 한 줄 더 차지하면 미리보기를 그만큼 줄여 저장 버튼이 보이게 */
+/* On narrow screens, when the orientation row takes one more line, the preview shrinks by that much so the save button stays visible */
 @media (max-width: 640px) { .mdpdf:has(.mdpdf-order:not(.hidden)) .mdpdf-pages { height: clamp(180px, calc(100dvh - 430px), 760px); } }
 html[data-ui-theme-mode="light"] .mdpdf-pages { background: #e2e8f0; }
 .sheet-info:has(.mdpdf) { max-height: none; overflow: visible; padding: 0; }
 
-/* ── 설정 창: 왼쪽 항목 사이드바 · 오른쪽 내용 (휴대폰은 위쪽 가로 탭) ──────────── */
+/* ── Settings window: section sidebar on the left · content on the right (horizontal tabs on top on phones) ──────────── */
 .ud-settings-overlay { position: fixed; inset: 0; z-index: 480; display: flex; align-items: center; justify-content: center; padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); background: rgba(5,7,15,.55); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
 .ud-settings-overlay[hidden] { display: none; }
 .ud-settings-modal { position: relative; width: 100%; max-width: 900px; height: min(640px, 100%); display: flex; overflow: hidden; border-radius: 20px; background: rgba(20,25,40,.95); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255,255,255,.12); box-shadow: 0 24px 70px rgba(0,0,0,.5); color: #e8e9ee; animation: ud-set-in 160ms ease-out; }
@@ -1731,7 +1731,7 @@ html[data-ui-theme-mode="light"] .mdpdf-pages { background: #e2e8f0; }
 .ud-set-badge { margin-left: 4px; padding: 2px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 700; color: #fcd34d; background: rgba(245,158,11,.12); border: 1px solid rgba(245,158,11,.25); }
 .ud-set-badge.local { color: #93c5fd; background: rgba(59,130,246,.12); border-color: rgba(59,130,246,.25); }
 .ud-set-text .ud-set-badge.local { vertical-align: 1px; white-space: nowrap; display: inline-block; }
-/* 로그인 기기 */
+/* Signed-in devices */
 .ud-dev-row { justify-content: flex-start; gap: 12px; }
 .ud-dev-row .ud-set-text { flex: 1; min-width: 0; }
 .ud-dev-icon { flex-shrink: 0; width: 22px; text-align: center; font-size: 18px; opacity: .55; }
@@ -1775,7 +1775,7 @@ html[data-ui-theme-mode="light"] .ud-dev-out { color: #dc2626; }
   .ud-set-btn:hover, .ud-set-stepper button:hover, .ud-set-chips button:not(.on):hover { border-color: rgba(96,165,250,.5); }
   .ud-set-seg button:not(.on):hover { opacity: 1; }
 }
-/* 휴대폰 · 좁은 화면: 항목 사이드바를 위쪽 가로 탭으로 */
+/* Phone · narrow screen: the section sidebar becomes horizontal tabs on top */
 @media (max-width: 680px) {
   .ud-settings-modal { flex-direction: column; height: 100%; border-radius: 18px; }
   .ud-set-nav { width: auto; padding: 14px 12px 10px; border-right: 0; border-bottom: 1px solid rgba(255,255,255,.08); overflow: visible; }
@@ -1807,7 +1807,7 @@ html[data-ui-theme-mode="light"] .ud-set-badge { color: #b45309; background: rgb
 html[data-ui-theme-mode="light"] .ud-set-badge.local { color: #1d4ed8; background: rgba(37,99,235,.08); border-color: rgba(37,99,235,.25); }
 html[data-ui-theme-mode="light"] :is(.ud-set-btn, .ud-set-seg, .ud-set-stepper button, .ud-set-select, .ud-set-chips button:not(.on), .ud-set-number input, .ud-set-number select) { background-color: rgba(15,23,42,.04); border-color: rgba(15,23,42,.12); }
 
-/* ── 설정: 단축키 (keys.js · VS Code 단축키 창처럼) ── */
+/* ── Settings: shortcuts (keys.js · like the VS Code keyboard shortcuts window) ── */
 .ud-settings-modal.wide { max-width: 1120px; height: min(760px, 100%); }
 .ud-keys-top { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 -22px; padding: 14px 22px 12px; background: rgba(20,25,40,.98); border-bottom: 1px solid rgba(255,255,255,.06); }
 .ud-keys-search { flex: 1 1 260px; min-width: 0; display: flex; align-items: center; gap: 9px; height: 36px; padding: 0 12px; border-radius: 10px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); }
@@ -1871,7 +1871,7 @@ html[data-ui-theme-mode="light"] .ud-keys-wait { color: #2563eb; }
 html[data-ui-theme-mode="light"] .ud-keys-acts button:hover:not(:disabled) { background: rgba(15,23,42,.06); }
 html[data-ui-theme-mode="light"] .ud-keys-import { background: rgba(37,99,235,.06); border-color: rgba(37,99,235,.25); }
 
-/* ── 사이드바 서버 상태 (sysmon.js) ── */
+/* ── Sidebar server status (sysmon.js) ── */
 .sysmon { flex-shrink: 0; }
 .sysmon .sm-caption { display: flex; align-items: center; justify-content: space-between; padding: 0 4px; font-size: 10px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: rgba(255,255,255,.35); }
 .sysmon .sm-live { display: inline-flex; align-items: center; gap: 5px; letter-spacing: .02em; text-transform: none; font-weight: 600; color: rgba(255,255,255,.32); }
@@ -1926,13 +1926,13 @@ html[data-ui-theme-mode="light"] .sysmon .sm-item[data-item^="gpu"] .sm-spark po
 .sysmon .sm-netline .sm-net { margin-top: 0; text-align: right; }
 html[data-ui-theme-mode="light"] .sysmon .sm-toggle { color: #77809a; }
 html[data-ui-theme-mode="light"] .sysmon .sm-toggle:hover { color: #1f2937; background: rgba(15,23,42,.06); }
-/* OVERVIEW 숫자 카드 끄기 (설정 → 사이드바). 서버 상태는 사이드바 맨 아래(로그아웃 위)에 붙여 아래에서부터 쌓는다 */
+/* Turning off the OVERVIEW number cards (Settings → Sidebar). Server status is attached to the very bottom of the sidebar (above sign out) and stacked from the bottom up */
 html.hide-overview #sbOverviewStats { display: none; }
 #sidebar #sysMon { max-height: 62vh; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
 #sidebar #sysMon::-webkit-scrollbar { display: none; }
 html.sidebar-collapsed #sidebar #sysMon { display: none !important; }
 
-/* ── 새 창으로 띄운 탭 (팝업, html.ws-solo): 앱 메뉴 · 창 목록 · 파일 사이드바 없이 그 탭만 ── */
+/* ── A tab opened in a new window (popup, html.ws-solo): only that tab, without the app menu · window list · file sidebar ── */
 html.ws-solo #sidebar, html.ws-solo #sidebarOverlay, html.ws-solo main > header, html.ws-solo .tabbar,
 html.ws-solo #listPane, html.ws-solo #filePane, html.ws-solo .ws-switch,
 html.ws-solo #termBack, html.ws-solo #ptyBack, html.ws-solo #fileView [data-act="back"] { display: none !important; }
@@ -1942,17 +1942,17 @@ html.ws-solo #termEmpty { display: none !important; }
 .wt-solo-return:hover, .wt-solo-return:focus-visible { background: rgba(59,130,246,.22); border-color: rgba(96,165,250,.45); color: #fff; }
 html[data-ui-theme-mode="light"] .wt-solo-return { border-color: rgba(15,23,42,.12); background: rgba(255,255,255,.85); color: #334155; }
 html[data-ui-theme-mode="light"] .wt-solo-return:hover { background: rgba(37,99,235,.1); color: #1d4ed8; }
-/* 다른 곳(에이전트 등)에서 바뀐 파일을 반영했을 때 상태 줄을 잠깐 밝힌다 */
+/* Briefly highlights the status line when a file changed elsewhere (by an agent etc.) has been reloaded */
 @keyframes exv-meta-flash { 0% { color: #93c5fd; background: rgba(59,130,246,.16); } 100% { color: #64748b; background: transparent; } }
 .exv-meta.exv-meta-flash { animation: exv-meta-flash 1.6s ease-out; }
 @media (prefers-reduced-motion: reduce) { .exv-meta.exv-meta-flash { animation: none; } }
 
-/* 다른 창에서 끌어 온 탭을 놓을 자리 */
+/* Drop target for a tab dragged in from another window */
 body.xtab-over #wsTabs { box-shadow: inset 0 -2px 0 #60a5fa; background-color: rgba(96,165,250,.08); }
 #wsTabs .wt.xdrop-before { box-shadow: inset 3px 0 0 #60a5fa; }
 #wsTabs .wt.xdrop-after { box-shadow: inset -3px 0 0 #60a5fa; }
 
-/* 이전 세션 복구 안내 (세션 목록 위) */
+/* Previous-session restore notice (above the session list) */
 .restore-banner { display: flex; align-items: center; gap: 10px; margin: 4px 4px 10px; padding: 10px 10px 10px 12px; border-radius: 14px; font-size: 12px; color: #fde68a; background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.3); }
 .restore-banner > i { flex-shrink: 0; font-size: 15px; }
 .restore-banner > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -1966,7 +1966,7 @@ html[data-ui-theme-mode="light"] .restore-banner { color: #92400e; background: r
 html[data-ui-theme-mode="light"] .restore-banner.busy { color: #1d4ed8; }
 html[data-ui-theme-mode="light"] .restore-empty-btn { background: rgba(15,23,42,.04); border-color: rgba(15,23,42,.14); }
 
-/* Domains 페이지 */
+/* Domains page */
 .dom-head, .dom-row { grid-template-columns: minmax(0, 2.2fr) minmax(90px, .7fr) 70px minmax(0, 1.4fr) 160px; align-items: center; gap: 12px; }
 .dom-group { border-bottom: 1px solid rgb(255 255 255 / .06); }
 .dom-group:last-child { border-bottom: 0; }
@@ -2037,7 +2037,7 @@ html[data-ui-theme-mode="light"] .dom-modal-actions .dom-primary, html[data-ui-t
 html[data-ui-theme-mode="light"] .dom-modal-actions .dom-primary { background: #0891b2; }
 html[data-ui-theme-mode="light"] .dom-modal-actions .dom-danger { background: #dc2626; }
 
-/* 공유 링크 */
+/* Share links */
 .share-box { padding: 4px 18px 8px; }
 .share-link { display: flex; gap: 8px; flex-wrap: wrap; }
 .share-link input { flex: 1 1 220px; min-width: 0; font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(148,163,184,0.25); background: rgba(148,163,184,0.10); color: inherit; }
@@ -2053,7 +2053,7 @@ html[data-ui-theme-mode="light"] .dom-modal-actions .dom-danger { background: #d
 .access-code button { flex: 0 0 auto; min-height: 38px; padding: 0 14px; border-radius: 10px; font-size: 12px; font-weight: 800; }
 .share-tag { display: inline-block; font-size: 10px; font-weight: 800; padding: 0 6px; border-radius: 999px; background: rgba(245,158,11,0.16); color: rgb(217,119,6); margin-left: 4px; vertical-align: 1px; }
 
-/* ── AI 페이지: 탭 · OpenAI 호환 API 관리 ── */
+/* ── AI page: tabs · OpenAI-compatible API management ── */
 .ai-tabs button { color: inherit; opacity: .55; }
 .ai-tabs button[aria-selected="true"] { opacity: 1; background: rgba(59,130,246,0.22); }
 .llm-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #22c55e; vertical-align: 1px; }
@@ -2098,3 +2098,7 @@ html[data-ui-theme-mode="light"] .llm-out { background: rgba(15,23,42,0.05); }
 .llm-msg-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
 .llm-msg-head span { flex: 1 1 auto; opacity: .55; font-size: 11px; }
 .llm-msg .llm-out { max-height: 420px; }
+
+/* Text that lives in CSS (pseudo-elements) cannot go through t(): English overrides. */
+html[lang="en"] .org-list:empty::after { content: "Drop a window here"; }
+html[lang="en"] .mdpdf-pages:empty::after { content: 'Creating PDF…'; }

@@ -1,12 +1,12 @@
-// 사이드바 서버 상태: OVERVIEW 아래에 CPU · GPU(사용률 · VRAM) · 메모리 · 디스크 · 네트워크를 실시간으로 보여 준다.
-// - 무엇을 보일지와 업데이트 주기는 설정 창 '서버 상태' 에서 (이 기기 설정, UnivDash.settings 의 sysmon-*).
-// - 탭이 안 보이거나 사이드바를 접었으면 묻지 않는다. 서버는 짧게 캐시하므로 여러 화면이 같이 물어도 괜찮다.
+// Sidebar server status: shows CPU, GPU (usage, VRAM), memory, disk and network live below OVERVIEW.
+// - What to show and the update interval are set in the settings window under 'Server status' (this-device settings, sysmon-* in UnivDash.settings).
+// - Does not poll while the tab is hidden or the sidebar is collapsed. The server caches briefly, so several screens polling together is fine.
 (function () {
   'use strict';
   const U = () => window.UnivDash;
   const KEYS = ['cpu', 'gpu', 'mem', 'disk', 'net'];
   const HISTORY = 40;
-  const history = new Map();   // 'cpu' · 'gpu0' … → 최근 사용률 (작은 그래프용)
+  const history = new Map();   // 'cpu' · 'gpu0' … → recent usage (for the small graph)
   let el = null;
   let timer = null;
   let busy = false;
@@ -15,7 +15,7 @@
   let failures = 0;
 
   const on = (key) => !!U().settings.get(`sysmon-${key}`);
-  // 가벼운 모드: 갱신 주기를 두 배로 (최소 4초)
+  // Lite mode: double the refresh interval (at least 4 seconds)
   const lite = () => document.documentElement.hasAttribute('data-ui-lite');
   const interval = () => {
     const base = Math.min(60, Math.max(1, Number(U().settings.get('sysmon-interval')) || 2));
@@ -23,7 +23,7 @@
   };
   const anyOn = () => KEYS.some(on);
   const wide = window.matchMedia('(min-width: 768px)');
-  // 탭이 안 보이거나, 사이드바를 접었거나(데스크톱), 휴대폰에서 사이드바를 닫아 두었으면 묻지 않는다
+  // Do not poll while the tab is hidden, the sidebar is collapsed (desktop), or the sidebar is closed on a phone
   const visible = () => !document.hidden && !!el?.getClientRects().length
     && (wide.matches || !document.getElementById('sidebar')?.classList.contains('-translate-x-full'));
   const esc = (s) => U().escapeHtml(String(s));
@@ -36,16 +36,16 @@
     while (n >= 1024 && i < units.length - 1) { n /= 1024; i += 1; }
     return `${n >= 100 || i < 2 ? Math.round(n) : n.toFixed(digits)}${units[i]}`;
   }
-  // 같은 단위로 "16.2 / 125GB"
+  // In the same unit: "16.2 / 125GB"
   function pair(used, total) {
     if (used == null || total == null) return '—';
     const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
     let i = 0;
-    let t = total;
-    while (t >= 1024 && i < units.length - 1) { t /= 1024; i += 1; }
+    let all = total;
+    while (all >= 1024 && i < units.length - 1) { all /= 1024; i += 1; }
     const u = used / 1024 ** i;
     const f = (x) => (x >= 100 ? Math.round(x) : x.toFixed(1).replace(/\.0$/, ''));
-    return `${f(u)} / ${f(t)}${units[i]}`;
+    return `${f(u)} / ${f(all)}${units[i]}`;
   }
   function push(key, value) {
     if (value == null) return;
@@ -77,39 +77,39 @@
     </div>`;
 
   const short = (name) => name.replace(/^NVIDIA\s+/, '');
-  // 간단히: 한 줄에 하나씩 (이름 · 막대 · %). 자세한 값은 마우스를 올리면.
+  // Compact: one per line (name, bar, %). Detailed values on hover.
   function compact(d) {
     const rows = [];
     if (on('cpu')) rows.push(line('cpu', 'CPU'));
     if (on('gpu')) {
       if (d.gpus.length) d.gpus.forEach((g, i) => { const n = d.gpus.length > 1 ? g.index : ''; rows.push(line(`gpu${i}-util`, `GPU${n}`), line(`gpu${i}-mem`, `VRAM${n}`)); });
-      else rows.push('<p class="sm-sub" title="nvidia-smi 를 찾지 못했습니다.">GPU 없음</p>');
+      else rows.push(`<p class="sm-sub" title="${t('nvidia-smi 를 찾지 못했습니다.')}">${t('GPU 없음')}</p>`);
     }
     if (on('mem')) rows.push(line('mem', 'RAM'));
-    if (on('disk')) d.disks.forEach((x, i) => rows.push(line(`disk${i}`, x.mount === '/' ? '디스크' : x.mount.split('/').pop() || x.mount)));
+    if (on('disk')) d.disks.forEach((x, i) => rows.push(line(`disk${i}`, x.mount === '/' ? t('디스크') : x.mount.split('/').pop() || x.mount)));
     if (on('net')) rows.push('<div class="sm-line sm-netline"><span class="sm-name">NET</span><span class="sm-sub sm-net" data-sub="net"></span></div>');
     return `<div class="sm-item sm-compact">${rows.join('')}</div>`;
   }
   function skeleton(d) {
     if (!U().settings.get('sysmon-detail')) return caption() + compact(d);
     const parts = [];
-    if (on('cpu')) parts.push(item('cpu', 'fa-microchip', 'CPU', line('cpu', '사용률') + '<p class="sm-sub" data-sub="cpu"></p>', 'cpu'));
+    if (on('cpu')) parts.push(item('cpu', 'fa-microchip', 'CPU', line('cpu', t('사용률')) + '<p class="sm-sub" data-sub="cpu"></p>', 'cpu'));
     if (on('gpu')) {
       if (d.gpus.length) {
         d.gpus.forEach((g, i) => parts.push(item(`gpu${i}`, 'fa-bolt', d.gpus.length > 1 ? `GPU ${g.index} · ${short(g.name)}` : short(g.name),
-          line(`gpu${i}-util`, '사용률') + line(`gpu${i}-mem`, 'VRAM') + `<p class="sm-sub" data-sub="gpu${i}"></p>`, `gpu${i}`)));
-      } else parts.push(item('gpu', 'fa-bolt', 'GPU', '<p class="sm-sub">GPU 를 찾지 못했습니다 (nvidia-smi).</p>'));
+          line(`gpu${i}-util`, t('사용률')) + line(`gpu${i}-mem`, 'VRAM') + `<p class="sm-sub" data-sub="gpu${i}"></p>`, `gpu${i}`)));
+      } else parts.push(item('gpu', 'fa-bolt', 'GPU', `<p class="sm-sub">${t('GPU 를 찾지 못했습니다 (nvidia-smi).')}</p>`));
     }
-    if (on('mem')) parts.push(item('mem', 'fa-memory', '메모리', line('mem', 'RAM') + '<p class="sm-sub" data-sub="mem"></p>'));
-    if (on('disk')) parts.push(item('disk', 'fa-hard-drive', '디스크', d.disks.map((x, i) => line(`disk${i}`, x.mount === '/' ? '/' : x.mount.split('/').pop() || x.mount, x.mount)).join('')));
-    if (on('net')) parts.push(item('net', 'fa-arrow-right-arrow-left', '네트워크', '<p class="sm-sub sm-net" data-sub="net"></p>'));
+    if (on('mem')) parts.push(item('mem', 'fa-memory', t('메모리'), line('mem', 'RAM') + '<p class="sm-sub" data-sub="mem"></p>'));
+    if (on('disk')) parts.push(item('disk', 'fa-hard-drive', t('디스크'), d.disks.map((x, i) => line(`disk${i}`, x.mount === '/' ? '/' : x.mount.split('/').pop() || x.mount, x.mount)).join('')));
+    if (on('net')) parts.push(item('net', 'fa-arrow-right-arrow-left', t('네트워크'), '<p class="sm-sub sm-net" data-sub="net"></p>'));
     return `${caption()}<div class="sm-list">${parts.join('')}</div>`;
   }
   const caption = () => {
     const detail = !!U().settings.get('sysmon-detail');
     return `<p class="sm-caption"><span>Server</span><span class="sm-tools">
-      <button type="button" class="sm-toggle" data-sm-detail aria-pressed="${detail}" title="${detail ? '간단히 보기' : '자세히 보기'}">${detail ? '간단히' : '자세히'}</button>
-      <span class="sm-live" title="업데이트 주기 (설정 → 서버 상태)"><i class="sm-dot"></i>${interval() / 1000}초</span></span></p>`;
+      <button type="button" class="sm-toggle" data-sm-detail aria-pressed="${detail}" title="${detail ? t('간단히 보기') : t('자세히 보기')}">${detail ? t('간단히') : t('자세히')}</button>
+      <span class="sm-live" title="${t('업데이트 주기 (설정 → 서버 상태)')}"><i class="sm-dot"></i>${t('{n}초', { n: interval() / 1000 })}</span></span></p>`;
   };
   function setLine(k, percent, text) {
     const row = el.querySelector(`[data-k="${k}"]`);
@@ -128,9 +128,9 @@
     el.classList.toggle('stale', failures > 0);
     if (on('cpu')) {
       setLine('cpu', d.cpu.percent);
-      const bits = [`${d.cpu.cores}코어`];
+      const bits = [t('{n}코어', { n: d.cpu.cores })];
       if (d.cpu.temp != null) bits.push(`${Math.round(d.cpu.temp)}°C`);
-      if (d.cpu.load) bits.push(`부하 ${d.cpu.load[0]}`);
+      if (d.cpu.load) bits.push(t('부하 {load}', { load: d.cpu.load[0] }));
       setText('[data-sub="cpu"]', bits.join(' · '));
       setTitle('cpu', `CPU ${pct(d.cpu.percent)} · ${bits.join(' · ')}`);
     }
@@ -139,13 +139,13 @@
       const memPct = g.mem_total ? (g.mem_used / g.mem_total) * 100 : null;
       setLine(`gpu${i}-mem`, memPct);
       setTitle(`gpu${i}-mem`, `VRAM ${pair(g.mem_used, g.mem_total)} (${pct(memPct)})`);
-      setTitle(`gpu${i}-util`, [`${short(g.name)} 사용률 ${pct(g.util)}`, g.temp != null ? `${Math.round(g.temp)}°C` : '', g.power != null ? `${Math.round(g.power)}${g.power_limit ? `/${Math.round(g.power_limit)}` : ''}W` : ''].filter(Boolean).join(' · '));
+      setTitle(`gpu${i}-util`, [t('{name} 사용률 {percent}', { name: short(g.name), percent: pct(g.util) }), g.temp != null ? `${Math.round(g.temp)}°C` : '', g.power != null ? `${Math.round(g.power)}${g.power_limit ? `/${Math.round(g.power_limit)}` : ''}W` : ''].filter(Boolean).join(' · '));
       setText(`[data-sub="gpu${i}"]`, [`VRAM ${pair(g.mem_used, g.mem_total)}`, g.power != null ? `${Math.round(g.power)}${g.power_limit ? `/${Math.round(g.power_limit)}` : ''}W` : ''].filter(Boolean).join(' · '));
       setText(`[data-extra="gpu${i}"]`, g.temp != null ? `${Math.round(g.temp)}°C` : '');
     });
     if (on('mem')) {
       setLine('mem', d.memory.percent);
-      const memText = `${pair(d.memory.used, d.memory.total)}${d.memory.swap_total ? ` · 스왑 ${size(d.memory.swap_used)}` : ''}`;
+      const memText = `${pair(d.memory.used, d.memory.total)}${d.memory.swap_total ? ` · ${t('스왑 {size}', { size: size(d.memory.swap_used) })}` : ''}`;
       setText('[data-sub="mem"]', memText);
       setTitle('mem', `RAM ${pct(d.memory.percent)} · ${memText}`);
     }
@@ -153,7 +153,7 @@
       setLine(`disk${i}`, x.percent);
       setTitle(`disk${i}`, `${x.mount} · ${pair(x.used, x.total)} (${pct(x.percent)})`);
     });
-    if (on('net')) setText('[data-sub="net"]', d.net ? `↓ ${size(d.net.rx)}/s   ↑ ${size(d.net.tx)}/s` : '재는 중…');
+    if (on('net')) setText('[data-sub="net"]', d.net ? `↓ ${size(d.net.rx)}/s   ↑ ${size(d.net.tx)}/s` : t('재는 중…'));
     el.querySelectorAll('[data-spark]').forEach((svg) => { svg.innerHTML = spark(svg.dataset.spark); });
   }
 
@@ -169,7 +169,7 @@
     busy = true;
     try {
       const response = await fetch('/api/sysmon', { credentials: 'same-origin', cache: 'no-store' });
-      if (response.status === 401) return;   // 로그아웃됨 → 멈춘다
+      if (response.status === 401) return;   // signed out → stop
       if (!response.ok) throw new Error(String(response.status));
       last = await response.json();
       failures = 0;
@@ -178,7 +178,7 @@
       paint(last);
     } catch (error) {
       failures += 1;
-      if (last) paint(last); else el.innerHTML = '<p class="sm-caption"><span>Server</span></p><p class="sm-sub">서버 상태를 불러오지 못했습니다.</p>';
+      if (last) paint(last); else el.innerHTML = `<p class="sm-caption"><span>Server</span></p><p class="sm-sub">${t('서버 상태를 불러오지 못했습니다.')}</p>`;
     } finally { busy = false; }
     schedule(failures ? Math.min(30000, interval() * 2 ** Math.min(failures, 4)) : interval());
   }
@@ -196,7 +196,7 @@
       if (event.target.closest('[data-sm-detail]')) U().settings.set('sysmon-detail', !U().settings.get('sysmon-detail'));
     });
     document.addEventListener('visibilitychange', () => { if (!document.hidden) schedule(0); });
-    // 접어 둔 사이드바를 펼치면 바로
+    // Right away when a collapsed sidebar is expanded
     let shown = visible();
     const observer = new MutationObserver(() => {
       const now = visible();

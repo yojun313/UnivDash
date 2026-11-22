@@ -1,21 +1,23 @@
+{# Catalog and t() for the chosen language: must load before every other script. #}
+<script src="{{ i18n_src() }}"></script>
 <script src="{{ asset('theme-boot.js') }}"></script>
 <meta name="theme-color" content="#05070f">
-<!-- 홈 화면 앱(PWA): Safari 공유 → "홈 화면에 추가" 하면 아이콘과 전체 화면으로 실행된다 -->
+<!-- Home-screen app (PWA): Safari Share → "Add to Home Screen" launches it with an icon and full screen -->
 <link rel="manifest" href="/static/manifest.webmanifest">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<!-- black-translucent 는 iOS 홈 화면 앱에서 화면 아래가 상태바 높이만큼 잘리는 버그가 있어 불투명 상태바를 쓴다 -->
+<!-- black-translucent has a bug in iOS home-screen apps where the bottom of the screen is cut off by the status bar height, so an opaque status bar is used -->
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="UnivDash">
 <meta name="application-name" content="UnivDash">
 <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
 <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('icons/favicon-32.png') }}">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png">
-<!-- 모든 CSS/폰트/스크립트는 자체 호스팅 (외부 CDN 없음 → CSP script-src 'self') -->
+<!-- All CSS/fonts/scripts are self-hosted (no external CDN → CSP script-src 'self') -->
 <link rel="stylesheet" href="{{ asset('vendor/fonts.css') }}">
 <link rel="stylesheet" href="{{ asset('vendor/fontawesome/css/all.min.css') }}">
 <link rel="stylesheet" href="{{ asset('theme.css') }}">
 <link rel="stylesheet" href="{{ asset('app.css') }}">
-<!-- Play CDN 처럼 유틸리티가 테마 CSS 뒤에 오도록 마지막에 둔다 -->
+<!-- Placed last so the utilities come after the theme CSS, like the Play CDN -->
 <link rel="stylesheet" href="{{ asset('vendor/tailwind.css') }}">
 <script src="{{ asset('theme.js') }}" defer></script>

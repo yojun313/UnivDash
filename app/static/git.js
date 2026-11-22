@@ -1,4 +1,4 @@
-// Git 관리 페이지: 저장소 목록(폴더/순서/숨김/즐겨찾기/별칭), 변경사항 스테이징 · 커밋 · 브랜치 · 병합 · 스태시
+// Git management page: repository list (folders/order/hidden/favorites/aliases), staging changes · commit · branches · merge · stash
 (function () {
   'use strict';
   const { escapeHtml, api, toast, relativeTime, formatDate } = window.UnivDash;
@@ -18,7 +18,7 @@
     selectedFile: null, // { path, staged }
     busy: false,
     dragId: null,
-    autoPull: {}, // { 저장소 ID: 자동 Pull 설정 · 마지막 결과 }
+    autoPull: {}, // { repository ID: auto-pull settings · last result }
   };
 
   const byId = (id) => state.repositories.find((repo) => repo.id === id);
@@ -26,12 +26,12 @@
   const isHidden = (id) => state.prefs.hidden.includes(id);
   const isFavorite = (id) => state.prefs.favorites.includes(id);
 
-  // ── 정렬 (즐겨찾기 · 폴더 · 미분류 각 묶음 안에서) ─────────────────────
+  // ── Sorting (within each group: favorites · folders · ungrouped) ─────
   const SORTS = {
-    changes: { label: '변경사항 우선', icon: 'fa-pen-to-square', desc: '충돌 → 변경 있음 → 풀 필요 → 푸시 필요 → 깨끗함' },
-    recent: { label: '최근 커밋순', icon: 'fa-clock', desc: '마지막 커밋이 최근인 저장소부터' },
-    name: { label: '이름순', icon: 'fa-arrow-down-a-z', desc: '표시 이름 가나다/ABC 순' },
-    manual: { label: '직접 지정', icon: 'fa-hand-pointer', desc: '끌어다 놓은 순서 그대로' },
+    changes: { label: t('변경사항 우선'), icon: 'fa-pen-to-square', desc: t('충돌 → 변경 있음 → 풀 필요 → 푸시 필요 → 깨끗함') },
+    recent: { label: t('최근 커밋순'), icon: 'fa-clock', desc: t('마지막 커밋이 최근인 저장소부터') },
+    name: { label: t('이름순'), icon: 'fa-arrow-down-a-z', desc: t('표시 이름 가나다/ABC 순') },
+    manual: { label: t('직접 지정'), icon: 'fa-hand-pointer', desc: t('끌어다 놓은 순서 그대로') },
   };
   const sortMode = () => (SORTS[state.prefs.sort] ? state.prefs.sort : 'changes');
   function changeRank(repo) {
@@ -39,11 +39,11 @@
     if (!status) return 5;
     if (status.conflicts) return 0;
     if (status.changes) return 1;
-    if (status.behind) return 2;   // 풀 필요 (받을 커밋)
-    if (status.ahead) return 3;    // 푸시 필요
+    if (status.behind) return 2;   // needs pull (commits to receive)
+    if (status.ahead) return 3;    // needs push
     return 4;
   }
-  // 같은 순위끼리는 직접 지정한 순서를 유지한다 (Array.prototype.sort 는 안정 정렬)
+  // Within the same rank the manual order is kept (Array.prototype.sort is stable)
   function sortRepos(repos) {
     const mode = sortMode();
     if (mode === 'manual') return repos;
@@ -57,7 +57,7 @@
   function storageGet(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
   function storageSet(key, value) { try { localStorage.setItem(key, value); } catch (e) { /* noop */ } }
 
-  // ── 설정 저장 ───────────────────────────────────────────────────────
+  // ── Saving preferences ──────────────────────────────────────────────
   let saveTimer = null;
   function savePrefs() {
     clearTimeout(saveTimer);
@@ -67,7 +67,7 @@
         state.prefs = result.preferences;
         renderList();
       } catch (error) {
-        toast(`목록 설정 저장 실패: ${error.message}`, 'error');
+        toast(t('목록 설정 저장 실패: {error}', { error: error.message }), 'error');
       }
     }, 250);
   }
@@ -86,7 +86,7 @@
   }
 
   function moveRepository(id, folderId, beforeId = null, after = false) {
-    // 현재 보이는 순서를 먼저 확정한 뒤 옮긴다.
+    // Fix the currently visible order first, then move.
     const ungrouped = ungroupedIds().filter((item) => item !== id);
     state.prefs.folders.forEach((folder) => {
       folder.repositories = folder.repositories.filter((item) => item !== id && byId(item));
@@ -119,7 +119,7 @@
   }
 
   function createFolder(withRepoId = null) {
-    const name = (prompt('새 폴더 이름') || '').trim();
+    const name = (prompt(t('새 폴더 이름')) || '').trim();
     if (!name) return;
     const folder = { id: newFolderId(), name: name.slice(0, 60), collapsed: false, repositories: [] };
     state.prefs.folders.push(folder);
@@ -135,7 +135,7 @@
     savePrefs();
   }
 
-  // ── 목록 렌더링 ─────────────────────────────────────────────────────
+  // ── List rendering ──────────────────────────────────────────────────
   function matchesFilter(repo) {
     const status = repo.status;
     if (state.filter === 'dirty' && !(status && status.changes > 0)) return false;
@@ -150,13 +150,13 @@
   }
 
   function statusBadges(status) {
-    if (!status) return '<span class="text-white/30">상태 확인 불가</span>';
+    if (!status) return `<span class="text-white/30">${t('상태 확인 불가')}</span>`;
     const badges = [`<span class="truncate font-mono">${escapeHtml(status.branch || 'detached')}</span>`];
-    if (status.conflicts) badges.push(`<span class="text-red-400" title="충돌"><i class="fas fa-triangle-exclamation"></i> ${status.conflicts}</span>`);
-    if (status.changes) badges.push(`<span class="text-amber-400" title="변경 파일">● ${status.changes}</span>`);
-    if (status.ahead) badges.push(`<span class="text-cyan-400" title="푸시할 커밋">↑${status.ahead}</span>`);
-    if (status.behind) badges.push(`<span class="text-violet-300" title="받을 커밋">↓${status.behind}</span>`);
-    if (!status.upstream && status.branch) badges.push('<span class="text-white/30" title="upstream 없음">local</span>');
+    if (status.conflicts) badges.push(`<span class="text-red-400" title="${t('충돌')}"><i class="fas fa-triangle-exclamation"></i> ${status.conflicts}</span>`);
+    if (status.changes) badges.push(`<span class="text-amber-400" title="${t('변경 파일')}">● ${status.changes}</span>`);
+    if (status.ahead) badges.push(`<span class="text-cyan-400" title="${t('푸시할 커밋')}">↑${status.ahead}</span>`);
+    if (status.behind) badges.push(`<span class="text-violet-300" title="${t('받을 커밋')}">↓${status.behind}</span>`);
+    if (!status.upstream && status.branch) badges.push(`<span class="text-white/30" title="${t('upstream 없음')}">local</span>`);
     return badges.join('<span class="text-white/20">·</span>');
   }
 
@@ -164,8 +164,8 @@
     const info = state.autoPull[id];
     if (!info?.enabled) return '';
     return info.ok === false
-      ? '<i class="fas fa-rotate text-[9px] text-red-400" title="자동 Pull 실패"></i>'
-      : `<i class="fas fa-rotate text-[9px] text-violet-300" title="자동 Pull ${info.interval_minutes}분마다"></i>`;
+      ? `<i class="fas fa-rotate text-[9px] text-red-400" title="${t('자동 Pull 실패')}"></i>`
+      : `<i class="fas fa-rotate text-[9px] text-violet-300" title="${t('자동 Pull {minutes}분마다', { minutes: info.interval_minutes })}"></i>`;
   }
 
   function repoItem(repo, { draggable = true } = {}) {
@@ -186,7 +186,7 @@
           </span>
           <span class="mt-0.5 flex min-w-0 items-center gap-1.5 text-[9px] text-white/40">${statusBadges(repo.status)}</span>
         </span>
-        <button type="button" class="git-row-actions git-repo-menu-btn flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-white/40 hover:bg-white/10 hover:text-white" data-menu-for="${escapeHtml(repo.id)}" aria-label="${escapeHtml(displayName(repo))} 메뉴" aria-haspopup="menu"><i class="fas fa-ellipsis text-xs"></i></button>
+        <button type="button" class="git-row-actions git-repo-menu-btn flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-white/40 hover:bg-white/10 hover:text-white" data-menu-for="${escapeHtml(repo.id)}" aria-label="${t('{name} 메뉴', { name: escapeHtml(displayName(repo)) })}" aria-haspopup="menu"><i class="fas fa-ellipsis text-xs"></i></button>
       </div>`;
   }
 
@@ -208,14 +208,14 @@
             ${dirty ? `<span class="text-[9px] text-amber-400">● ${dirty}</span>` : ''}
           </button>
           <span class="git-row-actions flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
-            <button type="button" class="git-folder-action flex h-5 w-5 items-center justify-center rounded text-white/40 hover:text-white" data-folder-action="up" title="위로"><i class="fas fa-arrow-up text-[9px]"></i></button>
-            <button type="button" class="git-folder-action flex h-5 w-5 items-center justify-center rounded text-white/40 hover:text-white" data-folder-action="down" title="아래로"><i class="fas fa-arrow-down text-[9px]"></i></button>
-            <button type="button" class="git-folder-action flex h-5 w-5 items-center justify-center rounded text-white/40 hover:text-white" data-folder-action="rename" title="이름 변경"><i class="fas fa-pen text-[9px]"></i></button>
-            <button type="button" class="git-folder-action flex h-5 w-5 items-center justify-center rounded text-white/40 hover:text-red-300" data-folder-action="delete" title="폴더 삭제"><i class="fas fa-trash-can text-[9px]"></i></button>
+            <button type="button" class="git-folder-action flex h-5 w-5 items-center justify-center rounded text-white/40 hover:text-white" data-folder-action="up" title="${t('위로')}"><i class="fas fa-arrow-up text-[9px]"></i></button>
+            <button type="button" class="git-folder-action flex h-5 w-5 items-center justify-center rounded text-white/40 hover:text-white" data-folder-action="down" title="${t('아래로')}"><i class="fas fa-arrow-down text-[9px]"></i></button>
+            <button type="button" class="git-folder-action flex h-5 w-5 items-center justify-center rounded text-white/40 hover:text-white" data-folder-action="rename" title="${t('이름 변경')}"><i class="fas fa-pen text-[9px]"></i></button>
+            <button type="button" class="git-folder-action flex h-5 w-5 items-center justify-center rounded text-white/40 hover:text-red-300" data-folder-action="delete" title="${t('폴더 삭제')}"><i class="fas fa-trash-can text-[9px]"></i></button>
           </span>
         </div>
         <div class="git-folder-body ml-3 space-y-1 border-l border-white/10 pl-2 ${collapsed ? 'hidden' : ''}" data-drop-folder="${escapeHtml(folder.id)}">
-          ${repos.map((repo) => repoItem(repo)).join('') || '<p class="px-2 py-2 text-[10px] text-white/30">여기로 저장소를 끌어다 놓으십시오.</p>'}
+          ${repos.map((repo) => repoItem(repo)).join('') || `<p class="px-2 py-2 text-[10px] text-white/30">${t('여기로 저장소를 끌어다 놓으십시오.')}</p>`}
         </div>
       </div>`;
   }
@@ -223,9 +223,11 @@
   function renderList() {
     const container = $('gitRepositoryList');
     const hiddenCount = state.repositories.filter((repo) => isHidden(repo.id)).length;
-    $('gitRepositoryCount').textContent = `${state.repositories.length}개 저장소${hiddenCount ? ` · ${hiddenCount}개 숨김` : ''}`;
+    $('gitRepositoryCount').textContent = hiddenCount
+      ? t('{count}개 저장소 · {hidden}개 숨김', { count: state.repositories.length, hidden: hiddenCount })
+      : t('{count}개 저장소', { count: state.repositories.length });
     if (!state.repositories.length) {
-      container.innerHTML = '<div class="rounded-xl border border-white/10 px-3 py-4 text-center text-xs text-white/35">발견된 Git 저장소가 없습니다.</div>';
+      container.innerHTML = `<div class="rounded-xl border border-white/10 px-3 py-4 text-center text-xs text-white/35">${t('발견된 Git 저장소가 없습니다.')}</div>`;
       return;
     }
 
@@ -233,21 +235,21 @@
     $('gitSortLabel').textContent = SORTS[sortMode()].label;
     const favorites = sortRepos(state.prefs.favorites.map(byId).filter(Boolean).filter(visible));
     if (favorites.length) {
-      parts.push(`<div><p class="px-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-amber-400/80"><i class="fas fa-star mr-1"></i>즐겨찾기</p><div class="space-y-1">${favorites.map((repo) => repoItem(repo, { draggable: false })).join('')}</div></div>`);
+      parts.push(`<div><p class="px-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-amber-400/80"><i class="fas fa-star mr-1"></i>${t('즐겨찾기')}</p><div class="space-y-1">${favorites.map((repo) => repoItem(repo, { draggable: false })).join('')}</div></div>`);
     }
     const folders = state.prefs.folders.map(folderBlock).filter(Boolean);
     if (folders.length) parts.push(`<div class="space-y-1">${folders.join('')}</div>`);
     const ungrouped = sortRepos(ungroupedIds().map(byId).filter(Boolean).filter(visible));
     parts.push(`
       <div data-drop-folder="">
-        ${state.prefs.folders.length ? '<p class="px-2 pb-1 pt-1 text-[10px] font-bold uppercase tracking-wider text-white/35">미분류</p>' : ''}
+        ${state.prefs.folders.length ? `<p class="px-2 pb-1 pt-1 text-[10px] font-bold uppercase tracking-wider text-white/35">${t('미분류')}</p>` : ''}
         <div class="space-y-1 min-h-[24px]" data-drop-folder="">${ungrouped.map((repo) => repoItem(repo)).join('')}</div>
       </div>`);
     const anyVisible = favorites.length || ungrouped.length || folders.length;
-    container.innerHTML = anyVisible ? parts.join('<div class="my-2 border-t border-white/5"></div>') : '<div class="rounded-xl border border-white/10 px-3 py-4 text-center text-xs text-white/35">조건에 맞는 저장소가 없습니다.</div>';
+    container.innerHTML = anyVisible ? parts.join('<div class="my-2 border-t border-white/5"></div>') : `<div class="rounded-xl border border-white/10 px-3 py-4 text-center text-xs text-white/35">${t('조건에 맞는 저장소가 없습니다.')}</div>`;
   }
 
-  // ── 저장소 메뉴 ─────────────────────────────────────────────────────
+  // ── Repository menu ─────────────────────────────────────────────────
   function closeMenus() {
     $('gitRepoMenu').classList.add('hidden');
     $('gitMoreMenu').classList.add('hidden');
@@ -265,17 +267,17 @@
       .join('');
     menu.innerHTML = `
       <div class="git-menu-label">${escapeHtml(repo.name)}</div>
-      <button type="button" data-repo-action="favorite"><i class="fas fa-star"></i>${isFavorite(id) ? '즐겨찾기 해제' : '즐겨찾기'}</button>
-      <button type="button" data-repo-action="rename"><i class="fas fa-pen"></i>표시 이름 변경</button>
-      <button type="button" data-repo-action="hide"><i class="fas ${isHidden(id) ? 'fa-eye' : 'fa-eye-slash'}"></i>${isHidden(id) ? '다시 표시' : '목록에서 숨기기'}</button>
+      <button type="button" data-repo-action="favorite"><i class="fas fa-star"></i>${isFavorite(id) ? t('즐겨찾기 해제') : t('즐겨찾기')}</button>
+      <button type="button" data-repo-action="rename"><i class="fas fa-pen"></i>${t('표시 이름 변경')}</button>
+      <button type="button" data-repo-action="hide"><i class="fas ${isHidden(id) ? 'fa-eye' : 'fa-eye-slash'}"></i>${isHidden(id) ? t('다시 표시') : t('목록에서 숨기기')}</button>
       <hr>
-      ${sortMode() === 'manual' ? `<button type="button" data-repo-action="up"><i class="fas fa-arrow-up"></i>위로 이동</button>
-      <button type="button" data-repo-action="down"><i class="fas fa-arrow-down"></i>아래로 이동</button>
+      ${sortMode() === 'manual' ? `<button type="button" data-repo-action="up"><i class="fas fa-arrow-up"></i>${t('위로 이동')}</button>
+      <button type="button" data-repo-action="down"><i class="fas fa-arrow-down"></i>${t('아래로 이동')}</button>
       <hr>` : ''}
-      <div class="git-menu-label">폴더로 이동</div>
+      <div class="git-menu-label">${t('폴더로 이동')}</div>
       ${folderButtons}
-      ${current ? '<button type="button" data-repo-action="move" data-folder=""><i class="fas fa-inbox"></i>미분류로</button>' : ''}
-      <button type="button" data-repo-action="new-folder"><i class="fas fa-folder-plus"></i>새 폴더 만들어 이동</button>`;
+      ${current ? `<button type="button" data-repo-action="move" data-folder=""><i class="fas fa-inbox"></i>${t('미분류로')}</button>` : ''}
+      <button type="button" data-repo-action="new-folder"><i class="fas fa-folder-plus"></i>${t('새 폴더 만들어 이동')}</button>`;
     menu.dataset.repoId = id;
     menu.classList.remove('hidden');
     const rect = anchor.getBoundingClientRect();
@@ -297,10 +299,10 @@
     if (action === 'favorite') toggleIn('favorites', id);
     else if (action === 'hide') {
       toggleIn('hidden', id);
-      if (isHidden(id)) toast(`${displayName(byId(id))} 을(를) 숨겼습니다. 눈 아이콘으로 숨긴 저장소를 볼 수 있습니다.`);
+      if (isHidden(id)) toast(t('{name} 을(를) 숨겼습니다. 눈 아이콘으로 숨긴 저장소를 볼 수 있습니다.', { name: displayName(byId(id)) }));
     } else if (action === 'rename') {
       const repo = byId(id);
-      const value = prompt(`표시 이름 (비우면 원래 이름 "${repo.name}")`, state.prefs.aliases[id] || '');
+      const value = prompt(t('표시 이름 (비우면 원래 이름 "{name}")', { name: repo.name }), state.prefs.aliases[id] || '');
       if (value === null) return;
       if (value.trim()) state.prefs.aliases[id] = value.trim().slice(0, 60); else delete state.prefs.aliases[id];
       renderList();
@@ -312,7 +314,7 @@
     else if (action === 'new-folder') createFolder(id);
   });
 
-  // ── 목록 이벤트 (클릭 / 폴더 / 드래그) ──────────────────────────────
+  // ── List events (click / folder / drag) ─────────────────────────────
   const list = $('gitRepositoryList');
   list.addEventListener('click', (event) => {
     const menuButton = event.target.closest('.git-repo-menu-btn');
@@ -328,11 +330,11 @@
       const index = state.prefs.folders.indexOf(folder);
       const action = folderAction.dataset.folderAction;
       if (action === 'rename') {
-        const name = (prompt('폴더 이름', folder.name) || '').trim();
+        const name = (prompt(t('폴더 이름'), folder.name) || '').trim();
         if (!name) return;
         folder.name = name.slice(0, 60);
       } else if (action === 'delete') {
-        if (!confirm(`"${folder.name}" 폴더를 삭제하시겠습니까? 안의 저장소는 미분류로 옮겨집니다.`)) return;
+        if (!confirm(t('"{name}" 폴더를 삭제하시겠습니까? 안의 저장소는 미분류로 옮겨집니다.', { name: folder.name }))) return;
         state.prefs.order = [...ungroupedIds(), ...folder.repositories];
         state.prefs.folders.splice(index, 1);
       } else if (action === 'up' || action === 'down') {
@@ -414,9 +416,9 @@
     else moveRepository(state.dragId, folderId);
   });
 
-  // ── 목록 불러오기 ───────────────────────────────────────────────────
+  // ── Loading the list ────────────────────────────────────────────────
   async function loadRepositories({ quiet = false } = {}) {
-    if (!quiet) $('gitRepositoryCount').textContent = '검색 중...';
+    if (!quiet) $('gitRepositoryCount').textContent = t('검색 중...');
     try {
       const data = await api('/api/git/repositories');
       state.repositories = data.repositories || [];
@@ -431,12 +433,12 @@
         if (first) await selectRepository(first.id);
       }
     } catch (error) {
-      $('gitRepositoryCount').textContent = '불러오기 실패';
+      $('gitRepositoryCount').textContent = t('불러오기 실패');
       list.innerHTML = `<div class="rounded-xl border border-red-500/20 bg-red-500/5 px-3 py-4 text-center text-xs text-red-400">${escapeHtml(error.message)}</div>`;
     }
   }
 
-  // ── 상세 ────────────────────────────────────────────────────────────
+  // ── Detail ──────────────────────────────────────────────────────────
   function setTab(name) {
     state.tab = name;
     storageSet('univdash-git-tab', name);
@@ -461,24 +463,24 @@
     $('gitRepositoryPath').textContent = detail.path;
     $('gitRepositoryRemote').textContent = detail.remotes.length
       ? detail.remotes.map((remote) => `${remote.name} → ${remote.url}`).join('   ')
-      : '원격 저장소 없음';
+      : t('원격 저장소 없음');
   }
 
   function renderSummary(detail) {
     const counts = detail.counts;
     $('gitBranch').textContent = detail.branch;
-    $('gitUpstream').textContent = detail.upstream ? `↔ ${detail.upstream}` : 'upstream 없음';
+    $('gitUpstream').textContent = detail.upstream ? `↔ ${detail.upstream}` : t('upstream 없음');
     const workingTree = $('gitWorkingTree');
-    workingTree.textContent = counts.conflicts ? `충돌 ${counts.conflicts}개` : detail.dirty ? `${detail.changes.length}개 변경` : '깨끗함';
+    workingTree.textContent = counts.conflicts ? t('충돌 {count}개', { count: counts.conflicts }) : detail.dirty ? t('{count}개 변경', { count: detail.changes.length }) : t('깨끗함');
     workingTree.className = `mt-2 text-sm font-bold ${counts.conflicts ? 'text-red-400' : detail.dirty ? 'text-amber-400' : 'text-emerald-400'}`;
-    $('gitWorkingTreeDetail').textContent = `스테이징 ${counts.staged} · 수정 ${counts.unstaged} · 새 파일 ${counts.untracked}`;
+    $('gitWorkingTreeDetail').textContent = t('스테이징 {staged} · 수정 {unstaged} · 새 파일 {untracked}', { staged: counts.staged, unstaged: counts.unstaged, untracked: counts.untracked });
     const aheadBehind = $('gitAheadBehind');
     aheadBehind.textContent = detail.upstream ? `↑${detail.ahead} ↓${detail.behind}` : '—';
     aheadBehind.className = `mt-2 font-mono text-sm font-bold ${(detail.ahead || detail.behind) ? 'text-amber-400' : 'text-emerald-400'}`;
-    $('gitLastFetch').textContent = detail.last_fetch ? `마지막 fetch ${relativeTime(detail.last_fetch)}` : 'fetch 기록 없음';
+    $('gitLastFetch').textContent = detail.last_fetch ? t('마지막 fetch {time}', { time: relativeTime(detail.last_fetch) }) : t('fetch 기록 없음');
     $('gitDirtyDot').className = `h-2 w-2 flex-shrink-0 rounded-full ${counts.conflicts ? 'bg-red-400' : detail.dirty ? 'bg-amber-400' : 'bg-emerald-500'}`;
     const recent = detail.commits[0];
-    $('gitRecentCommit').textContent = recent ? `${recent.short_hash} · ${recent.subject}` : '커밋 없음';
+    $('gitRecentCommit').textContent = recent ? `${recent.short_hash} · ${recent.subject}` : t('커밋 없음');
     $('gitRecentCommitMeta').textContent = recent ? `${recent.author} · ${relativeTime(recent.date)}` : '—';
     $('gitChangesCount').textContent = detail.changes.length;
     $('gitStashCount').textContent = detail.stashes.length;
@@ -489,8 +491,11 @@
     const banner = $('gitOperationBanner');
     banner.classList.toggle('hidden', !detail.operation);
     if (detail.operation) {
-      const names = { merge: '병합', rebase: '리베이스', 'cherry-pick': '체리픽', revert: '되돌리기' };
-      $('gitOperationText').textContent = `${names[detail.operation] || detail.operation} 진행 중${counts.conflicts ? ` · 충돌 파일 ${counts.conflicts}개` : ''} — 충돌을 해결한 파일을 스테이징하고 커밋하거나, 작업을 중단하십시오.`;
+      const names = { merge: t('병합'), rebase: t('리베이스'), 'cherry-pick': t('체리픽'), revert: t('되돌리기') };
+      const name = names[detail.operation] || detail.operation;
+      $('gitOperationText').textContent = counts.conflicts
+        ? t('{name} 진행 중 · 충돌 파일 {count}개 — 충돌을 해결한 파일을 스테이징하고 커밋하거나, 작업을 중단하십시오.', { name, count: counts.conflicts })
+        : t('{name} 진행 중 — 충돌을 해결한 파일을 스테이징하고 커밋하거나, 작업을 중단하십시오.', { name });
     }
     $('gitUserWarning').classList.toggle('hidden', Boolean(detail.user.name && detail.user.email));
   }
@@ -503,9 +508,9 @@
     const base = change.path.slice(slash + 1);
     const dir = slash >= 0 ? change.path.slice(0, slash) : '';
     const actions = staged
-      ? '<button type="button" data-file-action="unstage" class="flex h-6 w-6 items-center justify-center rounded text-white/50 hover:bg-white/10 hover:text-white" title="스테이징 취소"><i class="fas fa-minus text-[10px]"></i></button>'
-      : `${change.conflict ? '' : '<button type="button" data-file-action="discard" class="flex h-6 w-6 items-center justify-center rounded text-white/50 hover:bg-white/10 hover:text-red-300" title="변경 되돌리기"><i class="fas fa-rotate-left text-[10px]"></i></button>'}
-         <button type="button" data-file-action="stage" class="flex h-6 w-6 items-center justify-center rounded text-white/50 hover:bg-white/10 hover:text-white" title="${change.conflict ? '해결됨으로 표시(스테이징)' : '스테이징'}"><i class="fas fa-plus text-[10px]"></i></button>`;
+      ? `<button type="button" data-file-action="unstage" class="flex h-6 w-6 items-center justify-center rounded text-white/50 hover:bg-white/10 hover:text-white" title="${t('스테이징 취소')}"><i class="fas fa-minus text-[10px]"></i></button>`
+      : `${change.conflict ? '' : `<button type="button" data-file-action="discard" class="flex h-6 w-6 items-center justify-center rounded text-white/50 hover:bg-white/10 hover:text-red-300" title="${t('변경 되돌리기')}"><i class="fas fa-rotate-left text-[10px]"></i></button>`}
+         <button type="button" data-file-action="stage" class="flex h-6 w-6 items-center justify-center rounded text-white/50 hover:bg-white/10 hover:text-white" title="${change.conflict ? t('해결됨으로 표시(스테이징)') : t('스테이징')}"><i class="fas fa-plus text-[10px]"></i></button>`;
     return `
       <div class="git-file-row flex items-center gap-2 border-b border-white/5 px-2.5 py-1.5 last:border-0 cursor-pointer hover:bg-white/5 ${selected ? 'selected' : ''}"
            data-path="${escapeHtml(change.path)}" data-staged="${staged}" title="${escapeHtml(change.original_path ? `${change.original_path} → ${change.path}` : change.path)}">
@@ -521,13 +526,13 @@
     $('gitStagedCount').textContent = staged.length;
     $('gitUnstagedCount').textContent = unstaged.length;
     $('gitStagedList').innerHTML = staged.length ? staged.map((change) => fileRow(change, true)).join('')
-      : '<p class="px-3 py-4 text-center text-[11px] text-white/35">스테이징된 파일이 없습니다.</p>';
+      : `<p class="px-3 py-4 text-center text-[11px] text-white/35">${t('스테이징된 파일이 없습니다.')}</p>`;
     $('gitUnstagedList').innerHTML = unstaged.length ? unstaged.map((change) => fileRow(change, false)).join('')
-      : '<p class="px-3 py-4 text-center text-[11px] text-emerald-400">작업 트리가 깨끗합니다.</p>';
+      : `<p class="px-3 py-4 text-center text-[11px] text-emerald-400">${t('작업 트리가 깨끗합니다.')}</p>`;
     updateCommitCount();
-    $('gitCommitHint').textContent = detail.operation === 'merge' ? '병합 커밋 — 메시지를 비우면 기본 메시지 사용' : '';
+    $('gitCommitHint').textContent = detail.operation === 'merge' ? t('병합 커밋 — 메시지를 비우면 기본 메시지 사용') : '';
 
-    // 선택했던 파일이 사라졌으면 diff 를 비운다.
+    // If the selected file is gone, clear the diff.
     if (state.selectedFile && !detail.changes.some((change) => change.path === state.selectedFile.path
       && (state.selectedFile.staged ? change.staged : change.unstaged))) {
       state.selectedFile = null;
@@ -545,32 +550,32 @@
       }).join('');
       return `
         <tr class="git-commit-row border-b border-white/5 hover:bg-white/5 cursor-pointer" data-hash="${escapeHtml(commit.hash)}">
-          <td class="px-3 py-2.5 align-top"><span class="font-mono text-[11px] font-bold text-cyan-400">${escapeHtml(commit.short_hash)}</span>${commit.merge ? ' <i class="fas fa-code-merge text-[9px] text-violet-300" title="병합 커밋"></i>' : ''}</td>
-          <td class="px-3 py-2.5 text-xs font-semibold text-white/70">${escapeHtml(commit.subject)}${refs}${detail.upstream && !commit.pushed ? ' <span class="ml-1 rounded bg-amber-500/15 px-1 py-px text-[9px] text-amber-300">미푸시</span>' : ''}</td>
+          <td class="px-3 py-2.5 align-top"><span class="font-mono text-[11px] font-bold text-cyan-400">${escapeHtml(commit.short_hash)}</span>${commit.merge ? ` <i class="fas fa-code-merge text-[9px] text-violet-300" title="${t('병합 커밋')}"></i>` : ''}</td>
+          <td class="px-3 py-2.5 text-xs font-semibold text-white/70">${escapeHtml(commit.subject)}${refs}${detail.upstream && !commit.pushed ? ` <span class="ml-1 rounded bg-amber-500/15 px-1 py-px text-[9px] text-amber-300">${t('미푸시')}</span>` : ''}</td>
           <td class="px-3 py-2.5 text-right text-[10px] text-white/35"><span class="text-white/50">${escapeHtml(commit.author)}</span><br>${escapeHtml(formatDate(commit.date, true))}</td>
           <td class="px-3 py-2.5 text-right whitespace-nowrap">
-            <button type="button" data-commit-action="revert" class="rounded px-1.5 py-1 text-[10px] font-bold text-white/40 hover:bg-white/10 hover:text-white" title="이 커밋을 되돌리는 새 커밋 생성"><i class="fas fa-rotate-left"></i> Revert</button>
+            <button type="button" data-commit-action="revert" class="rounded px-1.5 py-1 text-[10px] font-bold text-white/40 hover:bg-white/10 hover:text-white" title="${t('이 커밋을 되돌리는 새 커밋 생성')}"><i class="fas fa-rotate-left"></i> Revert</button>
           </td>
         </tr>`;
-    }).join('') : '<tr><td colspan="4" class="p-8 text-center text-xs text-white/35">표시할 커밋이 없습니다.</td></tr>';
+    }).join('') : `<tr><td colspan="4" class="p-8 text-center text-xs text-white/35">${t('표시할 커밋이 없습니다.')}</td></tr>`;
   }
 
   function branchRow(branch) {
     const track = [];
     if (branch.upstream) track.push(`<span class="font-mono">${escapeHtml(branch.upstream)}</span>`);
-    if (branch.gone) track.push('<span class="text-red-400">원격 삭제됨</span>');
+    if (branch.gone) track.push(`<span class="text-red-400">${t('원격 삭제됨')}</span>`);
     if (branch.ahead) track.push(`<span class="text-cyan-400">↑${branch.ahead}</span>`);
     if (branch.behind) track.push(`<span class="text-violet-300">↓${branch.behind}</span>`);
     const buttons = [];
     if (!branch.current) {
-      buttons.push(`<button type="button" data-branch-action="checkout" class="rounded-lg px-2 py-1 text-[10px] font-bold text-white/60 hover:bg-white/10 hover:text-white"><i class="fas fa-right-to-bracket mr-1"></i>${branch.remote ? '체크아웃' : '전환'}</button>`);
-      if (!state.detail.detached) buttons.push('<button type="button" data-branch-action="merge" class="rounded-lg px-2 py-1 text-[10px] font-bold text-violet-300 hover:bg-violet-500/10"><i class="fas fa-code-merge mr-1"></i>병합</button>');
+      buttons.push(`<button type="button" data-branch-action="checkout" class="rounded-lg px-2 py-1 text-[10px] font-bold text-white/60 hover:bg-white/10 hover:text-white"><i class="fas fa-right-to-bracket mr-1"></i>${branch.remote ? t('체크아웃') : t('전환')}</button>`);
+      if (!state.detail.detached) buttons.push(`<button type="button" data-branch-action="merge" class="rounded-lg px-2 py-1 text-[10px] font-bold text-violet-300 hover:bg-violet-500/10"><i class="fas fa-code-merge mr-1"></i>${t('병합')}</button>`);
       if (!branch.remote) buttons.push('<button type="button" data-branch-action="delete" class="rounded-lg px-2 py-1 text-[10px] font-bold text-white/40 hover:bg-red-500/10 hover:text-red-300"><i class="fas fa-trash-can"></i></button>');
     }
     return `
       <div class="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between" data-branch="${escapeHtml(branch.name)}">
         <div class="min-w-0">
-          <p class="flex items-center gap-2 truncate font-mono text-xs font-bold ${branch.current ? 'text-cyan-400' : 'text-white/80'}">${branch.current ? '<i class="fas fa-circle text-[6px]"></i>' : ''}${escapeHtml(branch.name)}${branch.current ? '<span class="rounded bg-cyan-500/15 px-1.5 py-px font-sans text-[9px] text-cyan-300">현재</span>' : ''}</p>
+          <p class="flex items-center gap-2 truncate font-mono text-xs font-bold ${branch.current ? 'text-cyan-400' : 'text-white/80'}">${branch.current ? '<i class="fas fa-circle text-[6px]"></i>' : ''}${escapeHtml(branch.name)}${branch.current ? `<span class="rounded bg-cyan-500/15 px-1.5 py-px font-sans text-[9px] text-cyan-300">${t('현재')}</span>` : ''}</p>
           <p class="mt-0.5 truncate text-[10px] text-white/40"><span class="font-mono">${escapeHtml(branch.hash)}</span> · ${escapeHtml(branch.subject || '')} · ${relativeTime(branch.date)}${track.length ? ` · ${track.join(' ')}` : ''}</p>
         </div>
         <div class="flex flex-shrink-0 items-center gap-1">${buttons.join('')}</div>
@@ -580,11 +585,11 @@
   function renderBranches(detail) {
     const local = detail.branches.filter((branch) => !branch.remote);
     const remote = detail.branches.filter((branch) => branch.remote);
-    $('gitBranchList').innerHTML = local.map(branchRow).join('') || '<p class="p-6 text-center text-xs text-white/35">로컬 브랜치가 없습니다.</p>';
-    $('gitRemoteBranchList').innerHTML = remote.map(branchRow).join('') || '<p class="p-6 text-center text-xs text-white/35">원격 브랜치가 없습니다. Fetch 해 보십시오.</p>';
+    $('gitBranchList').innerHTML = local.map(branchRow).join('') || `<p class="p-6 text-center text-xs text-white/35">${t('로컬 브랜치가 없습니다.')}</p>`;
+    $('gitRemoteBranchList').innerHTML = remote.map(branchRow).join('') || `<p class="p-6 text-center text-xs text-white/35">${t('원격 브랜치가 없습니다. Fetch 해 보십시오.')}</p>`;
     const select = $('gitNewBranchStart');
     const previous = select.value;
-    select.innerHTML = `<option value="">현재 HEAD (${escapeHtml(detail.head)})</option>` + detail.branches
+    select.innerHTML = `<option value="">${t('현재 HEAD ({head})', { head: escapeHtml(detail.head) })}</option>` + detail.branches
       .map((branch) => `<option value="${escapeHtml(branch.name)}">${escapeHtml(branch.name)}</option>`).join('');
     if ([...select.options].some((option) => option.value === previous)) select.value = previous;
   }
@@ -597,11 +602,11 @@
           <p class="mt-0.5 text-[10px] text-white/40"><span class="font-mono">${escapeHtml(stash.ref)}</span> · ${relativeTime(stash.date)}</p>
         </div>
         <div class="flex flex-shrink-0 items-center gap-1">
-          <button type="button" data-stash-action="stash_apply" class="rounded-lg px-2 py-1 text-[10px] font-bold text-white/60 hover:bg-white/10 hover:text-white">적용</button>
-          <button type="button" data-stash-action="stash_pop" class="rounded-lg px-2 py-1 text-[10px] font-bold text-violet-300 hover:bg-violet-500/10">꺼내기 (pop)</button>
+          <button type="button" data-stash-action="stash_apply" class="rounded-lg px-2 py-1 text-[10px] font-bold text-white/60 hover:bg-white/10 hover:text-white">${t('적용')}</button>
+          <button type="button" data-stash-action="stash_pop" class="rounded-lg px-2 py-1 text-[10px] font-bold text-violet-300 hover:bg-violet-500/10">${t('꺼내기 (pop)')}</button>
           <button type="button" data-stash-action="stash_drop" class="rounded-lg px-2 py-1 text-[10px] font-bold text-white/40 hover:bg-red-500/10 hover:text-red-300"><i class="fas fa-trash-can"></i></button>
         </div>
-      </div>`).join('') : '<p class="p-6 text-center text-xs text-white/35">저장된 스태시가 없습니다.</p>';
+      </div>`).join('') : `<p class="p-6 text-center text-xs text-white/35">${t('저장된 스태시가 없습니다.')}</p>`;
   }
 
   function renderDetail(detail) {
@@ -617,7 +622,7 @@
     if (!state.tab) setTab('changes');
   }
 
-  // ── 자동 Pull ───────────────────────────────────────────────────────
+  // ── Auto pull ───────────────────────────────────────────────────────
   function renderAutoPull(info) {
     const interval = $('gitAutoPullInterval');
     if (autoPullSaving) return;
@@ -625,19 +630,19 @@
     if (document.activeElement !== interval) interval.value = info?.interval_minutes ?? 15;
     const status = $('gitAutoPullStatus');
     const parts = [];
-    if (info?.last_run) parts.push(`${relativeTime(info.last_run * 1000)} 확인: ${info.message}`);
+    if (info?.last_run) parts.push(t('{time} 확인: {message}', { time: relativeTime(info.last_run * 1000), message: info.message }));
     if (info?.enabled) {
-      if (!info.next_run) parts.push('곧 첫 확인을 합니다');
-      else if (info.next_run * 1000 > Date.now()) parts.push(`다음 확인 ${relativeTime(info.next_run * 1000)}`);
-      else parts.push('곧 다시 확인합니다');
+      if (!info.next_run) parts.push(t('곧 첫 확인을 합니다'));
+      else if (info.next_run * 1000 > Date.now()) parts.push(t('다음 확인 {time}', { time: relativeTime(info.next_run * 1000) }));
+      else parts.push(t('곧 다시 확인합니다'));
     }
-    if (info?.updated_at) parts.push(`마지막으로 받은 때 ${relativeTime(info.updated_at * 1000)}`);
+    if (info?.updated_at) parts.push(t('마지막으로 받은 때 {time}', { time: relativeTime(info.updated_at * 1000) }));
     status.textContent = parts.join(' · ');
     status.classList.toggle('text-red-400', info?.ok === false);
     status.classList.toggle('text-white/40', info?.ok !== false);
   }
 
-  // 주기를 고치고 바로 체크박스를 누르면 저장이 연달아 일어난다 → 차례로 보내고, 마지막 화면 값이 남게 한다
+  // Editing the interval and then clicking the checkbox right away triggers back-to-back saves → send them in turn so the last on-screen value wins
   let autoPullSaving = false;
   let autoPullAgain = false;
   async function saveAutoPull() {
@@ -651,7 +656,7 @@
         autoPullAgain = false;
         const minutes = Number($('gitAutoPullInterval').value);
         if (!Number.isInteger(minutes) || minutes < 1 || minutes > 10080) {
-          toast('주기는 1분에서 10080분(7일) 사이의 정수로 적어 주십시오.', 'error');
+          toast(t('주기는 1분에서 10080분(7일) 사이의 정수로 적어 주십시오.'), 'error');
           break;
         }
         info = await api(`/api/git/auto-pull/${encodeURIComponent(id)}`, {
@@ -662,7 +667,7 @@
       } while (autoPullAgain && state.selectedId === id);
       renderList();
     } catch (error) {
-      toast(`자동 Pull 설정 저장 실패: ${error.message}`, 'error');
+      toast(t('자동 Pull 설정 저장 실패: {error}', { error: error.message }), 'error');
     } finally {
       autoPullSaving = false;
       if (state.selectedId === id) renderAutoPull(info);
@@ -675,7 +680,7 @@
     try {
       const detail = await api(`/api/git/repositories/${encodeURIComponent(state.selectedId)}`);
       if (requestNumber !== state.detailRequest) return;
-      // 남은 시간이 계속 바뀌므로 다른 상세 내용과 따로 그린다
+      // The remaining time keeps changing, so it is rendered separately from the rest of the detail
       if (!autoPullSaving) {
         state.autoPull[detail.id] = detail.auto_pull;
         renderAutoPull(detail.auto_pull);
@@ -687,7 +692,7 @@
         renderDetail(detail);
         if (state.selectedFile) loadDiff(state.selectedFile.path, state.selectedFile.staged, { quiet: true });
       }
-      // 목록의 상태 배지도 최신으로 맞춘다.
+      // Bring the status badges in the list up to date as well.
       const repo = byId(detail.id);
       if (repo) {
         repo.status = {
@@ -719,13 +724,13 @@
     }
     state.selectedId = id;
     storageSet('univdash-git-selected', id);
-    setTab('changes');  // 저장소를 누르면 항상 변경사항 탭부터
+    setTab('changes');  // clicking a repository always starts on the Changes tab
     renderList();
     loadDraft();
     if (!state.detail || state.detail.id !== id) {
       $('gitEmptyState').classList.remove('hidden');
       $('gitRepositoryDetail').classList.add('hidden');
-      $('gitEmptyMessage').textContent = '저장소 정보를 불러오는 중입니다.';
+      $('gitEmptyMessage').textContent = t('저장소 정보를 불러오는 중입니다.');
     }
     syncWorkflowButton();
     renderAutoPull(state.autoPull[id]);
@@ -733,7 +738,7 @@
   }
 
   // ── diff ────────────────────────────────────────────────────────────
-  function showDiffPlaceholder(message = '파일을 선택하면 변경 내용이 표시됩니다.') {
+  function showDiffPlaceholder(message = t('파일을 선택하면 변경 내용이 표시됩니다.')) {
     $('gitDiffTitle').textContent = message;
     $('gitDiffStats').textContent = '';
     $('gitDiffView').innerHTML = '';
@@ -741,7 +746,7 @@
 
   function renderDiffText(container, text, { truncated = false } = {}) {
     if (!text.trim()) {
-      container.innerHTML = '<div class="note">표시할 변경 내용이 없습니다. (공백/권한 변경이거나 빈 파일)</div>';
+      container.innerHTML = `<div class="note">${t('표시할 변경 내용이 없습니다. (공백/권한 변경이거나 빈 파일)')}</div>`;
       return { added: 0, removed: 0 };
     }
     const lines = text.split('\n');
@@ -779,7 +784,7 @@
     if (truncated || lines.length > maxLines) {
       const note = document.createElement('div');
       note.className = 'note';
-      note.textContent = '… 내용이 너무 길어 일부만 표시했습니다.';
+      note.textContent = t('… 내용이 너무 길어 일부만 표시했습니다.');
       container.appendChild(note);
     }
     return { added, removed };
@@ -791,14 +796,14 @@
       row.classList.toggle('selected', row.dataset.path === path && row.dataset.staged === String(staged));
     });
     if (!quiet) {
-      $('gitDiffTitle').textContent = `${path} · 불러오는 중...`;
+      $('gitDiffTitle').textContent = t('{path} · 불러오는 중...', { path });
     }
     try {
       const diff = await api(`/api/git/repositories/${encodeURIComponent(state.selectedId)}/diff?path=${encodeURIComponent(path)}&staged=${staged}`);
       if (!state.selectedFile || state.selectedFile.path !== path) return;
-      $('gitDiffTitle').textContent = `${path} ${staged ? '(스테이징됨)' : '(작업 트리)'}`;
+      $('gitDiffTitle').textContent = staged ? t('{path} (스테이징됨)', { path }) : t('{path} (작업 트리)', { path });
       if (diff.binary) {
-        $('gitDiffView').innerHTML = '<div class="note">바이너리 파일은 미리 볼 수 없습니다.</div>';
+        $('gitDiffView').innerHTML = `<div class="note">${t('바이너리 파일은 미리 볼 수 없습니다.')}</div>`;
         $('gitDiffStats').textContent = '';
         return;
       }
@@ -810,25 +815,25 @@
     }
   }
 
-  // ── 커밋 상세 모달 ──────────────────────────────────────────────────
+  // ── Commit detail modal ─────────────────────────────────────────────
   async function openCommit(hash) {
     const modal = $('gitCommitModal');
     modal.classList.remove('hidden');
     $('gitCommitModalTitle').textContent = hash.slice(0, 10);
-    $('gitCommitModalMeta').textContent = '불러오는 중...';
+    $('gitCommitModalMeta').textContent = t('불러오는 중...');
     $('gitCommitModalMessage').textContent = '';
     $('gitCommitModalFiles').innerHTML = '';
     $('gitCommitModalDiff').innerHTML = '';
     try {
       const commit = await api(`/api/git/repositories/${encodeURIComponent(state.selectedId)}/commits/${encodeURIComponent(hash)}`);
       $('gitCommitModalTitle').textContent = `${commit.hash.slice(0, 10)} · ${commit.message.split('\n')[0]}`;
-      $('gitCommitModalMeta').textContent = `${commit.author} <${commit.author_email}> · ${formatDate(commit.date, true)}${commit.parents.length > 1 ? ' · 병합 커밋' : ''}`;
+      $('gitCommitModalMeta').textContent = `${commit.author} <${commit.author_email}> · ${formatDate(commit.date, true)}${commit.parents.length > 1 ? ` · ${t('병합 커밋')}` : ''}`;
       $('gitCommitModalMessage').textContent = commit.message;
       $('gitCommitModalFiles').innerHTML = commit.files.map((file) => `
         <div class="flex items-center justify-between gap-2 text-[11px]">
           <span class="min-w-0 truncate font-mono text-white/70" title="${escapeHtml(file.path)}">${escapeHtml(file.path)}</span>
           <span class="flex-shrink-0 font-mono">${file.added === null ? '<span class="text-white/40">bin</span>' : `<span class="text-emerald-400">+${file.added}</span> <span class="text-red-400">−${file.deleted}</span>`}</span>
-        </div>`).join('') || '<p class="text-[11px] text-white/40">변경된 파일 없음</p>';
+        </div>`).join('') || `<p class="text-[11px] text-white/40">${t('변경된 파일 없음')}</p>`;
       renderDiffText($('gitCommitModalDiff'), commit.diff, { truncated: commit.truncated });
     } catch (error) {
       $('gitCommitModalMeta').textContent = error.message;
@@ -838,21 +843,21 @@
   $('gitCommitModalClose').addEventListener('click', closeCommitModal);
   $('gitCommitModal').addEventListener('click', (event) => { if (event.target.id === 'gitCommitModal') closeCommitModal(); });
 
-  // ── 작업 실행 ───────────────────────────────────────────────────────
+  // ── Running actions ─────────────────────────────────────────────────
   function writeConsole(message) {
     const consoleElement = $('gitConsole');
-    const prefix = `[${new Date().toLocaleTimeString('ko-KR')}] `;
-    const current = consoleElement.textContent === 'Git 작업 결과가 여기에 표시됩니다.' ? '' : `${consoleElement.textContent}\n\n`;
+    const prefix = `[${new Date().toLocaleTimeString(t.locale)}] `;
+    const current = consoleElement.textContent === t('Git 작업 결과가 여기에 표시됩니다.') ? '' : `${consoleElement.textContent}\n\n`;
     consoleElement.textContent = `${current}${prefix}${message}`;
     consoleElement.scrollTop = consoleElement.scrollHeight;
     $('gitConsoleDot').classList.replace('bg-white/20', 'bg-cyan-400');
   }
 
   const actionLabels = {
-    fetch: 'Fetch', pull: 'Pull', push: 'Push', stage: '스테이징', unstage: '스테이징 취소', discard: '변경 되돌리기',
-    commit: '커밋', checkout: '브랜치 전환', create_branch: '브랜치 생성', delete_branch: '브랜치 삭제', merge: '병합',
-    abort_operation: '작업 중단', stash: '스태시 저장', stash_apply: '스태시 적용', stash_pop: '스태시 꺼내기',
-    stash_drop: '스태시 삭제', undo_commit: '커밋 취소', revert: 'Revert', ruff_format: 'ruff format',
+    fetch: 'Fetch', pull: 'Pull', push: 'Push', stage: t('스테이징'), unstage: t('스테이징 취소'), discard: t('변경 되돌리기'),
+    commit: t('커밋'), checkout: t('브랜치 전환'), create_branch: t('브랜치 생성'), delete_branch: t('브랜치 삭제'), merge: t('병합'),
+    abort_operation: t('작업 중단'), stash: t('스태시 저장'), stash_apply: t('스태시 적용'), stash_pop: t('스태시 꺼내기'),
+    stash_drop: t('스태시 삭제'), undo_commit: t('커밋 취소'), revert: 'Revert', ruff_format: 'ruff format',
   };
   const noisyActions = new Set(['fetch', 'pull', 'push', 'merge', 'commit', 'revert', 'abort_operation']);
   let workflowBusy = false;
@@ -863,12 +868,12 @@
     const buttons = document.querySelectorAll('.git-action');
     buttons.forEach((button) => { button.disabled = true; button.classList.add('opacity-50'); });
     const label = actionLabels[action] || action;
-    writeConsole(`${label} 실행 중...`);
+    writeConsole(t('{label} 실행 중...', { label }));
     try {
       const result = await api(`/api/git/repositories/${encodeURIComponent(state.selectedId)}/${action}`, { method: 'POST', body: payload });
-      writeConsole(`$ ${result.command}\n${result.output}\n\n${result.success ? '✓ 작업 완료' : `✕ 작업 실패 (code ${result.return_code})`}`);
-      if (result.success) toast(result.summary ? `${label}: ${result.summary}` : `${label} 완료`, 'success');
-      else toast(`${label} 실패\n${result.output.split('\n').slice(0, 4).join('\n')}`, 'error');
+      writeConsole(`$ ${result.command}\n${result.output}\n\n${result.success ? t('✓ 작업 완료') : t('✕ 작업 실패 (code {code})', { code: result.return_code })}`);
+      if (result.success) toast(result.summary ? `${label}: ${result.summary}` : t('{label} 완료', { label }), 'success');
+      else toast(`${t('{label} 실패', { label })}\n${result.output.split('\n').slice(0, 4).join('\n')}`, 'error');
       if (showConsole || (!result.success && noisyActions.has(action))) setTab('console');
       return result;
     } catch (error) {
@@ -883,12 +888,12 @@
     }
   }
 
-  // 상단 버튼
+  // Top buttons
   document.querySelectorAll('[data-git-action]').forEach((button) => button.addEventListener('click', () => {
     const action = button.dataset.gitAction;
     const detail = state.detail;
-    if (action === 'pull' && !confirm(`원격 변경을 가져와 ${$('gitRebase').checked ? 'rebase' : '병합'}하시겠습니까?`)) return;
-    if (action === 'push' && !confirm(`${detail?.branch || '현재 브랜치'}의 커밋 ${detail?.ahead || 0}개를 푸시하시겠습니까?`)) return;
+    if (action === 'pull' && !confirm($('gitRebase').checked ? t('원격 변경을 가져와 rebase하시겠습니까?') : t('원격 변경을 가져와 병합하시겠습니까?'))) return;
+    if (action === 'push' && !confirm(t('{branch}의 커밋 {count}개를 푸시하시겠습니까?', { branch: detail?.branch || t('현재 브랜치'), count: detail?.ahead || 0 }))) return;
     runGit(action, { rebase: $('gitRebase').checked }, { showConsole: true });
   }));
 
@@ -908,19 +913,19 @@
     if (action === 'stash') {
       runGit('stash', { include_untracked: true });
     } else if (action === 'undo_commit') {
-      if (confirm('마지막 커밋을 취소하시겠습니까? 변경 내용은 스테이징된 상태로 남습니다.')) runGit('undo_commit');
+      if (confirm(t('마지막 커밋을 취소하시겠습니까? 변경 내용은 스테이징된 상태로 남습니다.'))) runGit('undo_commit');
     } else if (action === 'force_push') {
-      if (confirm('원격 브랜치를 로컬 기록으로 덮어씁니다 (--force-with-lease). 계속하시겠습니까?')) runGit('push', { force: true }, { showConsole: true });
+      if (confirm(t('원격 브랜치를 로컬 기록으로 덮어씁니다 (--force-with-lease). 계속하시겠습니까?'))) runGit('push', { force: true }, { showConsole: true });
     } else if (action === 'refresh') {
       state.detailJson = '';
       refreshDetail();
     }
   });
   $('gitAbortOperation').addEventListener('click', () => {
-    if (confirm('진행 중인 작업을 중단하고 이전 상태로 되돌리시겠습니까?')) runGit('abort_operation');
+    if (confirm(t('진행 중인 작업을 중단하고 이전 상태로 되돌리시겠습니까?'))) runGit('abort_operation');
   });
 
-  // 변경사항 파일 목록
+  // Changed-file lists
   function onFileListClick(event) {
     const row = event.target.closest('.git-file-row');
     if (!row) return;
@@ -929,7 +934,7 @@
     const button = event.target.closest('[data-file-action]');
     if (!button) { loadDiff(path, staged); return; }
     const action = button.dataset.fileAction;
-    if (action === 'discard' && !confirm(`"${path}" 의 변경을 되돌리시겠습니까? 되돌린 내용은 복구할 수 없습니다.`)) return;
+    if (action === 'discard' && !confirm(t('"{path}" 의 변경을 되돌리시겠습니까? 되돌린 내용은 복구할 수 없습니다.', { path }))) return;
     runGit(action, { paths: [path] });
   }
   $('gitStagedList').addEventListener('click', onFileListClick);
@@ -939,10 +944,10 @@
   $('gitDiscardAll').addEventListener('click', () => {
     const count = state.detail?.changes.filter((change) => change.unstaged && !change.conflict).length || 0;
     if (!count) return;
-    if (confirm(`스테이징하지 않은 변경 ${count}개를 모두 되돌리시겠습니까? 새 파일도 삭제되며 복구할 수 없습니다.`)) runGit('discard', {});
+    if (confirm(t('스테이징하지 않은 변경 {count}개를 모두 되돌리시겠습니까? 새 파일도 삭제되며 복구할 수 없습니다.', { count }))) runGit('discard', {});
   });
 
-  // 커밋
+  // Commit
   function draftKey() { return `univdash-git-draft-${state.selectedId}`; }
   function saveDraft() { if (state.selectedId) storageSet(draftKey(), $('gitCommitMessage').value); }
   function loadDraft() {
@@ -954,28 +959,28 @@
   function updateSummaryLength() {
     const summary = $('gitCommitMessage').value.split('\n')[0];
     const el = $('gitCommitSummaryLength');
-    el.textContent = `요약 ${summary.length}/72`;
+    el.textContent = t('요약 {length}/72', { length: summary.length });
     el.className = summary.length > 72 ? 'text-amber-400' : '';
   }
   $('gitCommitMessage').addEventListener('input', () => { updateSummaryLength(); saveDraft(); });
   $('gitCommitAmend').addEventListener('change', () => {
     if ($('gitCommitAmend').checked && !$('gitCommitMessage').value.trim() && state.detail?.commits[0]) {
-      $('gitCommitMessage').placeholder = `비워 두면 기존 메시지 유지: ${state.detail.commits[0].subject}`;
+      $('gitCommitMessage').placeholder = t('비워 두면 기존 메시지 유지: {subject}', { subject: state.detail.commits[0].subject });
     } else {
-      $('gitCommitMessage').placeholder = '커밋 메시지 (첫 줄은 요약, Ctrl+Enter 로 커밋)';
+      $('gitCommitMessage').placeholder = t('커밋 메시지 (첫 줄은 요약, Ctrl+Enter 로 커밋)');
     }
   });
 
-  // "모든 변경 포함"(기본 켜짐)이면 전체 변경 수, 아니면 스테이징된 수
+  // With "include all changes" (on by default) the total change count, otherwise the staged count
   function updateCommitCount() {
     const changes = state.detail?.changes || [];
     const count = $('gitCommitStageAll').checked ? changes.length : changes.filter((change) => change.staged).length;
-    $('gitCommitButton').innerHTML = `<i class="fas fa-check mr-1"></i>커밋${count ? ` (${count})` : ''}`;
+    $('gitCommitButton').innerHTML = `<i class="fas fa-check mr-1"></i>${count ? t('커밋 ({count})', { count }) : t('커밋')}`;
   }
   $('gitCommitStageAll').addEventListener('change', updateCommitCount);
 
-  // ── AI 커밋 메시지 (VS Code Copilot 처럼): 커밋할 변경을 OpenAI 호환 API 에 보내 메시지를 받는다 ──
-  // 설정(주소 · 모델 · 토큰)은 서버에만 저장되고, 토큰은 브라우저로 돌아오지 않는다.
+  // ── AI commit message (like VS Code Copilot): send the changes to commit to an OpenAI-compatible API and get a message back ──
+  // The settings (URL · model · token) are stored on the server only, and the token never comes back to the browser.
   const UI = () => window.UnivDashUI;
   async function aiSettingsSheet({ thenGenerate = false } = {}) {
     let current;
@@ -985,30 +990,30 @@
     let modelRequest = 0;
     let modelTimer = null;
     UI().formSheet({
-      title: 'AI 커밋 메시지 설정',
-      subtitle: '기본 API: OpenAI 호환 주소를 입력하면 /models 를 조회해 모델을 자동으로 선택합니다. 실패하면 아래 예비 API(OpenAI)로 다시 씁니다. 토큰은 서버에만 저장됩니다.',
+      title: t('AI 커밋 메시지 설정'),
+      subtitle: t('기본 API: OpenAI 호환 주소를 입력하면 /models 를 조회해 모델을 자동으로 선택합니다. 실패하면 아래 예비 API(OpenAI)로 다시 씁니다. 토큰은 서버에만 저장됩니다.'),
       fields: [
-        { name: 'base_url', label: 'API 주소 (Base URL)', value: current.base_url, placeholder: 'https://api.openai.com/v1', maxlength: 500 },
-        { name: 'token', label: `Bearer 토큰${current.token_set ? ' (저장됨 · 바꿀 때만 입력)' : ''}`, value: '', placeholder: current.token_set ? '••••••••  (비워 두면 그대로)' : 'sk-...', maxlength: 1000 },
+        { name: 'base_url', label: t('API 주소 (Base URL)'), value: current.base_url, placeholder: 'https://api.openai.com/v1', maxlength: 500 },
+        { name: 'token', label: current.token_set ? t('Bearer 토큰 (저장됨 · 바꿀 때만 입력)') : t('Bearer 토큰'), value: '', placeholder: current.token_set ? t('••••••••  (비워 두면 그대로)') : 'sk-...', maxlength: 1000 },
       ],
-      extraHtml: `<div class="text-xs text-white/60" data-model-status>${current.model ? `현재 선택 모델: ${escapeHtml(current.model)}` : '주소를 입력하면 사용 가능한 모델을 자동으로 확인합니다.'}</div>
-        <label>메시지 언어<select name="language">
-          <option value="auto" ${current.language === 'auto' ? 'selected' : ''}>자동 (최근 커밋과 같은 언어)</option>
+      extraHtml: `<div class="text-xs text-white/60" data-model-status>${current.model ? t('현재 선택 모델: {model}', { model: escapeHtml(current.model) }) : t('주소를 입력하면 사용 가능한 모델을 자동으로 확인합니다.')}</div>
+        <label>${t('메시지 언어')}<select name="language">
+          <option value="auto" ${current.language === 'auto' ? 'selected' : ''}>${t('자동 (최근 커밋과 같은 언어)')}</option>
           <option value="ko" ${current.language === 'ko' ? 'selected' : ''}>한국어</option>
           <option value="en" ${current.language === 'en' ? 'selected' : ''}>English</option></select></label>
-        ${current.token_set ? '<label class="check-row"><input type="checkbox" name="clear_token"> 저장된 토큰 지우기</label>' : ''}
+        ${current.token_set ? `<label class="check-row"><input type="checkbox" name="clear_token"> ${t('저장된 토큰 지우기')}</label>` : ''}
         <div class="git-ai-fallback">
-          <div class="git-ai-fallback-head"><b>예비 API · OpenAI</b><span>기본 API 가 실패하거나 비어 있으면 이것으로 다시 씁니다.</span></div>
-          <label>OpenAI API 키${current.fallback_token_set ? ' (저장됨 · 바꿀 때만 입력)' : ''}
+          <div class="git-ai-fallback-head"><b>${t('예비 API · OpenAI')}</b><span>${t('기본 API 가 실패하거나 비어 있으면 이것으로 다시 씁니다.')}</span></div>
+          <label>${current.fallback_token_set ? t('OpenAI API 키 (저장됨 · 바꿀 때만 입력)') : t('OpenAI API 키')}
             <input name="fallback_token" type="password" autocomplete="new-password" maxlength="1000" spellcheck="false" autocapitalize="off"
-              placeholder="${current.fallback_token_set ? '••••••••  (비워 두면 그대로)' : 'sk-...'}"></label>
-          <label>모델<span class="git-ai-model-row"><select name="fallback_model" data-fallback-model>
-              ${current.fallback_model ? `<option value="${escapeHtml(current.fallback_model)}" selected>${escapeHtml(current.fallback_model)}</option>` : '<option value="">(사용 안 함)</option>'}
-            </select><button type="button" class="sheet-cancel" data-fallback-load>목록 불러오기</button></span></label>
-          <div class="text-xs text-white/60" data-fallback-status>${current.fallback_configured ? `사용 중: ${escapeHtml(current.fallback_model)}` : '키를 넣고 목록을 불러와 모델을 고르십시오.'}</div>
-          ${current.fallback_token_set ? '<label class="check-row"><input type="checkbox" name="clear_fallback"> 예비 API 끄기 (저장된 키 지우기)</label>' : ''}
+              placeholder="${current.fallback_token_set ? t('••••••••  (비워 두면 그대로)') : 'sk-...'}"></label>
+          <label>${t('모델')}<span class="git-ai-model-row"><select name="fallback_model" data-fallback-model>
+              ${current.fallback_model ? `<option value="${escapeHtml(current.fallback_model)}" selected>${escapeHtml(current.fallback_model)}</option>` : `<option value="">${t('(사용 안 함)')}</option>`}
+            </select><button type="button" class="sheet-cancel" data-fallback-load>${t('목록 불러오기')}</button></span></label>
+          <div class="text-xs text-white/60" data-fallback-status>${current.fallback_configured ? t('사용 중: {model}', { model: escapeHtml(current.fallback_model) }) : t('키를 넣고 목록을 불러와 모델을 고르십시오.')}</div>
+          ${current.fallback_token_set ? `<label class="check-row"><input type="checkbox" name="clear_fallback"> ${t('예비 API 끄기 (저장된 키 지우기)')}</label>` : ''}
         </div>`,
-      submitLabel: '저장',
+      submitLabel: t('저장'),
       onMount: (body) => {
         const token = body.querySelector('input[name="token"]');
         token.type = 'password';
@@ -1017,15 +1022,17 @@
         const modelStatus = body.querySelector('[data-model-status]');
         const discover = async () => {
           const url = baseUrl.value.trim().replace(/\/+$/, '');
-          if (!url) { modelStatus.textContent = 'API 주소를 입력해 주십시오.'; return false; }
+          if (!url) { modelStatus.textContent = t('API 주소를 입력해 주십시오.'); return false; }
           const request = ++modelRequest;
-          modelStatus.textContent = '사용 가능한 모델 확인 중…';
+          modelStatus.textContent = t('사용 가능한 모델 확인 중…');
           try {
             const data = await api('/api/git/ai/models', { method: 'POST', body: { base_url: url, token: token.value || null } });
             if (request !== modelRequest) return false;
             selectedModel = data.model;
             modelForUrl = url;
-            modelStatus.textContent = `자동 선택 모델: ${data.model}${data.models.length > 1 ? ` · 외 ${data.models.length - 1}개` : ''}`;
+            modelStatus.textContent = data.models.length > 1
+              ? t('자동 선택 모델: {model} · 외 {count}개', { model: data.model, count: data.models.length - 1 })
+              : t('자동 선택 모델: {model}', { model: data.model });
             return true;
           } catch (error) {
             if (request === modelRequest) modelStatus.textContent = error.message;
@@ -1044,19 +1051,19 @@
         });
         if (baseUrl.value.trim()) discover().catch(() => {});
         body._discoverModel = discover;
-        // 예비 API (OpenAI): 키로 /models 를 불러와 대화용 모델 중에서 고른다
+        // Fallback API (OpenAI): load /models with the key and pick among the chat models
         const fbToken = body.querySelector('input[name="fallback_token"]');
         const fbSelect = body.querySelector('[data-fallback-model]');
         const fbStatus = body.querySelector('[data-fallback-status]');
         const loadFallback = async () => {
-          if (!fbToken.value.trim() && !current.fallback_token_set) { fbStatus.textContent = 'OpenAI API 키를 먼저 입력하십시오.'; return; }
-          fbStatus.textContent = '모델 목록 불러오는 중…';
+          if (!fbToken.value.trim() && !current.fallback_token_set) { fbStatus.textContent = t('OpenAI API 키를 먼저 입력하십시오.'); return; }
+          fbStatus.textContent = t('모델 목록 불러오는 중…');
           try {
             const data = await api('/api/git/ai/models', { method: 'POST', body: { target: 'fallback', token: fbToken.value.trim() || null } });
             const keep = fbSelect.value || data.model;
-            fbSelect.innerHTML = '<option value="">(사용 안 함)</option>' + data.models.map((m) => `<option value="${escapeHtml(m)}"${m === keep ? ' selected' : ''}>${escapeHtml(m)}</option>`).join('');
+            fbSelect.innerHTML = `<option value="">${t('(사용 안 함)')}</option>` + data.models.map((m) => `<option value="${escapeHtml(m)}"${m === keep ? ' selected' : ''}>${escapeHtml(m)}</option>`).join('');
             if (!data.models.includes(keep)) fbSelect.value = data.model;
-            fbStatus.textContent = `쓸 수 있는 모델 ${data.models.length}개`;
+            fbStatus.textContent = t('쓸 수 있는 모델 {count}개', { count: data.models.length });
           } catch (error) { fbStatus.textContent = error.message; }
         };
         body.querySelector('[data-fallback-load]').addEventListener('click', loadFallback);
@@ -1066,8 +1073,8 @@
       },
       onSubmit: async (values, body) => {
         const url = (values.base_url || '').trim().replace(/\/+$/, '');
-        // 기본 API 는 비워 둘 수 있다 (예비 API 만 쓰기).
-        // 기본 API 가 지금 꺼져 있어도(로컬 모델 등) 저장은 막지 않는다: 모델은 쓸 때 다시 확인한다.
+        // The primary API may be left empty (use only the fallback API).
+        // Saving is not blocked even when the primary API is down right now (local model etc.): the model is checked again at use time.
         let primaryModel = '';
         if (url) {
           if (modelForUrl !== url || !selectedModel) await body._discoverModel().catch(() => false);
@@ -1078,12 +1085,12 @@
         const clearFallback = Boolean(values.clear_fallback);
         const fallbackToken = clearFallback ? '' : ((values.fallback_token || '').trim() || null);
         const fallbackModel = clearFallback ? '' : (values.fallback_model || '');
-        if (fallbackModel && !fallbackToken && !current.fallback_token_set) throw new Error('예비 API 를 쓰려면 OpenAI API 키를 입력하십시오.');
+        if (fallbackModel && !fallbackToken && !current.fallback_token_set) throw new Error(t('예비 API 를 쓰려면 OpenAI API 키를 입력하십시오.'));
         await api('/api/git/ai/settings', { method: 'PUT', body: {
           base_url: url, model: primaryModel, token, language: values.language || 'auto',
           fallback_model: fallbackModel, fallback_token: fallbackToken,
         } });
-        toast(url && !primaryModel ? 'AI 설정을 저장했습니다. 기본 API 모델은 쓸 때 다시 확인하고, 안 되면 예비 API 로 씁니다.' : 'AI 설정을 저장했습니다.', 'success');
+        toast(url && !primaryModel ? t('AI 설정을 저장했습니다. 기본 API 모델은 쓸 때 다시 확인하고, 안 되면 예비 API 로 씁니다.') : t('AI 설정을 저장했습니다.'), 'success');
         if (thenGenerate) setTimeout(generateCommitMessage, 50);
       },
     });
@@ -1096,26 +1103,26 @@
       if (!settings.configured) { aiSettingsSheet({ thenGenerate: true }); return; }
     } catch (error) { toast(error.message, 'error'); return; }
     const input = $('gitCommitMessage');
-    if (input.value.trim() && !confirm('지금 쓴 커밋 메시지를 AI 가 쓴 것으로 바꾸시겠습니까?')) return;
+    if (input.value.trim() && !confirm(t('지금 쓴 커밋 메시지를 AI 가 쓴 것으로 바꾸시겠습니까?'))) return;
     button.disabled = true;
     button.classList.add('busy');
     button.querySelector('i').className = 'fas fa-circle-notch fa-spin';
-    button.querySelector('span').textContent = 'AI가 쓰는 중…';
+    button.querySelector('span').textContent = t('AI가 쓰는 중…');
     try {
       const result = await api(`/api/git/ai/commit-message/${encodeURIComponent(state.selectedId)}`, { method: 'POST', body: { stage_all: $('gitCommitStageAll').checked } });
       input.value = result.message;
       updateSummaryLength();
       saveDraft();
       input.focus();
-      if (result.provider === 'fallback' && result.primary_error) toast(`기본 API 가 실패해서 예비 API(${result.model})로 썼습니다 · ${result.primary_error}`, 'info');
-      if (result.truncated) toast('변경이 많아 앞부분만 보고 썼습니다. 한 번 확인해 주십시오.', 'info');
+      if (result.provider === 'fallback' && result.primary_error) toast(t('기본 API 가 실패해서 예비 API({model})로 썼습니다 · {error}', { model: result.model, error: result.primary_error }), 'info');
+      if (result.truncated) toast(t('변경이 많아 앞부분만 보고 썼습니다. 한 번 확인해 주십시오.'), 'info');
     } catch (error) {
       toast(error.message, 'error');
     } finally {
       button.disabled = false;
       button.classList.remove('busy');
       button.querySelector('i').className = 'fas fa-wand-magic-sparkles';
-      button.querySelector('span').textContent = 'AI로 작성';
+      button.querySelector('span').textContent = t('AI로 작성');
     }
   }
   $('gitAiMessage').addEventListener('click', generateCommitMessage);
@@ -1128,19 +1135,19 @@
     const amend = $('gitCommitAmend').checked;
     const stageAll = $('gitCommitStageAll').checked;
     if (!message.trim() && !amend && detail.operation !== 'merge') {
-      toast('커밋 메시지를 입력하십시오.', 'error');
+      toast(t('커밋 메시지를 입력하십시오.'), 'error');
       $('gitCommitMessage').focus();
       return;
     }
     if (!stageAll && !amend && detail.operation !== 'merge' && !detail.counts.staged) {
-      toast('스테이징된 파일이 없습니다. 파일을 스테이징하거나 "모든 변경 포함"을 선택하십시오.', 'error');
+      toast(t('스테이징된 파일이 없습니다. 파일을 스테이징하거나 "모든 변경 포함"을 선택하십시오.'), 'error');
       return;
     }
     let force = false;
     if (amend && pushAfter) {
       const pushedHead = detail.upstream && detail.commits[0]?.pushed;
       if (pushedHead) {
-        if (!confirm('이미 푸시된 커밋을 수정합니다. 강제 푸시(--force-with-lease)가 필요합니다. 계속하시겠습니까?')) return;
+        if (!confirm(t('이미 푸시된 커밋을 수정합니다. 강제 푸시(--force-with-lease)가 필요합니다. 계속하시겠습니까?'))) return;
         force = true;
       }
     }
@@ -1153,7 +1160,7 @@
       updateSummaryLength();
     }
   }
-  // 커밋 전에 코드 정리: 저장소 최상위에서 ruff format . → "N files reformatted, M files left unchanged" 를 바로 보여준다
+  // Tidy the code before committing: ruff format . at the repository root → show "N files reformatted, M files left unchanged" right away
   $('gitRuffButton').addEventListener('click', async () => {
     const result = await runGit('ruff_format');
     const box = $('gitRuffResult');
@@ -1161,11 +1168,11 @@
     box.textContent = result.summary || result.output.split('\n').slice(-2).join(' · ');
     box.className = `mt-1.5 rounded-lg bg-black/25 px-2.5 py-1.5 font-mono text-[11px] ${result.success ? 'text-emerald-300' : 'text-red-300'}`;
   });
-  // ruff format · AI 커밋 · 푸시: 서버가 별도 프로세스로 끝까지 돌린다.
-  // 기다리지 않고 다른 저장소를 보거나 페이지를 떠나도 되고, 끝나면 UnivDash 어느 페이지에서든 알림이 뜬다 (common.js gitWorkflows).
-  const ALL_IN_ONE_LABEL = 'ruff format · AI 커밋 · 푸시';
+  // ruff format · AI commit · push: the server runs it to the end in a separate process.
+  // You can look at another repository or leave the page without waiting; when it finishes a notice shows on any UnivDash page (common.js gitWorkflows).
+  const ALL_IN_ONE_LABEL = t('ruff format · AI 커밋 · 푸시');
   const workflows = window.UnivDash.gitWorkflows;
-  const workflowStatus = new Map();   // 작업 id → 마지막으로 본 상태 (끝나는 순간을 잡으려고)
+  const workflowStatus = new Map();   // job id → last seen status (to catch the moment it finishes)
   const runningWorkflow = (id) => workflows.jobs().find((job) => job.repository_id === id && job.status === 'running');
   function syncWorkflowButton() {
     const button = $('gitAllInOneButton');
@@ -1183,7 +1190,7 @@
       const before = workflowStatus.get(job.id);
       workflowStatus.set(job.id, job.status);
       if (before !== 'running' || job.status === 'running' || job.repository_id !== state.selectedId) continue;
-      // 지금 보고 있는 저장소의 흐름이 방금 끝났다 → 결과 반영
+      // The workflow of the repository on screen has just finished → apply the result
       if (job.ruff) {
         const ruffBox = $('gitRuffResult');
         ruffBox.textContent = job.ruff;
@@ -1196,7 +1203,7 @@
         saveDraft();
         updateSummaryLength();
       } else if (job.message && !$('gitCommitMessage').value.trim()) {
-        $('gitCommitMessage').value = job.message;   // 푸시만 실패했으면 만든 메시지는 남겨 둔다
+        $('gitCommitMessage').value = job.message;   // if only the push failed, keep the generated message
         saveDraft();
         updateSummaryLength();
       }
@@ -1210,16 +1217,16 @@
     try { settings = await api('/api/git/ai/settings'); }
     catch (error) { toast(error.message, 'error'); return; }
     if (!settings.configured) {
-      toast('먼저 AI 커밋 메시지 설정을 해 주십시오.', 'warn');
+      toast(t('먼저 AI 커밋 메시지 설정을 해 주십시오.'), 'warn');
       aiSettingsSheet();
       return;
     }
     if (!$('gitCommitStageAll').checked) {
-      toast('ruff format 결과까지 포함하려면 "모든 변경 포함"을 켜 주십시오.', 'warn');
+      toast(t('ruff format 결과까지 포함하려면 "모든 변경 포함"을 켜 주십시오.'), 'warn');
       return;
     }
-    const branch = state.detail?.branch || '현재 브랜치';
-    if (!confirm(`${branch}의 모든 변경을 ruff format 한 뒤 AI 커밋 메시지로 커밋하고 푸시하시겠습니까?`)) return;
+    const branch = state.detail?.branch || t('현재 브랜치');
+    if (!confirm(t('{branch}의 모든 변경을 ruff format 한 뒤 AI 커밋 메시지로 커밋하고 푸시하시겠습니까?', { branch }))) return;
     const button = $('gitAllInOneButton');
     button.disabled = true;
     try {
@@ -1238,19 +1245,19 @@
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); commit(false); }
   });
 
-  // 커밋 로그
+  // Commit log
   $('gitCommitList').addEventListener('click', (event) => {
     const row = event.target.closest('.git-commit-row');
     if (!row) return;
     const hash = row.dataset.hash;
     if (event.target.closest('[data-commit-action="revert"]')) {
-      if (confirm(`${hash.slice(0, 7)} 커밋의 변경을 되돌리는 새 커밋을 만드시겠습니까?`)) runGit('revert', { commit: hash }, { showConsole: true });
+      if (confirm(t('{hash} 커밋의 변경을 되돌리는 새 커밋을 만드시겠습니까?', { hash: hash.slice(0, 7) }))) runGit('revert', { commit: hash }, { showConsole: true });
       return;
     }
     openCommit(hash);
   });
 
-  // 브랜치
+  // Branches
   function mergeMode() { return document.querySelector('input[name="gitMergeMode"]:checked')?.value || 'default'; }
   async function onBranchClick(event) {
     const button = event.target.closest('[data-branch-action]');
@@ -1259,23 +1266,23 @@
     const action = button.dataset.branchAction;
     const detail = state.detail;
     if (action === 'checkout') {
-      if (detail.dirty && !confirm('작업 트리에 변경사항이 있습니다. 충돌하면 전환이 실패할 수 있습니다. 계속하시겠습니까? (먼저 스태시하는 것을 권장)')) return;
+      if (detail.dirty && !confirm(t('작업 트리에 변경사항이 있습니다. 충돌하면 전환이 실패할 수 있습니다. 계속하시겠습니까? (먼저 스태시하는 것을 권장)'))) return;
       runGit('checkout', { branch });
     } else if (action === 'merge') {
       const mode = mergeMode();
       const modeLabel = { default: '', no_ff: ' (--no-ff)', squash: ' (--squash)' }[mode];
-      if (!confirm(`${branch} → ${detail.branch} 병합${modeLabel}을 실행하시겠습니까?`)) return;
+      if (!confirm(t('{source} → {target} 병합{mode}을 실행하시겠습니까?', { source: branch, target: detail.branch, mode: modeLabel }))) return;
       const result = await runGit('merge', { branch, no_ff: mode === 'no_ff', squash: mode === 'squash' }, { showConsole: true });
       if (result?.success && mode === 'squash') {
-        toast('squash 병합은 변경만 스테이징합니다. 커밋 메시지를 작성해 커밋하십시오.');
+        toast(t('squash 병합은 변경만 스테이징합니다. 커밋 메시지를 작성해 커밋하십시오.'));
         $('gitCommitMessage').value = `Merge branch '${branch}' (squash)`;
         setTab('changes');
       }
     } else if (action === 'delete') {
-      if (!confirm(`로컬 브랜치 ${branch} 를 삭제하시겠습니까?`)) return;
+      if (!confirm(t('로컬 브랜치 {branch} 를 삭제하시겠습니까?', { branch }))) return;
       const result = await runGit('delete_branch', { branch });
       if (result && !result.success && /not fully merged/.test(result.output)
-        && confirm(`${branch} 는 아직 병합되지 않은 커밋이 있습니다. 강제로 삭제하시겠습니까? (커밋을 잃을 수 있음)`)) {
+        && confirm(t('{branch} 는 아직 병합되지 않은 커밋이 있습니다. 강제로 삭제하시겠습니까? (커밋을 잃을 수 있음)', { branch }))) {
         runGit('delete_branch', { branch, force: true });
       }
     }
@@ -1294,7 +1301,7 @@
     if (result?.success) $('gitNewBranchName').value = '';
   });
 
-  // 스태시
+  // Stash
   $('gitStashForm').addEventListener('submit', async (event) => {
     event.preventDefault();
     const result = await runGit('stash', { message: $('gitStashMessage').value, include_untracked: $('gitStashUntracked').checked });
@@ -1305,17 +1312,17 @@
     if (!button) return;
     const ref = button.closest('[data-stash]').dataset.stash;
     const action = button.dataset.stashAction;
-    if (action === 'stash_drop' && !confirm(`${ref} 를 삭제하시겠습니까? 복구할 수 없습니다.`)) return;
+    if (action === 'stash_drop' && !confirm(t('{ref} 를 삭제하시겠습니까? 복구할 수 없습니다.', { ref }))) return;
     runGit(action, { stash_ref: ref });
   });
 
-  // 콘솔
+  // Console
   $('gitClearConsole').addEventListener('click', () => {
-    $('gitConsole').textContent = 'Git 작업 결과가 여기에 표시됩니다.';
+    $('gitConsole').textContent = t('Git 작업 결과가 여기에 표시됩니다.');
     $('gitConsoleDot').classList.replace('bg-cyan-400', 'bg-white/20');
   });
 
-  // 사이드바 컨트롤
+  // Sidebar controls
   $('gitRepositorySearch').addEventListener('input', renderList);
   $('gitRefreshRepositories').addEventListener('click', () => loadRepositories());
   $('gitNewFolder').addEventListener('click', () => createFolder());
@@ -1348,7 +1355,7 @@
   window.addEventListener('resize', closeMenus);
   $('gitRepositoryList').addEventListener('scroll', closeMenus);
 
-  // 주기적 갱신: 화면이 보일 때만, 작업 중이 아닐 때만
+  // Periodic refresh: only while the page is visible and no action is running
   setInterval(() => {
     if (document.visibilityState === 'visible' && !state.busy) refreshDetail({ quiet: true });
   }, 15000);
@@ -1358,7 +1365,7 @@
 
   loadRepositories();
 
-  // 휴대폰에서는 목록 아래에 상세가 있으므로, 저장소를 고르면 상세로 내려간다.
+  // On phones the detail sits below the list, so picking a repository scrolls down to the detail.
   if (window.matchMedia('(max-width: 1279.98px)').matches) {
     document.getElementById('gitRepositoryList')?.addEventListener('click', (event) => {
       if (!event.target.closest('.git-repo-item') || event.target.closest('button[data-repo-menu], .git-row-actions')) return;
@@ -1369,8 +1376,8 @@
   $('gitSortBtn').addEventListener('click', () => {
     const current = sortMode();
     window.UnivDashUI.actionSheet({
-      title: '저장소 정렬 기준',
-      subtitle: '즐겨찾기 · 폴더 · 미분류 안에서 정렬됩니다. 휴대폰 · PC 에 같이 적용됩니다.',
+      title: t('저장소 정렬 기준'),
+      subtitle: t('즐겨찾기 · 폴더 · 미분류 안에서 정렬됩니다. 휴대폰 · PC 에 같이 적용됩니다.'),
       actions: Object.entries(SORTS).map(([id, sort]) => ({
         icon: sort.icon, label: sort.label, desc: sort.desc, sub: id === current ? '✓' : '', current: id === current,
         onClick: () => { state.prefs.sort = id; renderList(); savePrefs(); },

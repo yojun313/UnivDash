@@ -14,19 +14,19 @@
                 </div>
                 <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full lg:w-auto">
                     <label class="relative w-full sm:w-64">
-                        <span class="sr-only">프로세스 검색</span>
-                        <input type="search" id="procSearch" placeholder="프로세스 검색..."
+                        <span class="sr-only">{{ t("프로세스 검색") }}</span>
+                        <input type="search" id="procSearch" placeholder="{{ t('프로세스 검색...') }}"
                                class="w-full glass-input rounded-xl pl-9 pr-4 py-2 text-sm text-white placeholder-white/30">
                         <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-xs text-white/40"></i>
                     </label>
                     <button id="pm2SaveButton" type="button" class="btn-glow px-4 py-2 rounded-xl text-sm font-bold flex items-center justify-center gap-2">
-                        <i class="fas fa-floppy-disk text-xs"></i> 저장 (Save)
+                        <i class="fas fa-floppy-disk text-xs"></i> {{ t("저장 (Save)") }}
                     </button>
-                    <button id="pm2RestartAllButton" type="button" class="glass-soft hover:bg-white/10 text-amber-300 px-4 py-2 rounded-xl text-sm font-bold transition flex items-center justify-center gap-2" title="모든 PM2 앱 재시작 (--update-env)">
-                        <i class="fas fa-arrows-rotate text-xs"></i> 전체 재시작
+                    <button id="pm2RestartAllButton" type="button" class="glass-soft hover:bg-white/10 text-amber-300 px-4 py-2 rounded-xl text-sm font-bold transition flex items-center justify-center gap-2" title="{{ t('모든 PM2 앱 재시작 (--update-env)') }}">
+                        <i class="fas fa-arrows-rotate text-xs"></i> {{ t("전체 재시작") }}
                     </button>
                     <button id="pageReloadButton" type="button" class="glass-soft hover:bg-white/10 text-white/70 px-4 py-2 rounded-xl text-sm font-bold transition flex items-center justify-center gap-2">
-                        <i class="fas fa-rotate text-xs"></i> 새로고침
+                        <i class="fas fa-rotate text-xs"></i> {{ t("새로고침") }}
                     </button>
                 </div>
             </div>
@@ -37,7 +37,7 @@
                         <div class="flex justify-between items-center">
                             <p class="text-xs text-white/50 font-bold uppercase tracking-wider"><i class="fas fa-microchip mr-1.5 text-emerald-400"></i>CPU Total</p>
                             <span class="flex items-center gap-1.5">
-                                <span id="srvCpuTemp" class="hidden text-[10px] font-mono font-bold px-2 py-0.5 rounded border" title="CPU 온도"></span>
+                                <span id="srvCpuTemp" class="hidden text-[10px] font-mono font-bold px-2 py-0.5 rounded border" title="{{ t('CPU 온도') }}"></span>
                                 <span id="srvCpuCount" class="text-[10px] bg-white/10 text-white/60 font-mono px-2 py-0.5 rounded"></span>
                             </span>
                         </div>
@@ -114,7 +114,7 @@
             <div class="mb-4 mt-2 flex items-end justify-between">
                 <div>
                     <h2 class="text-lg font-bold text-white"><i class="fas fa-layer-group mr-2 text-blue-400"></i>PM2 Processes</h2>
-                    <p class="mt-1 text-xs text-white/40">실행 상태, 사용량, 로그와 프로세스 제어</p>
+                    <p class="mt-1 text-xs text-white/40">{{ t("실행 상태, 사용량, 로그와 프로세스 제어") }}</p>
                 </div>
                 <span class="text-[10px] font-bold text-white/40">{{ processes | length }} processes</span>
             </div>
@@ -138,7 +138,7 @@
                                 <td class="p-4">
                                     <div class="font-bold text-white/90 flex items-center gap-2">
                                         {{ proc.name }}
-                                        <button type="button" data-proc-action="chart" data-name="{{ proc.name }}" class="text-white/40 hover:text-blue-300 p-0.5 transition" title="자원 그래프 보기" aria-label="{{ proc.name }} 자원 그래프 보기">
+                                        <button type="button" data-proc-action="chart" data-name="{{ proc.name }}" class="text-white/40 hover:text-blue-300 p-0.5 transition" title="{{ t('자원 그래프 보기') }}" aria-label="{{ t('{name} 자원 그래프 보기', name=proc.name) }}">
                                             <i class="fas fa-chart-line text-xs"></i>
                                         </button>
                                     </div>
@@ -167,12 +167,12 @@
                                 </td>
                                 <td class="p-4 text-right">
                                     <div class="flex justify-end gap-1.5">
-                                        <button type="button" data-proc-action="logs" data-name="{{ proc.name }}" class="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-600 hover:text-white transition" title="Logs" aria-label="{{ proc.name }} 로그"><i class="fas fa-file-lines text-xs"></i></button>
+                                        <button type="button" data-proc-action="logs" data-name="{{ proc.name }}" class="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-600 hover:text-white transition" title="Logs" aria-label="{{ t('{name} 로그', name=proc.name) }}"><i class="fas fa-file-lines text-xs"></i></button>
                                         {% if proc.git %}<button type="button" data-proc-action="git-pull" data-name="{{ proc.name }}" class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-600 hover:text-white transition" title="git pull (--ff-only)" aria-label="{{ proc.name }} git pull"><i class="fas fa-code-pull-request text-xs"></i></button>{% endif %}
-                                        {% if proc.uv %}<button type="button" data-proc-action="uv-sync" data-name="{{ proc.name }}" class="w-8 h-8 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-600 hover:text-white transition" title="uv sync (의존성 동기화)" aria-label="{{ proc.name }} uv sync"><i class="fas fa-box-open text-xs"></i></button>{% endif %}
-                                        <button type="button" data-proc-action="restart" data-name="{{ proc.name }}" class="w-8 h-8 rounded-lg bg-white/10 text-white/70 hover:bg-white/20 hover:text-white transition" title="Restart (--update-env)" aria-label="{{ proc.name }} 재시작"><i class="fas fa-rotate-right text-xs"></i></button>
-                                        <button type="button" data-proc-action="stop" data-name="{{ proc.name }}" class="w-8 h-8 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-600 hover:text-white transition" title="Stop" aria-label="{{ proc.name }} 중지"><i class="fas fa-stop text-xs"></i></button>
-                                        <button type="button" data-proc-action="delete" data-name="{{ proc.name }}" class="w-8 h-8 rounded-lg bg-orange-500/10 text-orange-400 hover:bg-orange-600 hover:text-white transition" title="Delete" aria-label="{{ proc.name }} 삭제"><i class="fas fa-trash-can text-xs"></i></button>
+                                        {% if proc.uv %}<button type="button" data-proc-action="uv-sync" data-name="{{ proc.name }}" class="w-8 h-8 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-600 hover:text-white transition" title="{{ t('uv sync (의존성 동기화)') }}" aria-label="{{ proc.name }} uv sync"><i class="fas fa-box-open text-xs"></i></button>{% endif %}
+                                        <button type="button" data-proc-action="restart" data-name="{{ proc.name }}" class="w-8 h-8 rounded-lg bg-white/10 text-white/70 hover:bg-white/20 hover:text-white transition" title="Restart (--update-env)" aria-label="{{ t('{name} 재시작', name=proc.name) }}"><i class="fas fa-rotate-right text-xs"></i></button>
+                                        <button type="button" data-proc-action="stop" data-name="{{ proc.name }}" class="w-8 h-8 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-600 hover:text-white transition" title="Stop" aria-label="{{ t('{name} 중지', name=proc.name) }}"><i class="fas fa-stop text-xs"></i></button>
+                                        <button type="button" data-proc-action="delete" data-name="{{ proc.name }}" class="w-8 h-8 rounded-lg bg-orange-500/10 text-orange-400 hover:bg-orange-600 hover:text-white transition" title="Delete" aria-label="{{ t('{name} 삭제', name=proc.name) }}"><i class="fas fa-trash-can text-xs"></i></button>
                                     </div>
                                 </td>
                             </tr>
@@ -187,7 +187,7 @@
                             <tr>
                                 <td colspan="7" class="py-16 text-center text-white/35">
                                     <i class="far fa-folder-open text-3xl mb-3 opacity-50"></i>
-                                    <p class="text-sm">실행 중인 PM2 프로세스가 없습니다.</p>
+                                    <p class="text-sm">{{ t("실행 중인 PM2 프로세스가 없습니다.") }}</p>
                                 </td>
                             </tr>
                             {% endfor %}
@@ -202,10 +202,10 @@
                         <h2 class="text-lg font-bold text-white"><i class="fas fa-file-code mr-2 text-purple-400"></i>Ecosystem</h2>
                         <p id="ecoPath" class="mt-1 truncate font-mono text-[11px] text-white/40">ecosystem.config.js</p>
                     </div>
-                    <button id="ecoAddBtn" type="button" class="btn-glow flex-shrink-0 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2"><i class="fas fa-plus text-xs"></i> 새 앱</button>
+                    <button id="ecoAddBtn" type="button" class="btn-glow flex-shrink-0 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2"><i class="fas fa-plus text-xs"></i> {{ t("새 앱") }}</button>
                 </div>
                 <div id="ecoList" class="glass rounded-2xl overflow-hidden divide-y divide-white/5">
-                    <div class="p-5 text-xs text-white/35">불러오는 중...</div>
+                    <div class="p-5 text-xs text-white/35">{{ t("불러오는 중...") }}</div>
                 </div>
             </section>
         </div>
@@ -221,7 +221,7 @@
                     </div>
                     <h3 id="logTitle" class="font-bold text-white text-sm font-mono tracking-wider uppercase truncate">PROCESS LOGS</h3>
                 </div>
-                <button id="logCloseButton" type="button" class="text-white/40 hover:text-white transition p-1" aria-label="로그 닫기">
+                <button id="logCloseButton" type="button" class="text-white/40 hover:text-white transition p-1" aria-label="{{ t('로그 닫기') }}">
                     <i class="fas fa-times text-lg"></i>
                 </button>
             </div>

@@ -1,179 +1,230 @@
-# UnivDash
-
-A self-hosted dashboard for **driving Claude Code and Codex from your phone**. Every tmux window on the server shows up in one list: see which agent is working, which one is waiting for your answer, read the full conversation, and send the next prompt (with photos and files) from anywhere. The same console also manages **server resources, PM2 processes, AI usage limits and Git repositories**.
-
-Built as a mobile-first web app (installable to the iPhone home screen as a PWA) on FastAPI, with no database and no external CDN.
+<h1 align="center">UnivDash</h1>
 
 <p align="center">
-  <img src="./static/imgs/1.png" alt="Workspace" width="92%">
+  <b>Run Claude Code, Codex and Gemini from your phone.</b><br>
+  A self-hosted web dashboard for the coding agents in your tmux sessions.
 </p>
 
-<table>
-  <tr>
-    <td align="center" width="25%"><img src="./static/imgs/mobile/1.png" alt="Workspace (mobile)" width="100%"><br><sub>Workspace</sub></td>
-    <td align="center" width="25%"><img src="./static/imgs/mobile/2.png" alt="Window organizer (mobile)" width="100%"><br><sub>Organizer</sub></td>
-    <td align="center" width="25%"><img src="./static/imgs/mobile/3.png" alt="AI usage (mobile)" width="100%"><br><sub>AI Usage</sub></td>
-    <td align="center" width="25%"><img src="./static/imgs/mobile/4.png" alt="Git manager (mobile)" width="100%"><br><sub>Git</sub></td>
-  </tr>
-</table>
+<p align="center">
+  <a href="https://yojun313.github.io/UnivDash/">Website</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#configuration">Configuration</a> ·
+  <a href="#security">Security</a>
+</p>
 
-<table>
-  <tr>
-    <td align="center" width="50%"><img src="./static/imgs/2.png" alt="Git manager" width="100%"><br><sub>Git: stage, commit, branch, merge, stash, push, AI commit messages</sub></td>
-    <td align="center" width="50%"><img src="./static/imgs/3.png" alt="AI usage" width="100%"><br><sub>Claude Code / Codex remaining limits, accounts and token statistics</sub></td>
-  </tr>
-  <tr>
-    <td align="center" colspan="2"><img src="./static/imgs/4.png" alt="Server & processes" width="50%"><br><sub>Server resources, PM2 processes and ecosystem.config.js</sub></td>
-  </tr>
-</table>
+<p align="center">
+  <img src="./docs/assets/screens/desktop-workspace.png" alt="UnivDash workspace: window list with agent states, the full conversation with tool calls and diffs" width="94%">
+</p>
 
----
+UnivDash turns the tmux sessions on your server into a dashboard you open in a browser. Every window shows up in one list with the agent running in it and its state: **working**, **waiting for your answer**, or **idle**. Open one to read the whole conversation, answer a permission prompt with one tap, or send the next prompt with photos and files attached, from a laptop or from the phone in your pocket.
 
-## 1. Features
+Around that it puts the things you otherwise open five tools for: remaining usage limits, several accounts per agent, a Git client, server and process monitoring, a file explorer, read-only sharing, and an OpenAI-compatible API in front of your subscriptions.
 
-* **Workspace for coding agents**: every tmux window in one list with the running agent (Claude Code / Codex / shell), the task title the agent set, working directory and last activity. Status is detected per window: *working*, *needs your answer* (permission / choice prompts) or *idle*, with an unread dot when a reply arrived that you have not seen.
-* **Sorting & filters**: by status (unread replies first, then working, needs answer, idle), recent activity, name, or your own order. Filter chips for needs-answer / working / agents, search, and hidden windows.
-* **Prompt from the phone**: a chat-style composer that sends multi-line prompts as a bracketed paste (no line-by-line submits), per-window drafts, quick phrases and recent prompts, plus a key bar for `Esc`, `⇧Tab`, arrows, `1/2/3`, `y/n`, `^C`, `^O`, `PgUp/PgDn`… that never closes the keyboard.
-* **Direct terminal mode**: every key you press goes straight to the pane, including Korean IME input on iOS / Android.
-* **Live screen and full conversation history**: the pane is streamed with ANSI colors and cursor (wrap / fit-to-width / raw views). Because Claude Code draws on the alternate screen and leaves no tmux scrollback, the *Chat* tab (shown first) reads the agent's own session log (`~/.claude`, `~/.codex`) so you can scroll the whole conversation from the first prompt, with collapsible tool calls. New messages are pushed over the WebSocket as soon as the agent writes them.
-* **Photos & files**: attach from the photo library / camera / files, paste a screenshot, or drag & drop onto the terminal (or onto another window in the list). Images are pasted as paths so Claude Code and Codex attach them natively as `[Image #1]`.
-* **Window organizer in the `⋯` menu**: folders with colors, move up / down, hide windows, and rename, which renames the real tmux session and carries folders / order / drafts over. Folder headers have their own menu (edit, reorder, collapse, delete). New tmux sessions can be started with Claude, Codex, a shell or a custom command.
-* **Prompt history**: `↑` / `↓` in the composer (or the ⌃ ⌄ buttons on the phone) walks through the prompts you sent; the key bar can be collapsed.
-* **Explorer**: a VS Code-like file tree over your server, in its own page and as the *Files* tab next to the window list. Hidden-file toggle, six sort orders (including your own order per folder), hide items, pin roots, search, copy absolute / relative path, new / rename / cut / copy / paste / delete (to a trash folder), upload by button or drag & drop onto any folder, download, and "insert path into the prompt".
-* **File viewer & editor**: tabs that survive page changes and reloads (scroll, zoom and unsaved edits are kept), syntax highlighting, rendered Markdown with a code toggle, images, video / audio, PDFs and Office documents (docx, xlsx, pptx, hwp…) rendered to page images on the server (works in the iPhone home-screen app), HWPX (한글) documents with tables and images, Jupyter notebooks, CSV tables, SQLite tables, archive listings, HEIC / TIFF images, and a hex view for any other binary. Search within file viewers and editors with `Ctrl/⌘+F`, including text in PDF and Office documents; use `Enter` / `Shift+Enter` to navigate matches and `Esc` to close. Edit text files with `Ctrl/⌘+S`; saving refuses to overwrite a file an agent changed in the meantime unless you confirm.
-* **Server & processes**: CPU per core, memory / swap, disk, network; PM2 status, restart / stop / delete, watch toggle, resource charts, live logs, `pm2 save` and startup status. Add apps to `ecosystem.config.js` from a form (script and `.venv` interpreter are suggested from the folder) and start them with `pm2 start --only`.
-* **AI usage**: remaining Claude Code and Codex limits (current session and weekly), token statistics for today / 7 / 30 days, daily, hourly and weekday charts, per-model and per-project breakdowns.
-* **Git manager**: repositories discovered under configured roots, folders / favorites / aliases, diffs, staging, commit (amend) and commit & push, fetch / pull (rebase) / push (force-with-lease), branches, merges (no-ff / squash), stashes, revert, per-repository auto pull on a schedule (fast-forward only).
-* **Domains**: nginx reverse-proxy domains and paths, SSL certificates through certbot, rename with automatic rollback, display folders.
-* **Feels like an app on the phone**: bottom tab bar, bottom sheets, long-press menus, no zoom, safe-area aware layout, the keyboard never covers the input, and notifications when an agent finishes or needs you.
-* **Themes**: Aurora / Gradient Mesh / Apple Glass / Minimal Flat, dark & light mode.
+It is one FastAPI process with no database and no external CDN. English and Korean interface.
 
----
-
-## 2. System Requirements
-
-* **Linux server** with **tmux** (developed on tmux 3.4).
-* **Python 3.12+**, managed with [uv](https://docs.astral.sh/uv/).
-* **Node.js + PM2** for the server page (optional; the rest works without them).
-* **poppler-utils** (`pdftoppm`, `pdfinfo`) to view PDFs in the Explorer (optional): `sudo apt install poppler-utils`.
-* **LibreOffice** to view Office documents (docx / xlsx / pptx / odt / rtf / hwp …) and **ffmpeg** for HEIC / TIFF images (optional). HWPX is rendered by UnivDash itself.
-* **Claude Code** and/or **Codex** running inside tmux on the same machine.
-* **HTTPS in production** (reverse proxy such as nginx / Caddy / Cloudflare Tunnel, or Tailscale), since this app can type into your terminals.
-
----
-
-## 3. Installation
-
-### 1) Install uv (Ubuntu / Debian)
+## Quick start
 
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/yojun313/UnivDash/main/install.sh | sh
 ```
 
-### 2) Setup Python Environment
+The installer needs `git`, `tmux` and `curl`, and never uses sudo. It:
+
+1. installs [uv](https://docs.astral.sh/uv/) into your home folder if it is missing,
+2. downloads UnivDash into `~/UnivDash` and installs its dependencies,
+3. asks for a login name, a password (press Enter to generate one) and a port,
+4. starts the dashboard in the background and prints its address.
+
+Then manage it with the launcher:
+
+```bash
+~/UnivDash/univdash status    # is it running, and where
+~/UnivDash/univdash logs      # watch the output
+~/UnivDash/univdash down      # stop
+~/UnivDash/univdash up        # start in the background
+~/UnivDash/univdash update    # pull the latest version
+~/UnivDash/univdash setup     # change the login or port
+```
+
+<details>
+<summary>Manual install</summary>
 
 ```bash
 git clone https://github.com/yojun313/UnivDash.git
 cd UnivDash
-
 uv sync
-source .venv/bin/activate
+uv run python tools/setup.py     # writes .env (login, secret key, port)
+uv run python run.py
 ```
 
-### 3) Configuration
+`python run.py` runs the setup by itself when there is no `.env` yet.
+</details>
 
-Create a `.env` file in the root directory. There exists `.env.example` in root directory.
+<details>
+<summary>Try it without touching your own sessions (demo mode)</summary>
+
+```bash
+uv run python tools/demo/demo.py up      # http://127.0.0.1:7999 · alex / univdash-demo-2026
+uv run python tools/demo/demo.py down
+```
+
+The demo runs in its own folder with its own tmux socket, made-up projects, conversations and usage, and stand-in agents that only draw a screen. It reads no real account and calls no provider. The screenshots on this page come from it (`tools/demo/capture.py`).
+</details>
+
+### Use it from your phone
+
+UnivDash listens on `127.0.0.1` by default. To reach it from a phone, put it behind HTTPS: [Tailscale](https://tailscale.com/kb/1223/funnel) or a Cloudflare Tunnel are the quickest; nginx and Caddy work too. Then set `SESSION_HTTPS_ONLY=true` and `ALLOWED_HOSTS=your.domain` in `.env`.
+
+On iPhone, open the site in Safari → Share → **Add to Home Screen**. It runs full screen with its own icon and receives notifications.
+
+<table>
+  <tr>
+    <td align="center" width="25%"><img src="./docs/assets/screens/mobile-list.png" alt="Window list on a phone" width="100%"><br><sub>Every window and its state</sub></td>
+    <td align="center" width="25%"><img src="./docs/assets/screens/mobile-workspace.png" alt="Conversation on a phone" width="100%"><br><sub>Read and reply</sub></td>
+    <td align="center" width="25%"><img src="./docs/assets/screens/mobile-usage.png" alt="Usage on a phone" width="100%"><br><sub>Limits at a glance</sub></td>
+    <td align="center" width="25%"><img src="./docs/assets/screens/mobile-git.png" alt="Git on a phone" width="100%"><br><sub>Commit and push</sub></td>
+  </tr>
+</table>
+
+## Features
+
+### Agents
+
+| | |
+|---|---|
+| **Three agents, one list** | Claude Code, Codex and Gemini (Antigravity CLI) are recognised by the process running in each tmux window. Anything else is a plain terminal you can still read and type into. |
+| **State per window** | *Working*, *needs your answer* (permission and choice prompts) or *idle*, with an unread mark when a reply arrived that you have not seen. Sort by state, activity, name or your own order; group windows into colored folders. |
+| **The whole conversation** | The chat view reads the agent's own session log, so it goes back to the first prompt even though the terminal has no scrollback. Tool calls fold away, edits are shown as diffs, sub-agents open inline, and search covers every prompt and answer. |
+| **One-tap answers** | When an agent asks, the question and its choices appear under the chat as buttons. |
+| **Prompting from a phone** | Multi-line prompts sent as one paste, per-window drafts, quick phrases and history, a key bar (`Esc`, `⇧Tab`, arrows, `^C`…), photos / files / pasted screenshots attached the way the agent expects them. |
+| **Start, restart, switch** | Start a session with any agent, update and restart it into the same conversation, switch a window to another agent and hand the conversation over, or fork a conversation into a new session. |
+| **Models and accounts** | Change the model from a button. Keep several logins per agent and switch between them; windows come back in the same conversation. Codex can switch accounts by itself when a limit runs out. |
+| **Survives reboots** | Sessions and their conversations are restored after the server restarts. |
+
+<p align="center">
+  <img src="./docs/assets/screens/desktop-waiting.png" alt="An agent waiting for permission, with the choices shown as buttons" width="80%">
+</p>
+
+### Usage and API
+
+| | |
+|---|---|
+| **Remaining limits** | Session and weekly limits for every account, on the usage page and next to the window you are in. |
+| **Token statistics** | Today, 7 and 30 days; by day, hour, weekday, model and project. |
+| **OpenAI-compatible API** | `/llm/v1/chat/completions` and `/llm/v1/models` in front of your Claude, Codex and Gemini subscriptions, with API keys, per-key limits, account rotation and a request log. Each request runs the CLI as a pure model (no tools) inside a persistent Docker container with no network except the provider, a read-only filesystem and no capabilities. |
+
+<table>
+  <tr>
+    <td align="center" width="50%"><img src="./docs/assets/screens/desktop-usage.png" alt="Usage limits and token statistics" width="100%"><br><sub>Limits, accounts and token statistics</sub></td>
+    <td align="center" width="50%"><img src="./docs/assets/screens/desktop-api.png" alt="OpenAI-compatible API management" width="100%"><br><sub>OpenAI-compatible API: keys, accounts, request log</sub></td>
+  </tr>
+</table>
+
+### Git, server and files
+
+| | |
+|---|---|
+| **Git** | Repositories discovered under your folders. Diffs, staging, commit / amend, push, pull (rebase), branches, merges, stashes, revert, scheduled fast-forward pulls, and commit messages drafted by a model you configure. |
+| **Server** | CPU per core, GPU, memory, disk and network; PM2 processes with logs, restart and `ecosystem.config.js` editing. |
+| **Domains** | nginx reverse-proxy domains and certbot certificates through one small root helper with a single sudo rule. |
+| **Explorer** | A file tree over your server with upload, download, rename, move and trash. Viewer and editor tabs for code, Markdown, images, video, PDF, Office and HWP documents, and Jupyter notebooks; Markdown exports to PDF. |
+| **Terminal** | A plain shell tab next to your agents, split views, and popping tabs out into their own window. |
+| **Sharing** | Read-only links for a file, a folder, a live terminal or a whole agent conversation, protected by an access code, with secrets masked. |
+
+<table>
+  <tr>
+    <td align="center" width="50%"><img src="./docs/assets/screens/desktop-git.png" alt="Git manager" width="100%"><br><sub>Git</sub></td>
+    <td align="center" width="50%"><img src="./docs/assets/screens/desktop-server.png" alt="Server and processes" width="100%"><br><sub>Server and PM2 processes</sub></td>
+  </tr>
+</table>
+
+### The rest
+
+Installable as a home-screen app with push notifications · keyboard shortcuts you can remap · four themes in dark and light · English and Korean (Settings › Display) · every setting stored on the server, so the phone and the desktop see the same layout.
+
+## Requirements
+
+- **Linux** with **tmux** (developed on Ubuntu with tmux 3.4) and **Python 3.12+** (installed by uv). macOS is not tested yet; on Windows use WSL.
+- At least one agent CLI inside tmux: **Claude Code**, **Codex** or **Antigravity CLI** (`agy`). Missing ones can be installed for you at start-up.
+- Optional: **Node.js + PM2** (server page), **Docker** (OpenAI-compatible API), **poppler-utils** and **LibreOffice** (PDF and Office preview), **ffmpeg** (HEIC / TIFF images).
+
+## Configuration
+
+Settings live in `.env` in the project folder. `tools/setup.py` writes the first four for you.
 
 | Key | Description |
 |---|---|
-| `ADMIN_USER` | Login user name |
-| `ADMIN_PASS` / `ADMIN_PASS_HASH` | Password (12+ characters), or a PBKDF2 hash from `python tools/security.py hash-password` |
-| `ADMIN_TOTP_SECRET` | Enables two-factor login with an authenticator app (`python tools/security.py totp`) |
-| `SECRET_KEY` | Session secret, 32+ characters (`python tools/security.py secret-key`) |
+| `ADMIN_USER` | Login name |
+| `ADMIN_PASS_HASH` / `ADMIN_PASS` | Password as a PBKDF2 hash (`python tools/security.py hash-password`), or in plain text (12+ characters) |
+| `SECRET_KEY` | Session secret, 32+ characters |
 | `HOST`, `PORT` | Bind address (default `127.0.0.1`) and port (default `8000`) |
-| `SESSION_HTTPS_ONLY` | `true` behind HTTPS: `__Host-` secure cookie, HSTS |
+| `ADMIN_TOTP_SECRET` | Two-factor login with an authenticator app (`python tools/security.py totp`) |
+| `SESSION_HTTPS_ONLY` | `true` behind HTTPS: `__Host-` secure cookie and HSTS |
 | `ALLOWED_HOSTS` | Allowed `Host` headers, e.g. `dash.example.com` (blocks DNS rebinding) |
-| `SESSION_MAX_HOURS`, `SESSION_IDLE_MINUTES` | Session lifetime (default `12` h) and idle timeout (default `240` min) |
-| `GIT_REPOSITORY_ROOTS`, `GIT_REPOSITORIES` | Where to discover Git repositories (`:` separated, default: the parent folder of UnivDash) |
+| `SESSION_MAX_HOURS`, `SESSION_IDLE_MINUTES` | Session lifetime (default 12 h) and idle timeout (default 240 min) |
+| `UNIVDASH_LANG` | Default language for text produced outside a browser request, such as notifications (`ko` or `en`) |
+| `GIT_REPOSITORY_ROOTS`, `GIT_REPOSITORIES` | Where to look for Git repositories (`:` separated) |
+| `EXPLORER_ROOTS` | Folders the Explorer may open (default: your home folder) |
 | `PM2_ECOSYSTEM_FILE` | PM2 ecosystem file (default `~/ecosystem.config.js`) |
-| `CLAUDE_DATA_DIR`, `CODEX_DATA_DIR` | Agent data folders if not `~/.claude`, `~/.codex` |
-| `AUTO_INSTALL_TOOLS` | Install missing Claude Code, Codex and a PDF Chrome at startup, without sudo (default `1`; `0` turns it off) |
-| `EXPLORER_ROOTS` | Folders the Explorer may open (`:` separated, default: your home folder) |
-| `UNIVDASH_DATA_DIR` | Sessions and settings (default `~/.univdash/data`; keep it outside the project if PM2 watches the folder) |
-| `UNIVDASH_UPLOAD_DIR`, `UNIVDASH_UPLOAD_MAX_MB`, `UNIVDASH_UPLOAD_TTL_DAYS` | Attachment originals (default `~/.univdash/uploads`, 50 MB, kept 24 hours). Expired files are removed at startup and every 5 minutes, even without new uploads. Claude/Codex session logs are separate. |
+| `CLAUDE_DATA_DIR`, `CODEX_DATA_DIR`, `GEMINI_DATA_DIR` | Agent data folders, if not `~/.claude`, `~/.codex`, `~/.gemini/antigravity-cli` |
+| `AUTO_INSTALL_TOOLS` | Install missing agent CLIs and a headless Chrome at start-up, without sudo (default `1`) |
+| `UNIVDASH_DATA_DIR` | Sessions and settings (default `~/.univdash/data`) |
+| `UNIVDASH_UPLOAD_DIR`, `UNIVDASH_UPLOAD_MAX_MB`, `UNIVDASH_UPLOAD_TTL_DAYS` | Attachment storage (default `~/.univdash/uploads`, 50 MB, kept 1 day) |
 
-### 4) Run the Server
+## Security
 
-```bash
-python3 run.py
-```
+UnivDash can type into your terminals, so treat access to it like shell access.
 
-The app is served on `http://127.0.0.1:8000`. Put it behind an HTTPS reverse proxy for phone access.
+- **Login**: PBKDF2 password hash, optional TOTP (codes cannot be reused), per-IP and global rate limits, audit log.
+- **Sessions**: random IDs stored server-side as hashes; sign out everywhere; idle and absolute expiry; changing the password ends every session.
+- **Browser**: no external CDN, strict CSP (`script-src 'self'`), same-origin `Origin` required for every write and WebSocket, `SameSite=Strict` cookies, no `/docs` or OpenAPI endpoints.
+- **Commands**: tmux, PM2, Git and Docker are run without a shell, on IDs that exist, with allow-lists. Uploads are authenticated before the body is read.
+- **Sharing**: 256-bit link tokens stored as hashes, access codes with lock-out, secrets redacted from shared screens.
+- **OpenAI-compatible API**: token-only (never reads the login cookie); each request runs in a container with no network except the provider, a read-only filesystem, dropped capabilities and a per-account user. Only a short-lived access token enters the container, never a refresh token.
+- **Domains**: one root-owned helper behind a single sudo rule; it accepts validated values only and rolls back on a failed `nginx -t`.
 
-### 5) Add to the iPhone Home Screen
+Found a problem? Please open a private security advisory on GitHub rather than a public issue.
 
-Open the site in **Safari → Share → Add to Home Screen**. It launches full-screen with its own icon, like a native app. Log in once inside the home-screen app (it keeps its own cookies). After changing the icon or app name, remove the icon and add it again.
+## How it works
 
----
+1. `tmux list-panes` and `capture-pane` are polled on the server and pushed over one WebSocket only when something changed. The browser renders the ANSI output itself.
+2. Prompts are sent with `load-buffer` + `paste-buffer -p` (bracketed paste) and then `Enter`, so multi-line text and image paths arrive as one paste.
+3. The chat view finds the session log of the exact agent process in the window (`~/.claude`, `~/.codex`, `~/.gemini/antigravity-cli`) and parses new lines as they are written.
+4. The window state comes from the visible screen: each agent draws its input box, spinner and prompts differently, and UnivDash recognises all three.
+5. Settings are JSON files in `~/.univdash/data`. There is no database.
 
-## 4. Security
-
-UnivDash can type into terminals and run PM2 / Git commands, so it is treated like shell access.
-
-* **Login**: 12+ character password or PBKDF2 hash, optional TOTP (codes cannot be reused), per-IP and global rate limits, generic error messages, audit logging with IP and user agent.
-* **Sessions**: random session IDs stored server-side (hashed); logout and *log out all devices* survive restarts; idle / absolute expiry; changing the password or TOTP secret invalidates every session; open WebSockets re-check the session.
-* **Browser**: no external CDN (Tailwind is prebuilt, Chart.js / SortableJS / Font Awesome / fonts are self-hosted) with a strict CSP `script-src 'self'`; same-origin `Origin` required for every state-changing request and WebSocket; `SameSite=Strict` cookies; `frame-ancestors 'none'`; no `/docs`, `/redoc`, `/openapi.json`.
-* **Domains**: the app runs one root-owned helper through a single sudo rule (`sudo bash tools/install_nginx_helper.sh`, once). The helper takes only validated domain, path, port and email values and writes the nginx config itself, so it never accepts config text. A failed `nginx -t` restores the previous config. Each change also needs a separate passphrase, set at install time, changeable on the Domains page with the current one, and stored as a root-only scrypt hash, so other processes of the dashboard user cannot call it silently. `sudo /usr/local/sbin/univdash-nginx harden` updates existing sites so nginx overwrites `X-Forwarded-*` and rejects HTTPS for unknown hosts.
-* **Server commands**: tmux / PM2 / Git / node are run without a shell, only on IDs that exist, with an allow-list of keys. Uploads are authenticated before the body is read, size-limited and named by the server.
-
-> After adding new Tailwind classes to templates or scripts, rebuild the CSS with `tools/build_css.sh`.
-
----
-
-## 5. How It Works
-
-1. `tmux list-panes` / `capture-pane -e` are polled on the server and pushed over a single WebSocket only when something changed; the browser renders the ANSI output itself.
-2. Prompts are sent with `tmux load-buffer` + `paste-buffer -p` (bracketed paste) followed by `Enter`, so multi-line text and image paths reach Claude Code / Codex as a paste.
-3. The chat tab finds the exact log of the running agent: `~/.claude/sessions/<pid>.json` → `projects/*/<sessionId>.jsonl` for Claude Code, and the `rollout-*.jsonl` the Codex process keeps open. New lines are parsed incrementally and pushed within ~0.4 s of the file changing.
-4. Sessions and folder / order / hidden settings are stored in `~/.univdash/data/*.json` on the server (outside the project, so `pm2 --watch` does not restart on every write), and the phone and the desktop see the same layout.
-
----
-
-## 6. Project Structure
+## Project structure
 
 ```
 app/
-  main.py                  FastAPI app, session & security middleware, static files
-  security.py              CSP / security headers, Host allow-list, Origin check, login rate limiter
-  routes/
-    pages.py               Page rendering (shared layout)
-    auth_routes.py         Login (password + TOTP), logout, log out all devices
-    tmux_routes.py         Workspace / organizer pages, WebSocket, sessions, transcript API
-    upload_routes.py       Attachment upload / delete
-    server_routes.py       Server stats, PM2 control & logs, ecosystem.config.js, AI usage
-    git_routes.py          Git manager API
-    domain_routes.py       Domains page API and console WebSocket
-  services/
-    tmux_service.py        tmux listing, capture, prompt / key input, status detection
-    transcript_service.py  Claude Code / Codex session log reader
-    preferences.py         Folders, order, hidden windows, sort mode
-    upload_service.py      Attachment storage
-    auth_service.py        Credentials, TOTP, server-side session registry
-    pm2_service.py         PM2 commands
-    ecosystem_service.py   Read / append apps in ecosystem.config.js
-    ai_usage_service.py    Claude Code / Codex usage from local logs
-    git_service.py         Git operations
-    git_auto_pull.py       Scheduled fast-forward pull per repository
-    codex_auto_switch.py   Switches Codex accounts when usage runs out and resumes stopped windows
-    session_move.py        Moves a tmux session to another folder and resumes its agents there
-    folder_rename.py       Relaunches an agent at the new path when its working folder is renamed
-    domain_service.py      Domain listing, display folders, helper calls
-    nginx_helper.py        Root helper for nginx / certbot (installed as /usr/local/sbin/univdash-nginx)
-  templates/               Jinja2 layout and pages
-  static/                  app.js, server.js, git.js, ai-usage.js, theme system, icons, vendor/
+  main.py, security.py, paths.py, assets.py
+  i18n/                 translation core and catalogs (en/*.json)
+  routes/               HTTP and WebSocket endpoints, by area
+    agents/  accounts/  llm_api/  git/  files/  sharing/  server/  core/
+  services/             the logic behind them, same areas
+    agents/             tmux, transcripts, restart / switch / restore, terminal tabs
+    accounts/           usage and limits, Claude / Codex / Gemini accounts and logins
+    llm_api/            OpenAI-compatible API and its container sandbox
+    git/                Git operations, workflows, scheduled pull, AI commit messages
+    files/              explorer, previews, PDF, uploads
+    sharing/            file and screen shares, access codes
+    server/             PM2, system monitor, domains, nginx helper
+    core/               login and sessions, push notifications, settings
+  templates/            Jinja2 pages
+  static/               scripts, styles, themes, self-hosted vendor files
 tools/
-  security.py              hash-password / totp / secret-key helpers
-  build_css.sh             Tailwind build (no CDN)
-  install_nginx_helper.sh  Installs the root helper and its single sudo rule
-run.py                     Server entry point
+  setup.py              first-run setup (.env)
+  security.py           password hash / TOTP / secret key helpers
+  i18n_check.py         finds untranslated strings
+  demo/                 demo world, stand-in agents, screenshot capture
+install.sh              one-line installer
+univdash                launcher (up / down / status / logs / setup / update)
+run.py                  server entry point
 ```
+
+## Contributing
+
+- **Translations**: Korean is the source language in the code; English lives in `app/i18n/en/*.json`. `uv run python tools/i18n_check.py` lists what is missing. See `app/i18n/__init__.py` to add a language.
+- **Styles**: after adding Tailwind classes, rebuild with `tools/build_css.sh` (no CDN is used).
+- **Checks**: `uvx ruff format` and `uvx ruff check` for Python, `node --check` for scripts.

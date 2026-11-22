@@ -8,7 +8,7 @@
   const fromEvent = (event) => viewers.find((v) => event.composedPath().includes(v.container));
   document.addEventListener('pointerdown', (e) => { last = fromEvent(e) || last; }, true);
   document.addEventListener('focusin', (e) => { last = fromEvent(e) || last; }, true);
-  // 찾기 · 바꾸기 · 다음/이전 찾기는 단축키 설정(keys.js)을 따른다. 기본: Ctrl/⌘+F · Ctrl+H(⌘⌥F) · F3 / Shift+F3
+  // Find, replace and find next/previous follow the shortcut settings (keys.js). Defaults: Ctrl/⌘+F · Ctrl+H(⌘⌥F) · F3 / Shift+F3
   const targetOf = (event) => [event && fromEvent(event), last, ...viewers].find((v) => v && visible(v) && v.hasFile());
   const keys = window.UnivDashKeys;
   keys?.register('find.open', (event) => {
@@ -39,21 +39,23 @@
     const name = `exfind${++serial}`;
     const bar = document.createElement('div');
     bar.className = 'exv-find'; bar.hidden = true;
-    bar.setAttribute('role', 'search'); bar.setAttribute('aria-label', '파일 내용 검색');
-    bar.innerHTML = '<button type="button" data-find="toggle-replace" class="exv-find-expand" aria-label="바꾸기 열기 / 닫기" aria-expanded="false" title="바꾸기 열기 / 닫기 (Ctrl+H · ⌘⌥F)"><i class="fas fa-chevron-right"></i></button>'
+    bar.setAttribute('role', 'search'); bar.setAttribute('aria-label', t('파일 내용 검색'));
+    // This label means "Replace"; elsewhere the same Korean word is translated as "Switch", so this one gets its own catalog key (empty {ctx}).
+    const replaceLabel = t('{ctx}바꾸기', { ctx: '' });
+    bar.innerHTML = `<button type="button" data-find="toggle-replace" class="exv-find-expand" aria-label="${t('바꾸기 열기 / 닫기')}" aria-expanded="false" title="${t('바꾸기 열기 / 닫기 (Ctrl+H · ⌘⌥F)')}"><i class="fas fa-chevron-right"></i></button>`
       + '<div class="exv-find-rows"><div class="exv-find-row">'
-      + '<div class="exv-find-field"><input type="search" class="exv-find-query" placeholder="찾기" aria-label="검색어" autocomplete="off" spellcheck="false">'
-      + '<button type="button" data-find="case" class="exv-find-opt" aria-label="대/소문자 구분" aria-pressed="false" title="대/소문자 구분 (Alt+C)">Aa</button>'
-      + '<button type="button" data-find="word" class="exv-find-opt" aria-label="단어 단위로" aria-pressed="false" title="단어 단위로 (Alt+W)"><u>ab</u></button>'
-      + '<button type="button" data-find="regex" class="exv-find-opt" aria-label="정규식 사용" aria-pressed="false" title="정규식 사용 (Alt+R)">.*</button></div>'
+      + `<div class="exv-find-field"><input type="search" class="exv-find-query" placeholder="${t('찾기')}" aria-label="${t('검색어')}" autocomplete="off" spellcheck="false">`
+      + `<button type="button" data-find="case" class="exv-find-opt" aria-label="${t('대/소문자 구분')}" aria-pressed="false" title="${t('대/소문자 구분 (Alt+C)')}">Aa</button>`
+      + `<button type="button" data-find="word" class="exv-find-opt" aria-label="${t('단어 단위로')}" aria-pressed="false" title="${t('단어 단위로 (Alt+W)')}"><u>ab</u></button>`
+      + `<button type="button" data-find="regex" class="exv-find-opt" aria-label="${t('정규식 사용')}" aria-pressed="false" title="${t('정규식 사용 (Alt+R)')}">.*</button></div>`
       + '<span class="exv-find-count" role="status" aria-live="polite"></span>'
-      + '<button type="button" data-find="prev" aria-label="이전 결과" title="이전 결과 (Shift+Enter)">↑</button>'
-      + '<button type="button" data-find="next" aria-label="다음 결과" title="다음 결과 (Enter)">↓</button>'
-      + '<button type="button" data-find="close" aria-label="검색 닫기" title="닫기 (Esc)">×</button></div>'
+      + `<button type="button" data-find="prev" aria-label="${t('이전 결과')}" title="${t('이전 결과 (Shift+Enter)')}">↑</button>`
+      + `<button type="button" data-find="next" aria-label="${t('다음 결과')}" title="${t('다음 결과 (Enter)')}">↓</button>`
+      + `<button type="button" data-find="close" aria-label="${t('검색 닫기')}" title="${t('닫기 (Esc)')}">×</button></div>`
       + '<div class="exv-find-row exv-replace-row" hidden>'
-      + '<div class="exv-find-field"><input type="text" class="exv-replace-query" placeholder="바꾸기" aria-label="바꿀 내용" autocomplete="off" spellcheck="false"></div>'
-      + '<button type="button" data-find="replace" class="exv-find-act" aria-label="바꾸기" title="바꾸기 (Enter)"><i class="fas fa-arrow-right-arrow-left"></i></button>'
-      + '<button type="button" data-find="replace-all" class="exv-find-act" aria-label="모두 바꾸기" title="모두 바꾸기 (Ctrl/⌘+Alt+Enter)"><i class="fas fa-check-double"></i></button>'
+      + `<div class="exv-find-field"><input type="text" class="exv-replace-query" placeholder="${replaceLabel}" aria-label="${t('바꿀 내용')}" autocomplete="off" spellcheck="false"></div>`
+      + `<button type="button" data-find="replace" class="exv-find-act" aria-label="${replaceLabel}" title="${t('바꾸기 (Enter)')}"><i class="fas fa-arrow-right-arrow-left"></i></button>`
+      + `<button type="button" data-find="replace-all" class="exv-find-act" aria-label="${t('모두 바꾸기')}" title="${t('모두 바꾸기 (Ctrl/⌘+Alt+Enter)')}"><i class="fas fa-check-double"></i></button>`
       + '</div></div>';
     body.before(bar);
     const input = bar.querySelector('.exv-find-query');
@@ -62,8 +64,8 @@
     const expand = bar.querySelector('.exv-find-expand');
     const count = bar.querySelector('.exv-find-count');
     const button = document.createElement('button');
-    button.type = 'button'; button.className = 'term-tool'; button.title = '파일에서 찾기 (Ctrl/⌘+F)';
-    button.setAttribute('aria-label', '파일에서 찾기'); button.innerHTML = '<i class="fas fa-magnifying-glass"></i>';
+    button.type = 'button'; button.className = 'term-tool'; button.title = t('파일에서 찾기 (Ctrl/⌘+F)');
+    button.setAttribute('aria-label', t('파일에서 찾기')); button.innerHTML = '<i class="fas fa-magnifying-glass"></i>';
     container.querySelector('[data-act="wrap"]')?.before(button);
     let matches = [], index = -1, request = 0, timer = 0, caseSensitive = false, wholeWord = false, useRegex = false, returnFocus = null;
     let replaceOpen = false, nextFrom = null;
@@ -78,14 +80,14 @@
       bar.querySelectorAll('[data-find="prev"], [data-find="next"]').forEach((b) => { b.disabled = !matches.length; });
       bar.querySelectorAll('[data-find="replace"], [data-find="replace-all"]').forEach((b) => { b.disabled = !matches.length || !getState().editor; });
     };
-    // VS Code 와 같은 검색 규칙: 대/소문자 · 단어 단위 · 정규식 (정규식이면 ^ $ 는 줄마다)
+    // Same search rules as VS Code: case, whole word, regex (with regex, ^ $ match per line)
     const WORD = '[\\p{L}\\p{N}_]';
     function buildRegex(query, global = true) {
       let source = useRegex ? query : escaped(query);
       if (wholeWord) source = `(?<!${WORD})(?:${source})(?!${WORD})`;
       return new RegExp(source, `${global ? 'g' : ''}u${caseSensitive ? '' : 'i'}${useRegex ? 'm' : ''}`);
     }
-    // 바꿀 내용: 정규식이면 $1 · $& · $<이름> 과 \n · \t 를 VS Code 처럼 풀어 쓴다
+    // Replacement text: with regex, $1 · $& · $<name> and \n · \t are expanded like VS Code
     function expandReplacement(hit, text) {
       const template = replaceInput.value;
       if (!useRegex) return template;
@@ -101,7 +103,7 @@
         return n && n < hit.length ? (hit[n] ?? '') : m;
       });
     }
-    // 편집기(textarea)는 글자에 색을 칠할 수 없어서, 같은 글꼴 · 줄바꿈의 복제 층을 뒤에 깔고 그 위에 표시한다
+    // The editor (textarea) cannot color its text, so a mirror layer with the same font and wrapping sits behind it and carries the highlights
     let layer = null, layerEditor = null;
     const scrolled = new WeakSet();
     function placeLayer() {
@@ -239,16 +241,16 @@
     async function refresh(reset = false) {
       if (bar.hidden) return;
       const mine = ++request, state = getState(), query = input.value;
-      if (!state.entry) { clearHighlights(); matches = []; status('파일을 열어 주십시오'); return; }
+      if (!state.entry) { clearHighlights(); matches = []; status(t('파일을 열어 주십시오')); return; }
       const key = `${state.entry.path}\0${!!state.editor}\0${state.pdf?.version || ''}\0${query}\0${caseSensitive}${wholeWord}${useRegex}`;
       reset ||= key !== signature; signature = key;
       const old = matches[index];
       let hasText = true;
       clearHighlights(); matches = []; pdfCache = null;
-      if (!query) { index = -1; status('검색어를 입력하십시오'); return; }
+      if (!query) { index = -1; status(t('검색어를 입력하십시오')); return; }
       try {
         if (state.pdf) {
-          status('검색 중…');
+          status(t('검색 중…'));
           const data = await window.UnivDash.api(`/api/fs/pdf/search?path=${encodeURIComponent(state.entry.path)}&q=${encodeURIComponent(query)}&case_sensitive=${caseSensitive}`);
           if (mine !== request || bar.hidden || state.entry.path !== getState().entry?.path) return;
           matches = data.matches; pdfCache = data;
@@ -256,26 +258,26 @@
           const doc = state.editor ? { text: state.editor.value } : collect();
           hasText = !!doc.text.trim();
           let re;
-          try { re = buildRegex(query); } catch (e) { index = -1; status('잘못된 정규식'); return; }
+          try { re = buildRegex(query); } catch (e) { index = -1; status(t('잘못된 정규식')); return; }
           for (const hit of doc.text.matchAll(re)) {
-            if (!hit[0].length) continue;   // 빈 일치(a* 같은)는 건너뛴다
+            if (!hit[0].length) continue;   // skip empty matches (such as a*)
             const start = hit.index, end = start + hit[0].length;
             const range = doc.pieces ? rangeFor(doc.pieces, start, end) : null;
             if (!doc.pieces || range) matches.push({ start, end, range });
             if (matches.length === 3000) break;
           }
         }
-        if (!matches.length) { index = -1; status(!hasText || state.pdf && !pdfCache.has_text ? '검색할 텍스트가 없습니다' : '결과 없음'); return; }
+        if (!matches.length) { index = -1; status(!hasText || state.pdf && !pdfCache.has_text ? t('검색할 텍스트가 없습니다') : t('결과 없음')); return; }
         if (nextFrom != null) {
           const from = nextFrom; nextFrom = null;
           index = matches.findIndex((m) => m.start >= from); if (index < 0) index = 0;
         } else if (reset && state.editor) {
-          // 커서 뒤의 첫 결과부터 (VS Code 처럼)
+          // Start from the first result after the cursor (like VS Code)
           const from = state.editor.selectionStart;
           index = matches.findIndex((m) => m.start >= from); if (index < 0) index = 0;
         } else index = reset ? 0 : Math.max(0, matches.findIndex((m) => m.start === old?.start && m.page === old?.page));
         paint(); reveal();
-      } catch (error) { if (mine === request) status(error.message || '검색하지 못했습니다'); }
+      } catch (error) { if (mine === request) status(error.message || t('검색하지 못했습니다')); }
     }
     const schedule = () => { if (!bar.hidden) { clearTimeout(timer); timer = setTimeout(() => refresh(), 180); } };
     const controller = {
@@ -303,9 +305,9 @@
       replaceRow.hidden = !replaceOpen;
       expand.setAttribute('aria-expanded', String(replaceOpen));
       expand.classList.toggle('open', replaceOpen);
-      expand.hidden = !getState().editor;   // 바꾸기는 편집 중일 때만
+      expand.hidden = !getState().editor;   // replace only while editing
     }
-    // 편집기 글자를 바꾼다: 되돌리기(Ctrl+Z)가 되게 insertText 를 먼저 쓰고, 안 되면 setRangeText
+    // Replace editor text: try insertText first so undo (Ctrl+Z) works, otherwise setRangeText
     function editText(editor, start, end, text) {
       const focused = document.activeElement;
       editor.focus({ preventScroll: true });
@@ -327,7 +329,7 @@
       try { re = buildRegex(input.value); } catch (e) { return; }
       re.lastIndex = match.start;
       const hit = re.exec(editor.value);
-      if (!hit || hit.index !== match.start || hit[0].length !== match.end - match.start) { refresh(true); return; }   // 글이 바뀌었으면 다시 찾기
+      if (!hit || hit.index !== match.start || hit[0].length !== match.end - match.start) { refresh(true); return; }   // search again if the text changed
       const text = expandReplacement(hit, editor.value);
       editText(editor, match.start, match.end, text);
       nextFrom = match.start + text.length;
@@ -347,19 +349,19 @@
       }
       if (!n) return;
       out += source.slice(at);
-      // 바뀐 부분만 감싸서 한 번에 넣는다 (한 번의 Ctrl+Z 로 되돌림)
+      // Insert only the changed span in one go (a single Ctrl+Z undoes it)
       let head = 0;
       while (head < source.length && head < out.length && source[head] === out[head]) head++;
       let tail = 0;
       while (tail < source.length - head && tail < out.length - head && source[source.length - 1 - tail] === out[out.length - 1 - tail]) tail++;
       editText(editor, head, source.length - tail, out.slice(head, out.length - tail));
       clearTimeout(timer); signature = ''; refresh();
-      status(`${n}개 바꿈`);
+      status(t('{n}개 바꿈', { n }));
     }
     button.addEventListener('click', () => controller.open());
     input.addEventListener('input', () => {
       request++; signature = ''; clearHighlights(); matches = []; index = -1;
-      status(input.value ? '검색 중…' : '검색어를 입력하십시오'); schedule();
+      status(input.value ? t('검색 중…') : t('검색어를 입력하십시오')); schedule();
     });
     input.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && !event.isComposing && (event.ctrlKey || event.metaKey) && event.altKey) { event.preventDefault(); replaceAll(); return; }
@@ -370,7 +372,7 @@
       event.preventDefault();
       if ((event.ctrlKey || event.metaKey) && event.altKey) replaceAll(); else replaceOne();
     });
-    // VS Code 단축키: Alt+C 대/소문자, Alt+W 단어 단위, Alt+R 정규식 (검색창 안에서)
+    // VS Code shortcuts: Alt+C case, Alt+W whole word, Alt+R regex (inside the find bar)
     bar.addEventListener('keydown', (event) => {
       if (!event.altKey || event.ctrlKey || event.metaKey) return;
       const opt = { KeyC: 'case', KeyW: 'word', KeyR: 'regex' }[event.code];

@@ -1,7 +1,7 @@
-"""HTTP 보안 계층: 보안 헤더(CSP 등), Host 허용 목록, CSRF(Origin) 검사, 로그인 시도 제한.
+"""HTTP security layer: security headers (CSP etc.), Host allow-list, CSRF (Origin) check, login attempt limiting.
 
-UnivDash 는 tmux 터미널 입력 · pm2 · git 을 다루므로 사실상 서버 셸 권한과 같다.
-그래서 브라우저 쪽 공격(XSS · CSRF · DNS rebinding · 클릭재킹)을 최대한 좁힌다.
+UnivDash handles tmux terminal input, pm2 and git, which effectively equals shell access to the server.
+So browser-side attacks (XSS · CSRF · DNS rebinding · clickjacking) are narrowed as far as possible.
 """
 
 import logging
@@ -22,9 +22,9 @@ logger = logging.getLogger(__name__)
 
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
-# 모든 스크립트 · 스타일 · 폰트를 자체 호스팅하므로 외부 출처를 하나도 허용하지 않는다.
-# - script-src 'self': 인라인 스크립트 · eval · 외부 CDN 불가 (XSS 가 생겨도 주입 스크립트가 실행되지 않음)
-# - style-src 'unsafe-inline': 요소의 style 속성(진행률 막대 폭 등)에만 필요하다. 스타일은 코드를 실행하지 못한다.
+# All scripts, styles and fonts are self-hosted, so no external origin is allowed at all.
+# - script-src 'self': no inline scripts, eval or external CDNs (even with an XSS, an injected script does not run)
+# - style-src 'unsafe-inline': needed only for element style attributes (progress bar width etc.). Styles cannot run code.
 _CSP_BASE = [
     "default-src 'self'",
     "script-src 'self'",
@@ -34,7 +34,7 @@ _CSP_BASE = [
     "media-src 'self' blob:",
     "connect-src 'self'",
     "manifest-src 'self'",
-    "worker-src 'self'",  # 웹 푸시 알림용 서비스 워커 (/sw.js)
+    "worker-src 'self'",  # service worker for web push notifications (/sw.js)
     "object-src 'none'",
     "frame-src 'none'",
     "base-uri 'none'",
@@ -64,7 +64,7 @@ def env_flag(name: str, default: bool = False) -> bool:
 
 
 def resolve_secret_key() -> str:
-    """SECRET_KEY 가 비었거나 예시 값이면 실행마다 새로운 임의 키를 사용한다."""
+    """If SECRET_KEY is empty or an example value, a new random key is used on every start."""
     secret = os.getenv("SECRET_KEY", "").strip()
     placeholders = {
         "your-secret-key",
@@ -75,14 +75,14 @@ def resolve_secret_key() -> str:
     }
     if len(secret) < 32 or secret in placeholders:
         logger.warning(
-            "SECRET_KEY 가 없거나 너무 짧습니다(32자 미만). 임시 키를 생성하므로 재시작하면 모든 세션이 만료됩니다."
+            "SECRET_KEY is missing or too short (under 32 characters). A temporary key is generated, so every session expires on restart."
         )
         return secrets.token_urlsafe(48)
     return secret
 
 
 def allowed_hosts() -> set[str]:
-    """ALLOWED_HOSTS=dash.example.com,localhost — 비어 있으면 Host 검사를 하지 않는다."""
+    """ALLOWED_HOSTS=dash.example.com,localhost — when empty, the Host is not checked."""
     return {
         h.strip().lower()
         for h in os.getenv("ALLOWED_HOSTS", "").split(",")
@@ -98,10 +98,10 @@ def _hostname(host: str) -> str:
 
 
 def is_same_origin(headers: Headers) -> bool:
-    """Origin(없으면 Referer) 헤더가 요청 Host 와 같은지 확인한다.
+    """Checks that the Origin header (or Referer when absent) matches the request Host.
 
-    상태를 바꾸는 요청과 WebSocket 에만 쓰며, 두 헤더가 모두 없으면 거부한다.
-    (현대 브라우저는 POST · WebSocket 에 항상 Origin 을 보낸다. 쿠키로 인증하므로 비브라우저 예외를 두지 않는다.)
+    Used only for state-changing requests and WebSockets; rejected when both headers are missing.
+    (Modern browsers always send Origin on POST and WebSocket. Authentication is by cookie, so there is no non-browser exception.)
     """
     source = headers.get("origin") or headers.get("referer")
     if not source or source == "null":
@@ -114,7 +114,7 @@ def is_same_origin(headers: Headers) -> bool:
 
 
 class SecurityMiddleware:
-    """보안 헤더, Host 허용 목록, 교차 출처 상태 변경 요청(CSRF) · WebSocket 차단."""
+    """Security headers, Host allow-list, blocking of cross-origin state-changing requests (CSRF) and WebSockets."""
 
     def __init__(self, app: ASGIApp, hsts: bool = False) -> None:
         self.app = app
@@ -122,7 +122,7 @@ class SecurityMiddleware:
         self.hosts = allowed_hosts()
         if not self.hosts:
             logger.warning(
-                "ALLOWED_HOSTS 가 비어 있습니다. 운영 도메인을 지정하면 DNS rebinding 공격을 막을 수 있습니다."
+                "ALLOWED_HOSTS is empty. Setting the production domain protects against DNS rebinding attacks."
             )
         self.headers = dict(SECURITY_HEADERS)
         if hsts:
@@ -152,15 +152,16 @@ class SecurityMiddleware:
 
         if self.hosts and _hostname(headers.get("host") or "") not in self.hosts:
             logger.warning(
-                "허용되지 않은 Host 차단 · host=%s · path=%s",
+                "blocked disallowed Host · host=%s · path=%s",
                 headers.get("host"),
                 scope.get("path"),
             )
             await self._reject(scope, receive, send, 400, "Bad Request")
             return
 
-        # /llm/v1/ (OpenAI 호환 API)는 브라우저가 아닌 프로그램이 부르므로 Origin 이 없다. 이 경로는 로그인 쿠키를
-        # 전혀 보지 않고 Authorization 토큰만 확인하므로(app/routes/llm_api_routes.py) CSRF 대상이 아니다.
+        # /llm/v1/ (OpenAI-compatible API) is called by programs, not browsers, so there is no Origin. This path never
+        # looks at the login cookie and checks only the Authorization token (app/routes/llm_api/llm_api_routes.py),
+        # so it is not a CSRF target.
         token_api = not is_websocket and scope.get("path", "").startswith("/llm/v1/")
         if (
             (is_websocket or scope["method"] in UNSAFE_METHODS)
@@ -168,7 +169,7 @@ class SecurityMiddleware:
             and not is_same_origin(headers)
         ):
             logger.warning(
-                "교차 출처 요청 차단 · path=%s · origin=%s",
+                "blocked cross-origin request · path=%s · origin=%s",
                 scope.get("path"),
                 headers.get("origin") or headers.get("referer"),
             )
@@ -202,7 +203,7 @@ class SecurityMiddleware:
                     if key not in present:
                         raw.append((key, value.encode("latin-1")))
                 if b"cache-control" not in present:
-                    # 정적 파일만 캐시 허용 (버전 붙은 주소는 1년), 페이지 · API 는 저장 금지
+                    # Only static files may be cached (versioned addresses for a year); pages and API are no-store
                     raw.append((b"cache-control", cache_control or b"no-store"))
                 message["headers"] = raw
             await send(message)
@@ -211,9 +212,9 @@ class SecurityMiddleware:
 
 
 class LoginRateLimiter:
-    """로그인 실패 횟수를 제한해 무차별 대입 공격을 늦춘다 (메모리 기반).
+    """Limits failed logins to slow down brute-force attacks (in memory).
 
-    키별(IP) 제한과 별개로 global_* 로 전체 실패 횟수도 제한한다 (여러 IP 로 나눈 공격 대비).
+    Besides the per-key (IP) limit, global_* also limits the total number of failures (against attacks spread over many IPs).
     """
 
     def __init__(
@@ -238,7 +239,7 @@ class LoginRateLimiter:
         self._lock = threading.Lock()
 
     def retry_after(self, key: str) -> int:
-        """잠겨 있으면 남은 초, 아니면 0."""
+        """Seconds left while locked, otherwise 0."""
         with self._lock:
             now = time.monotonic()
             until = max(self._locked_until.get(key, 0), self._global_locked_until)
@@ -259,7 +260,7 @@ class LoginRateLimiter:
                 self._locked_until[key] = now + self.lockout_seconds
                 failures.clear()
                 logger.warning(
-                    "로그인 시도 제한 · client=%s · %s초 잠금",
+                    "login attempts limited · client=%s · locked for %ss",
                     key,
                     self.lockout_seconds,
                 )
@@ -274,7 +275,7 @@ class LoginRateLimiter:
                 self._global_locked_until = now + self.global_lockout_seconds
                 self._global_failures.clear()
                 logger.error(
-                    "전체 로그인 실패가 너무 많아 %s초 동안 모든 로그인을 잠급니다.",
+                    "too many failed logins overall; locking all logins for %ss.",
                     self.global_lockout_seconds,
                 )
             if len(self._failures) > 10000:
@@ -297,5 +298,5 @@ class LoginRateLimiter:
 
 
 def client_key(request) -> str:
-    # 리버스 프록시 뒤라면 uvicorn(proxy_headers)이 X-Forwarded-For 로 client 를 채워준다.
+    # Behind a reverse proxy, uvicorn (proxy_headers) fills client from X-Forwarded-For.
     return request.client.host if request.client else "unknown"

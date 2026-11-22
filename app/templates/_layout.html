@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="{{ ui_lang() }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
@@ -35,20 +35,20 @@
                     <p class="text-sm font-bold text-white truncate">{{ username }}</p>
                 </div>
             </div>
-            <button type="button" data-new-session class="sb-new mt-3 w-full flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-bold" title="새 tmux 세션" aria-label="새 tmux 세션">
-                <i class="fas fa-plus text-xs"></i><span class="sb-label">새 세션</span>
+            <button type="button" data-new-session class="sb-new mt-3 w-full flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-bold" title="{{ t('새 tmux 세션') }}" aria-label="{{ t('새 tmux 세션') }}">
+                <i class="fas fa-plus text-xs"></i><span class="sb-label">{{ t("새 세션") }}</span>
             </button>
-            <button id="closeSidebarBtn" type="button" class="absolute top-5 right-5 md:hidden text-white/40 hover:text-white transition w-8 h-8" aria-label="사이드바 닫기">
+            <button id="closeSidebarBtn" type="button" class="absolute top-5 right-5 md:hidden text-white/40 hover:text-white transition w-8 h-8" aria-label="{{ t('사이드바 닫기') }}">
                 <i class="fas fa-times"></i>
             </button>
         </div>
 
-        <nav class="px-3 py-4 space-y-1" aria-label="대시보드 메뉴">
+        <nav class="px-3 py-4 space-y-1" aria-label="{{ t('대시보드 메뉴') }}">
             {% for key, href, icon, label in nav_items %}
             <a href="{{ href }}" title="{{ label }}" data-nav-key="{{ key }}" class="nav-link sidebar-link flex items-center px-3 py-2.5 rounded-xl border border-transparent transition {{ 'active font-semibold' if active_page == key else 'text-white/50 hover:bg-white/5 hover:text-white' }}" {% if active_page == key %}aria-current="page"{% endif %}>
                 <i class="fas {{ icon }} w-6 text-center"></i>
                 <span class="sb-label ml-2 font-medium text-sm">{{ label }}</span>
-                <span class="nav-drag-handle" data-nav-drag-handle draggable="true" title="끌어서 메뉴 순서 변경" aria-label="{{ label }} 순서 변경"><i class="fas fa-grip-lines"></i></span>
+                <span class="nav-drag-handle" data-nav-drag-handle draggable="true" title="{{ t('끌어서 메뉴 순서 변경') }}" aria-label="{{ t('{label} 순서 변경', label=label) }}"><i class="fas fa-grip-lines"></i></span>
             </a>
             {% endfor %}
         </nav>
@@ -59,49 +59,49 @@
             <div class="mt-2 grid grid-cols-2 gap-2">
                 <div class="glass-soft rounded-xl p-3"><p class="text-[9px] font-bold uppercase tracking-wider text-white/35">Windows</p><p id="statWindows" class="mt-1 font-mono text-lg font-bold text-white/90">—</p></div>
                 <div class="glass-soft rounded-xl p-3"><p class="text-[9px] font-bold uppercase tracking-wider text-white/35">Agents</p><p id="statAgents" class="mt-1 font-mono text-lg font-bold text-purple-300">—</p></div>
-                <div class="glass-soft rounded-xl p-3"><p class="text-[9px] font-bold uppercase tracking-wider text-white/35">작업 중</p><p id="statBusy" class="mt-1 font-mono text-lg font-bold text-blue-300">—</p></div>
-                <div class="glass-soft rounded-xl p-3"><p class="text-[9px] font-bold uppercase tracking-wider text-white/35">응답 필요</p><p id="statWaiting" class="mt-1 font-mono text-lg font-bold text-amber-300">—</p></div>
+                <div class="glass-soft rounded-xl p-3"><p class="text-[9px] font-bold uppercase tracking-wider text-white/35">{{ t("작업 중") }}</p><p id="statBusy" class="mt-1 font-mono text-lg font-bold text-blue-300">—</p></div>
+                <div class="glass-soft rounded-xl p-3"><p class="text-[9px] font-bold uppercase tracking-wider text-white/35">{{ t("응답 필요") }}</p><p id="statWaiting" class="mt-1 font-mono text-lg font-bold text-amber-300">—</p></div>
             </div>
             </div>
         </div>
         <div class="sb-spacer flex-1 hidden"></div>
 
-        <!-- 서버 상태: 아래 버튼 줄 바로 위에 붙여 아래에서부터 쌓는다 (sysmon.js) -->
-        <section id="sysMon" class="sysmon px-4 pb-3" aria-label="서버 상태" hidden></section>
+        <!-- Server status: attached right above the bottom button row and stacked from the bottom up (sysmon.js) -->
+        <section id="sysMon" class="sysmon px-4 pb-3" aria-label="{{ t('서버 상태') }}" hidden></section>
         <div class="sb-bottom p-3 border-t border-white/10 space-y-1 safe-bottom">
-            <div class="sb-conn flex items-center gap-2 px-3 py-1" title="실시간 연결 상태">
+            <div class="sb-conn flex items-center gap-2 px-3 py-1" title="{{ t('실시간 연결 상태') }}">
                 <span class="conn-dot h-2 w-2 flex-shrink-0 rounded-full bg-amber-400"></span>
-                <p class="conn-label sb-label text-[11px] text-white/50 truncate">연결 중...</p>
+                <p class="conn-label sb-label text-[11px] text-white/50 truncate">{{ t("연결 중...") }}</p>
             </div>
-            <!-- 로그아웃은 설정 창 › 로그인 기기 안에 있다 (settings.js) -->
+            <!-- Sign out lives in the Settings window › signed-in devices (settings.js) -->
             <div class="sb-account flex items-center gap-1">
-                <button type="button" data-theme-settings class="sb-icon" title="테마 설정" aria-label="테마 설정"><i class="fas fa-palette text-sm"></i></button>
-                <button type="button" data-app-settings class="sb-icon" title="설정" aria-label="설정"><i class="fas fa-gear text-sm"></i></button>
-                <button id="sidebarCollapseBtn" type="button" class="sb-icon sb-collapse hidden md:flex" title="사이드바 접기 / 펼치기" aria-label="사이드바 접기"><i class="fas fa-angles-left text-sm"></i></button>
+                <button type="button" data-theme-settings class="sb-icon" title="{{ t('테마 설정') }}" aria-label="{{ t('테마 설정') }}"><i class="fas fa-palette text-sm"></i></button>
+                <button type="button" data-app-settings class="sb-icon" title="{{ t('설정') }}" aria-label="{{ t('설정') }}"><i class="fas fa-gear text-sm"></i></button>
+                <button id="sidebarCollapseBtn" type="button" class="sb-icon sb-collapse hidden md:flex" title="{{ t('사이드바 접기 / 펼치기') }}" aria-label="{{ t('사이드바 접기') }}"><i class="fas fa-angles-left text-sm"></i></button>
             </div>
         </div>
     </aside>
 
     <main class="flex-1 flex flex-col min-w-0 h-full relative">
-        <!-- 휴대폰에서만: ☰ · 페이지 이름 · 새 세션 · 테마 (데스크톱은 사이드바에 있음) -->
+        <!-- Phone only: ☰ · page name · new session · theme (on desktop these are in the sidebar) -->
         <header class="md:hidden h-14 glass border-b border-white/10 border-t-0 border-x-0 flex items-center justify-between gap-3 px-4 flex-shrink-0 z-20 safe-top-header">
             <div class="flex items-center min-w-0">
-                <button id="sidebarMenuButton" type="button" class="mr-3 w-8 h-8 -ml-1 text-white/60 hover:text-white transition" aria-label="사이드바 열기" aria-expanded="false">
+                <button id="sidebarMenuButton" type="button" class="mr-3 w-8 h-8 -ml-1 text-white/60 hover:text-white transition" aria-label="{{ t('사이드바 열기') }}" aria-expanded="false">
                     <i class="fas fa-bars text-lg"></i>
                 </button>
                 <h2 class="text-base font-semibold text-white/90 truncate"><i class="fas {{ page_icons.get(active_page) }} mr-2 text-blue-400"></i>{{ page_title }}</h2>
             </div>
             <div class="flex items-center gap-2">
                 {% block header_extra %}{% endblock %}
-                <button type="button" data-new-session class="theme-settings-btn" title="새 세션" aria-label="새 tmux 세션"><i class="fas fa-plus text-sm"></i></button>
-                <button type="button" data-theme-settings class="theme-settings-btn" title="테마 설정" aria-label="테마 설정"><i class="fas fa-palette text-sm"></i></button>
+                <button type="button" data-new-session class="theme-settings-btn" title="{{ t('새 세션') }}" aria-label="{{ t('새 tmux 세션') }}"><i class="fas fa-plus text-sm"></i></button>
+                <button type="button" data-theme-settings class="theme-settings-btn" title="{{ t('테마 설정') }}" aria-label="{{ t('테마 설정') }}"><i class="fas fa-palette text-sm"></i></button>
             </div>
         </header>
 
         {% block content %}{% endblock %}
 
-        <!-- 휴대폰: 앱처럼 하단 탭바로 이동 (사이드바는 ☰ 로 열어 통계 · 설정) -->
-        <nav class="tabbar md:hidden" aria-label="하단 메뉴">
+        <!-- Phone: navigate with a bottom tab bar like an app (the sidebar opens via ☰ for stats · settings) -->
+        <nav class="tabbar md:hidden" aria-label="{{ t('하단 메뉴') }}">
             {% for key, href, icon, label in nav_items %}
             <a href="{{ href }}" data-nav-key="{{ key }}" class="tab-item {{ 'active' if active_page == key else '' }}" {% if active_page == key %}aria-current="page"{% endif %}>
                 <span class="tab-icon"><i class="fas {{ icon }}"></i>{% if key == 'workspace' %}<span id="tabBadge" class="tab-badge hidden"></span>{% endif %}</span>
@@ -112,7 +112,7 @@
 
     </main>
 
-    <!-- 공용 시트 (모바일: 하단 시트 / 데스크톱: 가운데 모달) -->
+    <!-- Shared sheet (mobile: bottom sheet / desktop: centred modal) -->
     <div id="sheetOverlay" class="sheet-overlay" hidden>
         <div id="sheet" class="tdx-sheet scale-up-animation" role="dialog" aria-modal="true">
             <div class="sheet-grip"></div>

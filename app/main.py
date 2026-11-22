@@ -11,44 +11,37 @@ from starlette.middleware.sessions import SessionMiddleware
 
 load_dotenv()
 
-from app.routes import (
-    account_routes,
-    auth_routes,
-    domain_routes,
-    fs_routes,
-    git_routes,
-    llm_api_routes,
-    pty_routes,
-    push_routes,
-    server_routes,
-    settings_routes,
-    share_routes,
-    tmux_routes,
-    upload_routes,
-    view_share_routes,
-)
+from app.routes.accounts import account_routes
+from app.routes.agents import pty_routes, tmux_routes
+from app.routes.core import auth_routes, push_routes, settings_routes
+from app.routes.files import fs_routes, upload_routes
+from app.routes.git import git_routes
+from app.routes.llm_api import llm_api_routes
+from app.routes.server import domain_routes, server_routes
+from app.routes.sharing import share_routes, view_share_routes
+from app import i18n
 from app.security import SecurityMiddleware, env_flag, resolve_secret_key
-from app.services import (
+from app.services.accounts import codex_auto_switch
+from app.services.agents import (
     agent_restart,
     agent_update_all,
-    codex_auto_switch,
     folder_rename,
-    git_auto_pull,
-    push_service,
     session_restore,
-    share_service,
     tool_install,
-    upload_service,
-    view_share_service,
 )
-from app.services.auth_service import SESSION_MAX_AGE
+from app.services.core import push_service
+from app.services.core.auth_service import SESSION_MAX_AGE
+from app.services.files import upload_service
+from app.services.git import git_auto_pull
+from app.services.sharing import share_service, view_share_service
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 재부팅 뒤 tmux 세션 복원 + 세션 구성 스냅숏 (백그라운드 스레드)
+    settings_routes.load_default_language()
+    # Restore tmux sessions after a reboot + snapshot of the session layout (background thread)
     session_restore.start()
-    # 없는 도구(Claude Code · Codex · PDF 용 Chrome) 설치 (백그라운드 스레드)
+    # Install missing tools (Claude Code · Codex · Chrome for PDF) (background thread)
     tool_install.start()
     tasks = [
         asyncio.create_task(upload_service.cleanup_loop()),
@@ -60,7 +53,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(agent_update_all.update_prompt_loop()),
         asyncio.create_task(share_service.cleanup_loop()),
         asyncio.create_task(view_share_service.cleanup_loop()),
-        # OpenAI 호환 API 가 켜져 있으면 격리 컨테이너를 띄워 둔다 (꺼져 있으면 남은 컨테이너를 내린다)
+        # If the OpenAI-compatible API is on, keep the sandbox container up (if off, take down a leftover container)
         asyncio.create_task(llm_api_routes.sync_sandbox()),
     ]
     try:
@@ -73,15 +66,15 @@ async def lifespan(app: FastAPI):
                 await task
 
 
-# 관리용 대시보드이므로 API 문서(/docs, /redoc, /openapi.json)는 노출하지 않는다.
+# This is an admin dashboard, so the API docs (/docs, /redoc, /openapi.json) are not exposed.
 app = FastAPI(
     title="UnivDash", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan
 )
 
 https_only = env_flag("SESSION_HTTPS_ONLY")
 
-# HTTPS 에서는 __Host- 접두사 쿠키: Secure + Path=/ + Domain 없음이 강제되어 하위 도메인이 쿠키를 덮어쓸 수 없다.
-# SameSite=Strict: 다른 사이트에서 시작된 요청에는 쿠키가 아예 실리지 않는다.
+# Over HTTPS a __Host- prefixed cookie: Secure + Path=/ + no Domain are enforced, so a subdomain cannot overwrite it.
+# SameSite=Strict: the cookie is not sent at all on requests started from another site.
 app.add_middleware(
     SessionMiddleware,
     secret_key=resolve_secret_key(),
@@ -91,12 +84,16 @@ app.add_middleware(
     https_only=https_only,
 )
 app.add_middleware(SecurityMiddleware, hsts=https_only)
+# Outermost: every request (and WebSocket) runs with the language of that browser.
+app.add_middleware(i18n.LanguageMiddleware)
 
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    # 기본 422 응답은 입력 스키마를 그대로 드러내므로 간단한 메시지만 돌려준다.
-    return JSONResponse(status_code=422, content={"detail": "잘못된 요청입니다."})
+    # The default 422 response exposes the input schema as is, so only a short message is returned.
+    return JSONResponse(
+        status_code=422, content={"detail": i18n._("잘못된 요청입니다.")}
+    )
 
 
 app.mount(

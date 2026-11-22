@@ -1,4 +1,4 @@
-// UnivDash 서비스 워커: 웹 푸시 알림만 다룬다 (요청 가로채기 · 캐시 없음).
+// UnivDash service worker: handles web push notifications only (no request interception, no cache).
 'use strict';
 
 self.addEventListener('install', () => self.skipWaiting());
@@ -21,14 +21,14 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const target = new URL(event.notification.data?.url || '/', self.location.origin);
-  if (target.origin !== self.location.origin) return;   // 같은 사이트 안에서만 연다
+  if (target.origin !== self.location.origin) return;   // only open URLs within this site
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    // 별도로 띄운 창(?solo=…)보다 메인 워크스페이스 창을 우선
+    // Prefer the main workspace window over separately opened windows (?solo=…)
     const main = windows.find((c) => { const u = new URL(c.url); return u.pathname === '/' && !u.search; })
       || windows.find((c) => new URL(c.url).origin === self.location.origin);
     if (main) {
-      try { await main.focus(); } catch (e) { /* 포커스 불가 환경 */ }
+      try { await main.focus(); } catch (e) { /* focusing not possible in this environment */ }
       main.postMessage({ type: 'univdash-open', url: target.pathname + target.hash });
       return;
     }

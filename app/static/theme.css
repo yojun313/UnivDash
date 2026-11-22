@@ -1,12 +1,12 @@
 /* ============================================================================
-   UnivDash 공통 테마 — theme.js 와 한 쌍
-   - 테마 스타일: html[data-ui-theme="mesh|apple|mono"] (기본 '오로라'는 속성 없음)
-   - 라이트 모드: html[data-ui-theme-mode="light"]  (다크가 기본이라 라이트만 표시)
-   - 템플릿은 다크 전제의 Tailwind 유틸리티(text-white/60 등)를 쓰고,
-     라이트 모드는 실제 사용 중인 유틸리티 집합을 여기서 일괄 반전시킨다.
+   UnivDash shared theme — pairs with theme.js
+   - Theme style: html[data-ui-theme="mesh|apple|mono"] (the default 'Aurora' has no attribute)
+   - Light mode: html[data-ui-theme-mode="light"]  (dark is the default, so only light is marked)
+   - Templates use Tailwind utilities that assume dark (text-white/60 etc.), and
+     light mode inverts the set of utilities actually in use here, all at once.
    ============================================================================ */
 
-/* ── 기본 레이아웃 & 유리 패널 ─────────────────────────────────────── */
+/* ── Base layout & glass panels ─────────────────────────────────────── */
 html, body { min-height: 100%; }
 body {
     font-family: 'Inter', 'Pretendard', 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui, -apple-system, sans-serif;
@@ -64,7 +64,7 @@ body {
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
 }
 
-/* 터미널(로그/콘솔)은 테마와 무관하게 항상 어두운 화면을 유지한다 */
+/* The terminal (log/console) always keeps a dark screen regardless of theme */
 .terminal { background: #05070c; color: #cbd5e1; border-color: rgba(255,255,255,0.08); }
 .terminal-head { border-color: rgba(255,255,255,0.08); color: #64748b; }
 .terminal-line { border-left: 1px solid rgba(255,255,255,0.08); }
@@ -79,7 +79,7 @@ body {
 ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.35); border-radius: 3px; }
 @media (hover: hover) { ::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.55); } }
 
-/* ── 테마 설정 버튼 ─────────────────────────────────────────────── */
+/* ── Theme settings button ─────────────────────────────────────────────── */
 .theme-settings-btn {
     width: 34px; height: 34px;
     display: inline-flex; align-items: center; justify-content: center;
@@ -99,7 +99,7 @@ html[data-ui-theme-mode="light"] .theme-settings-btn {
 }
 @media (hover: hover) { html[data-ui-theme-mode="light"] .theme-settings-btn:hover { background: rgba(15,23,42,0.1); color: #101828; } }
 
-/* ── 테마 설정 모달 ─────────────────────────────────────────────── */
+/* ── Theme settings modal ─────────────────────────────────────────────── */
 .pmd-theme-overlay {
     position: fixed; inset: 0; z-index: 500;
     background: rgba(5, 7, 15, 0.55);
@@ -195,30 +195,30 @@ html[data-ui-theme-mode="light"] .pmd-theme-option {
 .pmd-lite-row .pmd-mode-switch { flex-shrink: 0; }
 
 /* ============================================================================
-   가벼운 모드 (html[data-ui-lite]) — 기본은 꺼짐. 모양은 거의 그대로 두고 비용 큰 효과만 뺀다.
-   1) backdrop-filter 블러: 뒤 화면이 바뀔 때마다 GPU 가 블러를 다시 계산 → 끈다 (배경 반투명 색은 그대로)
-   2) 계속 도는 빛 번짐(box-shadow) · 메시 색 회전(filter) 애니메이션 → 멈춘다 (색으로 상태는 그대로 보인다)
-   3) 화면 밖 채팅 항목은 그리지 않는다 (content-visibility) → 긴 대화에서 CPU · 메모리 절약
-   진행 중 표시(돌아가는 아이콘)와 터미널 커서는 그대로 둔다.
+   Lite mode (html[data-ui-lite]) — off by default. Keeps the look almost unchanged and removes only the expensive effects.
+   1) backdrop-filter blur: the GPU recomputes the blur whenever the screen behind changes → turned off (the translucent background colour stays)
+   2) Continuously running glow (box-shadow) · mesh hue rotation (filter) animations → stopped (state is still visible by colour)
+   3) Off-screen chat items are not rendered (content-visibility) → saves CPU · memory in long conversations
+   The in-progress indicator (spinning icon) and the terminal cursor are left as they are.
    ============================================================================ */
 html[data-ui-lite] *, html[data-ui-lite] *::before, html[data-ui-lite] *::after {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
 }
 html[data-ui-lite] body::before { animation: none !important; }
-/* 블러가 없으면 뒤가 비쳐 글자가 덜 또렷해지는 떠 있는 창(모달 · 시트 · 메뉴)만 조금 더 불투명하게 */
+/* Without blur the background shows through and text gets less crisp, so only floating surfaces (modal · sheet · menu) are made a little more opaque */
 html[data-ui-lite] .glass-strong.shadow-2xl { background: rgba(22, 27, 40, 0.96); }
 html[data-ui-lite][data-ui-theme-mode="light"] .glass-strong.shadow-2xl { background: rgba(255, 255, 255, 0.97); }
 html[data-ui-lite] .pmd-theme-modal { background: rgb(20, 25, 40); }
 html[data-ui-lite][data-ui-theme-mode="light"] .pmd-theme-modal { background: #fff; }
-/* 상태 점: 빛 번짐 없이 색만. 작업 중은 정지, 응답 필요(주의)는 느린 깜빡임만 남긴다 */
+/* Status dot: colour only, no glow. Working is static; needs answer (attention) keeps only a slow blink */
 html[data-ui-lite] .status-dot.busy, html[data-ui-lite] .status-dot.waiting { box-shadow: none; }
 html[data-ui-lite] .status-dot.busy { animation: none !important; }
 html[data-ui-lite] .status-dot.waiting { animation: tdxBlink 2s steps(2, jump-none) infinite !important; }
 html[data-ui-lite] .st-waiting { animation: none !important; box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.3); }
 html[data-ui-lite] .sysmon .sm-dot { animation: none !important; box-shadow: none; }
 html[data-ui-lite] .cu-dot.run { animation: none !important; }
-/* 화면 밖 채팅 항목 · 긴 목록은 보일 때만 그린다 (크기는 한 번 그린 값을 기억) */
+/* Off-screen chat items · long lists are rendered only when visible (the size from the first render is remembered) */
 html[data-ui-lite] .chat-list > *, html[data-ui-lite] .tp-log .chat-list > * {
     content-visibility: auto;
     contain-intrinsic-size: auto 64px;
@@ -226,12 +226,12 @@ html[data-ui-lite] .chat-list > *, html[data-ui-lite] .tp-log .chat-list > * {
 html[data-ui-lite] .win-item { content-visibility: auto; contain-intrinsic-size: auto 52px; }
 
 /* ============================================================================
-   라이트 모드 — 다크 전제 유틸리티 일괄 반전
-   (아래 목록은 템플릿/스크립트에서 실제로 쓰는 클래스 목록이다)
+   Light mode — inverts the dark-assuming utilities all at once
+   (the list below is the set of classes actually used in templates/scripts)
    ============================================================================ */
 html[data-ui-theme-mode="light"] body { color: #101828; }
 
-/* 텍스트 계열 */
+/* Text */
 html[data-ui-theme-mode="light"] .text-white { color: #101828 !important; }
 html[data-ui-theme-mode="light"] .text-white\/90 { color: #1a2233 !important; }
 html[data-ui-theme-mode="light"] .text-white\/80 { color: #253046 !important; }
@@ -245,7 +245,7 @@ html[data-ui-theme-mode="light"] .text-white\/30 { color: #8a92aa !important; }
 html[data-ui-theme-mode="light"] .placeholder-white\/30::placeholder { color: #94a3b8 !important; }
 html[data-ui-theme-mode="light"] .nav-link.active { color: #1d4ed8; background: rgba(59,130,246,0.10); border-color: rgba(37,99,235,0.22); }
 
-/* 색이 있는 배경(그라디언트/단색 버튼) 위의 흰 글자는 라이트 모드에서도 흰색을 유지한다 */
+/* White text on coloured backgrounds (gradient/solid buttons) stays white in light mode too */
 html[data-ui-theme-mode="light"] .bg-gradient-to-r.text-white, html[data-ui-theme-mode="light"] .bg-gradient-to-br.text-white, html[data-ui-theme-mode="light"] .btn-glow {
     color: #ffffff !important;
 }
@@ -257,7 +257,7 @@ html[data-ui-theme-mode="light"] .bg-gradient-to-br [class*="text-white"] {
     color: rgba(255, 255, 255, 0.9) !important;
 }
 
-/* 테두리 계열 */
+/* Borders */
 html[data-ui-theme-mode="light"] .border-white\/5 { border-color: rgba(15, 23, 42, 0.06) !important; }
 html[data-ui-theme-mode="light"] .border-white\/10 { border-color: rgba(15, 23, 42, 0.10) !important; }
 html[data-ui-theme-mode="light"] .border-white\/15 { border-color: rgba(15, 23, 42, 0.14) !important; }
@@ -265,7 +265,7 @@ html[data-ui-theme-mode="light"] .border-white\/20 { border-color: rgba(15, 23, 
 @media (hover: hover) { html[data-ui-theme-mode="light"] .hover\:border-white\/20:hover { border-color: rgba(15, 23, 42, 0.2) !important; } }
 html[data-ui-theme-mode="light"] .divide-white\/5 > :not([hidden]) ~ :not([hidden]) { border-color: rgba(15, 23, 42, 0.07) !important; }
 
-/* 배경 계열 */
+/* Backgrounds */
 html[data-ui-theme-mode="light"] .bg-white\/5 { background-color: rgba(15, 23, 42, 0.04) !important; }
 html[data-ui-theme-mode="light"] .bg-white\/10 { background-color: rgba(15, 23, 42, 0.07) !important; }
 html[data-ui-theme-mode="light"] .bg-white\/20 { background-color: rgba(15, 23, 42, 0.12) !important; }
@@ -273,7 +273,7 @@ html[data-ui-theme-mode="light"] .bg-white\/20 { background-color: rgba(15, 23, 
 @media (hover: hover) { html[data-ui-theme-mode="light"] .hover\:bg-white\/10:hover { background-color: rgba(15, 23, 42, 0.08) !important; } }
 html[data-ui-theme-mode="light"] .bg-black\/60 { background-color: rgba(15, 23, 42, 0.35) !important; }
 
-/* 액센트 — 라이트 배경에서 대비가 나오도록 진하게 */
+/* Accents — darker so they contrast on a light background */
 html[data-ui-theme-mode="light"] .text-blue-300 { color: #1d4ed8 !important; }
 html[data-ui-theme-mode="light"] .text-blue-400 { color: #2563eb !important; }
 @media (hover: hover) { html[data-ui-theme-mode="light"] .hover\:text-blue-300:hover { color: #1d4ed8 !important; } }
@@ -293,7 +293,7 @@ html[data-ui-theme-mode="light"] .text-amber-400 { color: #b45309 !important; }
 html[data-ui-theme-mode="light"] .text-orange-300,
 html[data-ui-theme-mode="light"] .text-orange-400 { color: #c2410c !important; }
 
-/* 유리 패널 */
+/* Glass panels */
 html[data-ui-theme-mode="light"] .glass {
     background: rgba(255, 255, 255, 0.60);
     border-color: rgba(15, 23, 42, 0.08);
@@ -312,15 +312,15 @@ html[data-ui-theme-mode="light"] .glass-input {
     color: #101828;
 }
 
-/* 스크롤바 */
+/* Scrollbar */
 html[data-ui-theme-mode="light"] ::-webkit-scrollbar-thumb { background: rgba(71, 85, 105, 0.35); }
 @media (hover: hover) { html[data-ui-theme-mode="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(71, 85, 105, 0.55); } }
 
 /* ============================================================================
-   테마별 배경 (기본 '오로라' 다크는 위 body 기본값을 그대로 쓴다)
+   Per-theme backgrounds (the default 'Aurora' dark uses the body defaults above as they are)
    ============================================================================ */
 
-/* 기본(오로라) — 라이트 */
+/* Default (Aurora) — light */
 html[data-ui-theme-mode="light"]:not([data-ui-theme]) body {
     background: radial-gradient(circle at 10% 10%, rgba(99, 102, 241, 0.14), transparent 35%),
                 radial-gradient(circle at 90% 0%, rgba(236, 72, 153, 0.10), transparent 40%),
@@ -329,7 +329,7 @@ html[data-ui-theme-mode="light"]:not([data-ui-theme]) body {
     background-attachment: fixed;
 }
 
-/* 그라디언트 메시 — 은은히 색이 도는 배경 (다크/라이트) */
+/* Gradient mesh — a background with subtly shifting colours (dark/light) */
 html[data-ui-theme="mesh"] body { background: var(--pmd-mesh-base, #14151f); position: relative; }
 html[data-ui-theme="mesh"] body::before {
     content: ""; position: fixed; inset: 0; z-index: -1;
@@ -360,7 +360,7 @@ html[data-ui-theme="mesh"][data-ui-theme-mode="light"] body {
     .scale-up-animation { animation: none; }
 }
 
-/* 애플 글래스 — 월페이퍼 위 유리 (다크/라이트) */
+/* Apple glass — glass over a wallpaper (dark/light) */
 html[data-ui-theme="apple"]:not([data-ui-theme-mode="light"]) body {
     background: radial-gradient(62% 55% at 14% 2%, rgba(38, 92, 190, .42) 0, transparent 62%),
                 radial-gradient(52% 48% at 90% 8%, rgba(118, 48, 140, .34) 0, transparent 62%),
@@ -384,7 +384,7 @@ html[data-ui-theme="apple"] .glass-soft {
     -webkit-backdrop-filter: blur(30px) saturate(180%);
 }
 
-/* 미니멀 플랫 — 유리/블러를 걷어낸 단색 표면 (다크/라이트) */
+/* Minimal flat — solid surfaces with glass/blur removed (dark/light) */
 html[data-ui-theme="mono"]:not([data-ui-theme-mode="light"]) body { background: #0b0e14; }
 html[data-ui-theme="mono"][data-ui-theme-mode="light"] body { background: #f3f4f6; }
 html[data-ui-theme="mono"] .glass,
@@ -401,7 +401,7 @@ html[data-ui-theme="mono"][data-ui-theme-mode="light"] .glass-strong { backgroun
 html[data-ui-theme="mono"][data-ui-theme-mode="light"] .glass-soft { background: #f8fafc; border-color: rgba(15,23,42,0.07); }
 
 /* ============================================================================
-   Git 관리 화면
+   Git management screen
    ============================================================================ */
 .git-icon-btn {
     width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
@@ -453,7 +453,7 @@ html[data-ui-theme-mode="light"] .git-file-row.selected { background: rgba(14,11
     .git-repo-item .git-row-actions, .git-file-row .git-row-actions { opacity: 1; }
 }
 
-/* diff 뷰어 — 항상 어두운 터미널 배경 */
+/* diff viewer — always a dark terminal background */
 .git-diff .dl { display: flex; white-space: pre; min-width: max-content; }
 .git-diff .dl > .ln { flex: none; width: 3.2em; padding-right: .6em; text-align: right; color: #475569; user-select: none; }
 .git-diff .dl > .tx { flex: 1; padding: 0 .75em; }

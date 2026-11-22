@@ -1,4 +1,4 @@
-// Domains 페이지: nginx 도메인 · 경로 · 인증서 · 표시용 폴더 관리
+// Domains page: manage nginx domains · paths · certificates · display folders
 (function () {
   'use strict';
   const { escapeHtml, api, toast } = window.UnivDash;
@@ -11,7 +11,7 @@
     folders: [],
     helper: { ready: false },
     hardening: { needed: false },
-    collapsed: new Map(),  // 폴더 ID → 접힘 여부 (처음에는 폴더만 접어 둔다)
+    collapsed: new Map(),  // folder ID → collapsed or not (initially only folders are collapsed)
     openDomains: new Set(),
     pathDomain: '',
     pathValue: '',
@@ -51,11 +51,11 @@
         <span class="min-w-0 break-all font-mono text-white/70">${escapeHtml(routeOf(domain.domain, item.path))}</span>
         <span class="font-mono text-white/50">:${escapeHtml(item.port)}</span>
         <span class="flex justify-end gap-1">
-          <button type="button" class="dom-text-btn" data-action="edit-path" data-domain="${escapeHtml(domain.domain)}" data-path="${escapeHtml(item.path)}" data-port="${escapeHtml(item.port)}">수정</button>
-          <button type="button" class="dom-text-btn dom-text-danger" data-action="delete-path" data-domain="${escapeHtml(domain.domain)}" data-path="${escapeHtml(item.path)}">삭제</button>
+          <button type="button" class="dom-text-btn" data-action="edit-path" data-domain="${escapeHtml(domain.domain)}" data-path="${escapeHtml(item.path)}" data-port="${escapeHtml(item.port)}">${t('수정')}</button>
+          <button type="button" class="dom-text-btn dom-text-danger" data-action="delete-path" data-domain="${escapeHtml(domain.domain)}" data-path="${escapeHtml(item.path)}">${t('삭제')}</button>
         </span>
       </div>`).join('');
-    return `<div class="dom-paths">${rows || '<p class="text-white/35">경로가 없습니다.</p>'}</div>`;
+    return `<div class="dom-paths">${rows || `<p class="text-white/35">${t('경로가 없습니다.')}</p>`}</div>`;
   }
 
   function domainRow(domain, inFolder) {
@@ -70,13 +70,13 @@
             <a href="https://${name}" target="_blank" rel="noopener noreferrer" draggable="false" class="min-w-0 break-all text-xs font-bold text-white/80 hover:text-cyan-300 hover:underline">${name}</a>
           </div>
           <div data-label="Port">${portCell(domain)}</div>
-          <div data-label="Paths"><span class="font-mono text-[11px] text-white/50">${domain.paths.length}개</span></div>
+          <div data-label="Paths"><span class="font-mono text-[11px] text-white/50">${t('{count}개', { count: domain.paths.length })}</span></div>
           <div data-label="Config File" class="min-w-0 truncate font-mono text-[11px] text-white/40">${escapeHtml(domain.filename)}</div>
           <div class="dom-cell-actions">
-            ${icon('fa-folder', '폴더 이동', `data-action="move" data-domain="${name}"`)}
-            ${icon('fa-pen', '도메인 이름 변경 (포트 유지)', `data-action="rename" data-domain="${name}"`)}
-            ${icon('fa-plus', '경로 추가', `data-action="add-path" data-domain="${name}"`)}
-            ${icon('fa-trash-can', '도메인 전체 삭제', `data-action="delete" data-domain="${name}"`, 'dom-icon-danger')}
+            ${icon('fa-folder', t('폴더 이동'), `data-action="move" data-domain="${name}"`)}
+            ${icon('fa-pen', t('도메인 이름 변경 (포트 유지)'), `data-action="rename" data-domain="${name}"`)}
+            ${icon('fa-plus', t('경로 추가'), `data-action="add-path" data-domain="${name}"`)}
+            ${icon('fa-trash-can', t('도메인 전체 삭제'), `data-action="delete" data-domain="${name}"`, 'dom-icon-danger')}
           </div>
         </div>
         ${open ? pathsPanel(domain) : ''}
@@ -90,11 +90,11 @@
     const key = escapeHtml(group.id || '');
     const ports = group.ports.length
       ? group.ports.map((port) => `<span class="dom-port dom-port-small">:${port}</span>`).join('')
-      : '<span class="font-mono text-[10px] text-white/30">포트 없음</span>';
+      : `<span class="font-mono text-[10px] text-white/30">${t('포트 없음')}</span>`;
     const actions = group.id ? `
       <span class="flex flex-shrink-0 gap-1">
-        ${icon('fa-pen', '폴더 이름 변경', `data-action="rename-folder" data-folder="${key}"`)}
-        ${icon('fa-trash-can', '폴더 삭제 (도메인은 유지)', `data-action="delete-folder" data-folder="${key}"`, 'dom-icon-danger')}
+        ${icon('fa-pen', t('폴더 이름 변경'), `data-action="rename-folder" data-folder="${key}"`)}
+        ${icon('fa-trash-can', t('폴더 삭제 (도메인은 유지)'), `data-action="delete-folder" data-folder="${key}"`, 'dom-icon-danger')}
       </span>` : '';
     const header = showHeader ? `
       <div class="dom-folder-head" data-folder-toggle role="button" tabindex="0" aria-expanded="${!collapsed}">
@@ -102,14 +102,14 @@
           <i class="fas fa-chevron-${collapsed ? 'right' : 'down'} w-3 text-[9px] text-white/40"></i>
           <i class="fas ${collapsed ? 'fa-folder' : 'fa-folder-open'} text-xs ${group.id ? 'text-amber-400' : 'text-white/30'}"></i>
           <span class="truncate text-xs font-bold text-white/80">${escapeHtml(group.name)}</span>
-          <span class="flex-shrink-0 text-[10px] text-white/35">${group.domains.length}개 도메인</span>
+          <span class="flex-shrink-0 text-[10px] text-white/35">${t('{count}개 도메인', { count: group.domains.length })}</span>
         </div>
         <div class="flex min-w-0 flex-wrap items-center gap-1">${ports}</div>
         ${actions}
       </div>` : '';
     const empty = group.id
-      ? '이 폴더에 담긴 도메인이 없습니다. 도메인을 끌어다 놓거나 폴더 이동 버튼을 쓰십시오.'
-      : '모든 도메인이 폴더에 들어가 있습니다.';
+      ? t('이 폴더에 담긴 도메인이 없습니다. 도메인을 끌어다 놓거나 폴더 이동 버튼을 쓰십시오.')
+      : t('모든 도메인이 폴더에 들어가 있습니다.');
     const body = collapsed ? '' : (visible.map((domain) => domainRow(domain, Boolean(group.id))).join('')
       || (query ? '' : `<p class="dom-empty">${empty}</p>`));
     return `<div class="dom-group" data-group="${key}">${header}${body}</div>`;
@@ -119,7 +119,7 @@
     const query = $('domainSearch').value.trim().toLowerCase();
     const hasDomains = allDomains().length > 0;
     if (!hasDomains && !state.folders.length) {
-      list.innerHTML = '<p class="p-10 text-center text-xs text-white/35">등록된 도메인이 없습니다.</p>';
+      list.innerHTML = `<p class="p-10 text-center text-xs text-white/35">${t('등록된 도메인이 없습니다.')}</p>`;
       return;
     }
     const hasFolders = state.folders.length > 0;
@@ -127,7 +127,7 @@
       .filter((group) => group.id || group.domains.length || hasFolders)
       .map((group) => groupBlock(group, query, Boolean(group.id) || hasFolders))
       .join('');
-    list.innerHTML = blocks || '<p class="p-10 text-center text-xs text-white/35">일치하는 도메인이나 폴더가 없습니다. 검색어를 지우면 전체 목록이 다시 표시됩니다.</p>';
+    list.innerHTML = blocks || `<p class="p-10 text-center text-xs text-white/35">${t('일치하는 도메인이나 폴더가 없습니다. 검색어를 지우면 전체 목록이 다시 표시됩니다.')}</p>`;
   }
 
   function renderHelper() {
@@ -135,8 +135,8 @@
     $('domainHelperBanner').classList.toggle('hidden', Boolean(helper.ready));
     if (helper.ready) return;
     $('domainHelperText').textContent = helper.reason === 'outdated'
-      ? 'Nginx 헬퍼가 현재 코드와 달라 다시 설치해야 합니다.'
-      : '도메인을 바꾸려면 Nginx 헬퍼를 한 번 설치해야 합니다.';
+      ? t('Nginx 헬퍼가 현재 코드와 달라 다시 설치해야 합니다.')
+      : t('도메인을 바꾸려면 Nginx 헬퍼를 한 번 설치해야 합니다.');
     $('domainHelperCommand').textContent = helper.command || '';
   }
 
@@ -146,13 +146,13 @@
     $('domainHardenBanner').classList.toggle('hidden', !show);
     if (!show) return;
     $('domainHardenText').textContent = hardening.sites
-      ? `도메인 ${hardening.sites}개에 보안 설정을 적용해야 합니다.`
-      : '등록되지 않은 도메인 차단 설정을 적용해야 합니다.';
+      ? t('도메인 {count}개에 보안 설정을 적용해야 합니다.', { count: hardening.sites })
+      : t('등록되지 않은 도메인 차단 설정을 적용해야 합니다.');
     $('domainHardenCommand').textContent = hardening.command;
   }
 
   function renderFolderSelects() {
-    const options = ['<option value="">미분류</option>']
+    const options = [`<option value="">${t('미분류')}</option>`]
       .concat(state.folders.map((folder) => `<option value="${escapeHtml(folder.id)}">${escapeHtml(folder.name)}</option>`))
       .join('');
     document.querySelectorAll('[data-folder-select]').forEach((select) => { select.innerHTML = options; });
@@ -174,7 +174,7 @@
     }
   }
 
-  // ── 모달 ────────────────────────────────────────────────────────────
+  // ── Modals ──────────────────────────────────────────────────────────
   function openModal(id) {
     const modal = $(id);
     modal.classList.remove('hidden');
@@ -185,14 +185,14 @@
   }
   function requireHelper() {
     if (state.helper.ready) return true;
-    toast('먼저 Nginx 헬퍼를 설치해 주십시오.', 'error');
+    toast(t('먼저 Nginx 헬퍼를 설치해 주십시오.'), 'error');
     return false;
   }
   function selfWarning(form, domain) {
     const warning = form.querySelector('.dom-self-warning');
     const self = domain === location.hostname;
     warning.classList.toggle('hidden', !self);
-    warning.textContent = self ? '지금 이 대시보드에 접속 중인 도메인입니다. 진행하면 이 주소로 접속하지 못하게 될 수 있습니다.' : '';
+    warning.textContent = self ? t('지금 이 대시보드에 접속 중인 도메인입니다. 진행하면 이 주소로 접속하지 못하게 될 수 있습니다.') : '';
   }
   const formValues = (form) => Object.fromEntries(new FormData(form).entries());
 
@@ -202,7 +202,7 @@
     try { await task(); } catch (error) { toast(error.message, 'error'); } finally { button.disabled = false; }
   }
 
-  // 변경 비밀번호는 저장하지 않고 작업마다 묻는다. 취소하면 null.
+  // The change passphrase is never stored; it is asked for every operation. null when cancelled.
   let settlePassphrase = null;
   function askPassphrase() {
     settlePassphrase?.(null);
@@ -225,7 +225,7 @@
   });
   $('domPassCancel').addEventListener('click', () => settlePassphrase?.(null));
 
-  // ── 변경 비밀번호 바꾸기 ────────────────────────────────────────────
+  // ── Changing the change passphrase ──────────────────────────────────
   const changePassModal = $('domChangePassModal');
   const changePassForm = $('domChangePassForm');
   function closeChangePass() {
@@ -243,7 +243,7 @@
   changePassForm.addEventListener('submit', (event) => {
     event.preventDefault();
     if (changePassForm.next.value !== changePassForm.confirm.value) {
-      toast('새 비밀번호 두 칸이 서로 다릅니다.', 'error');
+      toast(t('새 비밀번호 두 칸이 서로 다릅니다.'), 'error');
       return;
     }
     submitting(changePassForm, async () => {
@@ -252,11 +252,11 @@
         body: { current: changePassForm.current.value, new: changePassForm.next.value },
       });
       closeChangePass();
-      toast('변경 비밀번호를 바꿨습니다.');
+      toast(t('변경 비밀번호를 바꿨습니다.'));
     });
   });
 
-  // ── 콘솔 ────────────────────────────────────────────────────────────
+  // ── Console ─────────────────────────────────────────────────────────
   function runConsole(payload) {
     const output = $('domConsoleOutput');
     const close = $('domConsoleClose');
@@ -270,7 +270,7 @@
     };
     output.textContent = '';
     close.classList.add('hidden');
-    title.textContent = '실행 중...';
+    title.textContent = t('실행 중...');
     $('domConsoleModal').classList.remove('hidden');
     let finished = false;
     const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -278,17 +278,18 @@
     socket.onopen = () => socket.send(JSON.stringify(payload));
     socket.onmessage = (event) => {
       const message = JSON.parse(event.data);
-      if (message.line !== undefined) addLine(message.line, message.line.startsWith('실패') ? 'text-red-400' : '');
+      // The nginx helper always prints its failure prefix in Korean; the server may translate the line, so accept both.
+      if (message.line !== undefined) addLine(message.line, /^(실패|fail|error)/i.test(message.line) ? 'text-red-400' : '');
       if (message.done) {
         finished = true;
-        title.textContent = message.ok ? '완료' : '실패';
-        addLine(message.ok ? '작업이 완료되었습니다.' : '작업이 실패했습니다.', message.ok ? 'text-emerald-400' : 'text-red-400');
+        title.textContent = message.ok ? t('완료') : t('실패');
+        addLine(message.ok ? t('작업이 완료되었습니다.') : t('작업이 실패했습니다.'), message.ok ? 'text-emerald-400' : 'text-red-400');
       }
     };
     socket.onclose = () => {
       if (!finished) {
-        title.textContent = '연결 끊김';
-        addLine('연결이 끊겼습니다. 서버에서는 작업이 끝까지 진행됩니다. 잠시 뒤 목록을 확인해 주십시오.', 'text-amber-300');
+        title.textContent = t('연결 끊김');
+        addLine(t('연결이 끊겼습니다. 서버에서는 작업이 끝까지 진행됩니다. 잠시 뒤 목록을 확인해 주십시오.'), 'text-amber-300');
       }
       close.classList.remove('hidden');
       close.focus();
@@ -299,7 +300,7 @@
     load();
   });
 
-  // ── 목록 동작 ───────────────────────────────────────────────────────
+  // ── List actions ────────────────────────────────────────────────────
   function openRename(domain) {
     if (!requireHelper()) return;
     state.renameDomain = domain;
@@ -330,7 +331,7 @@
 
   function openFolderModal(folder) {
     state.folderId = folder?.id || '';
-    $('domFolderTitle').textContent = folder ? '폴더 이름 변경' : '새 폴더';
+    $('domFolderTitle').textContent = folder ? t('폴더 이름 변경') : t('새 폴더');
     const form = $('domFolderForm');
     form.reset();
     if (folder) form.name.value = folder.name;
@@ -339,13 +340,13 @@
 
   async function deletePath(domain, path) {
     if (!requireHelper()) return;
-    if (!confirm(`${routeOf(domain, path)} 경로를 삭제하시겠습니까?`)) return;
+    if (!confirm(t('{route} 경로를 삭제하시겠습니까?', { route: routeOf(domain, path) }))) return;
     const passphrase = await askPassphrase();
     if (passphrase === null) return;
     try {
       const result = await api('/api/domains/paths/delete', { method: 'POST', body: { domain, path, passphrase } });
       if (result.requires_full_delete) {
-        toast('마지막 경로입니다. 지우려면 도메인 전체를 삭제해야 합니다.');
+        toast(t('마지막 경로입니다. 지우려면 도메인 전체를 삭제해야 합니다.'));
         openDelete(domain);
         return;
       }
@@ -355,7 +356,7 @@
 
   async function deleteFolder(id) {
     const folder = state.folders.find((item) => item.id === id);
-    if (!folder || !confirm(`'${folder.name}' 폴더를 삭제하시겠습니까?\n\n안에 있던 도메인은 미분류로 이동하며, nginx 설정과 인증서는 그대로입니다.`)) return;
+    if (!folder || !confirm(t("'{name}' 폴더를 삭제하시겠습니까?\n\n안에 있던 도메인은 미분류로 이동하며, nginx 설정과 인증서는 그대로입니다.", { name: folder.name }))) return;
     try {
       await api(`/api/domains/folders/${encodeURIComponent(id)}`, { method: 'DELETE' });
       await load();
@@ -437,7 +438,7 @@
     event.target.click();
   });
 
-  // ── 드래그 ──────────────────────────────────────────────────────────
+  // ── Drag ────────────────────────────────────────────────────────────
   list.addEventListener('dragstart', (event) => {
     const row = event.target.closest?.('.dom-row');
     if (!row) return;
@@ -470,7 +471,7 @@
     if ((current?.id || '') !== group.dataset.group) assign(domain, group.dataset.group);
   });
 
-  // ── 폼 ──────────────────────────────────────────────────────────────
+  // ── Forms ───────────────────────────────────────────────────────────
   $('domainSearch').addEventListener('input', render);
   $('domainNewFolder').addEventListener('click', () => openFolderModal(null));
   $('domainAdd').addEventListener('click', () => {
@@ -519,7 +520,7 @@
     const email = form.email.value.trim();
     submitting(form, async () => {
       await api('/api/domains/rename/check', { method: 'POST', body: { old_domain: oldDomain, new_domain: newDomain } });
-      if (!confirm(`${oldDomain} → ${newDomain}\n\n경로와 포트는 유지되고, 새 도메인으로 SSL 인증서를 다시 발급합니다. 진행하시겠습니까?`)) return;
+      if (!confirm(`${oldDomain} → ${newDomain}\n\n${t('경로와 포트는 유지되고, 새 도메인으로 SSL 인증서를 다시 발급합니다. 진행하시겠습니까?')}`)) return;
       const passphrase = await askPassphrase();
       if (passphrase === null) return;
       closeModals();

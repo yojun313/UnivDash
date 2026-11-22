@@ -6,10 +6,33 @@ from dotenv import load_dotenv
 
 from app.logging_config import configure_logging, show_startup_banner
 
+
+def _first_run() -> None:
+    """No settings yet: run the setup wizard once (tools/setup.py) so `python run.py` just works."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent
+    if (root / ".env").exists() or os.getenv("ADMIN_USER"):
+        return
+    import subprocess
+    import sys
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(root / "tools" / "setup.py"),
+            *([] if sys.stdin.isatty() else ["--yes"]),
+        ],
+        check=False,
+    )
+
+
+if __name__ == "__main__":
+    _first_run()
 load_dotenv()
 
 if __name__ == "__main__":
-    # 기본은 로컬에서만 접속 가능하게 묶는다. 외부 공개는 HTTPS 리버스 프록시 뒤에서 HOST 로 조정.
+    # By default bind so it is reachable only locally. Public exposure goes behind an HTTPS reverse proxy, adjusted with HOST.
     host = os.getenv("HOST", "127.0.0.1")
     log_level = os.getenv("LOG_LEVEL", "info").lower()
     environment = os.getenv("APP_ENV", "production")
@@ -20,7 +43,7 @@ if __name__ == "__main__":
     except ValueError:
         port = 8000
         logging.getLogger(__name__).warning(
-            "PORT 값이 올바르지 않아 기본 포트 %s를 사용합니다.", port
+            "PORT is not valid; using the default port %s.", port
         )
 
     show_startup_banner(

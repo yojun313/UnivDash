@@ -1,5 +1,5 @@
-// AI 페이지: 탭 (AI 사용량 · OpenAI 호환 API) 과 API 서버 관리 화면.
-// 서버: app/routes/llm_api_routes.py (/api/llm/*). 토큰 값은 만들 때 · 다시 만들 때 한 번만 받는다.
+// AI page: tabs (AI usage · OpenAI-compatible API) and the API server management screen.
+// Server: app/routes/llm_api_routes.py (/api/llm/*). The token value is received only once, on create / regenerate.
 (function () {
   'use strict';
   const { escapeHtml, api, toast, formatNumber } = window.UnivDash;
@@ -8,13 +8,13 @@
   const usagePanel = $('ai-usage');
   if (!panel || !usagePanel) return;
   const ui = () => window.UnivDashUI;
-  const num = (value) => (formatNumber ? formatNumber(value || 0) : Number(value || 0).toLocaleString('ko-KR'));
+  const num = (value) => (formatNumber ? formatNumber(value || 0) : Number(value || 0).toLocaleString(t.locale));
 
   let state = null;
   let example = 'curl';
   let timer = 0;
 
-  // ── 탭 ──
+  // ── Tabs ──
   const tabs = [...document.querySelectorAll('[data-ai-tab]')];
   function showTab(name, push) {
     const isApi = name === 'api';
@@ -27,12 +27,12 @@
       load();
       timer = setInterval(() => { if (document.visibilityState === 'visible') load(true); }, 10000);
     } else {
-      window.dispatchEvent(new Event('resize'));   // 숨겨져 있던 차트가 크기를 다시 잡게
+      window.dispatchEvent(new Event('resize'));   // let the charts that were hidden re-measure their size
     }
   }
   tabs.forEach((tab) => tab.addEventListener('click', () => showTab(tab.dataset.aiTab, true)));
 
-  // ── 불러오기 · 그리기 ──
+  // ── Load · render ──
   async function load(quiet) {
     try {
       state = await api('/api/llm/state');
@@ -53,85 +53,86 @@
       return null;
     }
   }
-  const when = (ts) => (ts ? new Date(ts * 1000).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
+  const when = (ts) => (ts ? new Date(ts * 1000).toLocaleString(t.locale, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
   const baseUrl = () => `${location.origin}/llm/v1`;
   const sw = (on, attrs, label) => `<button type="button" class="pmd-mode-switch${on ? ' on' : ''}" aria-pressed="${on}" aria-label="${escapeHtml(label)}" ${attrs}></button>`;
 
   function render() {
     if (!state) return;
     const usable = state.providers.some((p) => p.enabled && p.installed && p.accounts.some((a) => a.enabled && !a.expired));
-    const liveTokens = state.tokens.filter((t) => t.enabled && !t.expired).length;
+    const liveTokens = state.tokens.filter((tk) => tk.enabled && !tk.expired).length;
     const status = $('llmStatus');
     const sandboxProblem = state.sandbox?.problem || '';
-    status.textContent = sandboxProblem ? '격리 실행 불가' : !state.enabled ? '꺼짐' : !usable ? '켜짐 · 쓸 계정 없음' : !liveTokens ? '켜짐 · 토큰 없음' : '켜짐';
+    status.textContent = sandboxProblem ? t('격리 실행 불가') : !state.enabled ? t('꺼짐') : !usable ? t('켜짐 · 쓸 계정 없음') : !liveTokens ? t('켜짐 · 토큰 없음') : t('켜짐');
     status.className = `llm-badge ${sandboxProblem ? 'warn' : !state.enabled ? 'off' : usable && liveTokens ? 'on' : 'warn'}`;
     $('llmTabDot').classList.toggle('hidden', !state.enabled);
     const toggle = $('llmEnabled');
     toggle.classList.toggle('on', state.enabled);
     toggle.setAttribute('aria-pressed', String(state.enabled));
     $('llmBaseUrl').textContent = baseUrl();
-    $('llmNow').textContent = sandboxProblem ? `${sandboxProblem} 격리 없이는 실행하지 않습니다.` : state.enabled
-      ? `처리 중 ${state.active}건 · 동시에 최대 ${state.max_concurrency}건 · 쓸 수 있는 토큰 ${liveTokens}개`
-      : '서버가 꺼져 있습니다. 켜면 토큰을 가진 프로그램이 바로 쓸 수 있습니다.';
+    $('llmNow').textContent = sandboxProblem ? t('{problem} 격리 없이는 실행하지 않습니다.', { problem: sandboxProblem }) : state.enabled
+      ? t('처리 중 {active}건 · 동시에 최대 {max}건 · 쓸 수 있는 토큰 {tokens}개', { active: state.active, max: state.max_concurrency, tokens: liveTokens })
+      : t('서버가 꺼져 있습니다. 켜면 토큰을 가진 프로그램이 바로 쓸 수 있습니다.');
 
     $('llmProviders').innerHTML = state.providers.map((p) => {
       const accounts = p.accounts.length ? p.accounts.map((a) => `
           <div class="llm-acc"><div class="grow"><div class="mail">${escapeHtml(a.email || a.id)}</div>
-            <small>${[a.plan, a.active ? '지금 로그인된 계정' : '저장된 계정', a.expired ? '다시 로그인 필요' : ''].filter(Boolean).map(escapeHtml).join(' · ')}</small></div>
-            ${sw(a.enabled, `data-llm-account="${escapeHtml(a.id)}" data-provider="${p.id}"${a.expired ? ' disabled' : ''}`, `${a.email || a.id} 계정을 API 에 쓰기`)}</div>`).join('')
-        : '<div class="llm-acc"><small>로그인된 계정이 없습니다. AI 사용량 탭에서 계정을 추가하십시오.</small></div>';
+            <small>${[a.plan, a.active ? t('지금 로그인된 계정') : t('저장된 계정'), a.expired ? t('다시 로그인 필요') : ''].filter(Boolean).map(escapeHtml).join(' · ')}</small></div>
+            ${sw(a.enabled, `data-llm-account="${escapeHtml(a.id)}" data-provider="${p.id}"${a.expired ? ' disabled' : ''}`, t('{account} 계정을 API 에 쓰기', { account: a.email || a.id }))}</div>`).join('')
+        : `<div class="llm-acc"><small>${t('로그인된 계정이 없습니다. AI 사용량 탭에서 계정을 추가하십시오.')}</small></div>`;
       return `<div class="llm-prov"><div class="llm-prov-head"><div class="grow"><b>${escapeHtml(p.label)}</b>
-            <small>${p.installed ? `모델 이름: ${p.id}${p.id === 'claude' ? ' · claude/opus · claude/sonnet …' : ` · ${p.id}/<모델>`}` : 'CLI 가 설치되어 있지 않습니다'}</small></div>
-          ${sw(p.enabled, `data-llm-provider="${p.id}"`, `${p.label} 을 API 로 내어 주기`)}</div>${accounts}</div>`;
+            <small>${!p.installed ? t('CLI 가 설치되어 있지 않습니다') : p.id === 'claude' ? t('모델 이름: {id} · claude/opus · claude/sonnet …', { id: p.id }) : t('모델 이름: {id} · {id}/<모델>', { id: p.id })}</small></div>
+          ${sw(p.enabled, `data-llm-provider="${p.id}"`, t('{provider} 을 API 로 내어 주기', { provider: p.label }))}</div>${accounts}</div>`;
     }).join('');
 
     const aliases = Object.entries(state.aliases || {});
     $('llmSettings').innerHTML = [
-      ['기본 모델', state.default_model, '요청에 model 이 없을 때'],
-      ['계정 고르는 방법', state.strategy === 'round_robin' ? '돌아가며 (요청마다 다음 계정)' : '순서대로 (지금 로그인된 계정 먼저, 한도가 차면 다음 계정)'],
-      ['동시에 처리할 요청', `${state.max_concurrency}건`],
-      ['응답 제한 시간', `${state.timeout}초`],
-      ['빠른 응답', state.fast ? '켜짐 (생각 단계를 줄여 빨리 답함)' : '꺼짐 (더 깊이 생각하고 답함 · 느림)'],
-      ['요청 내용 저장', state.keep_content ? `켜짐 (프롬프트 · 답변을 ${state.content_days}일 보관)` : '꺼짐 (내용은 남기지 않음)'],
-      ['격리 컨테이너', state.sandbox?.problem ? '쓸 수 없음' : state.sandbox?.running ? '떠 있음 (univdash-llm)' : '내려가 있음 (서버를 켜면 뜸)'],
-      ['모델 별칭', aliases.length ? aliases.map(([a, t]) => `${a} → ${t}`).join(', ') : '없음'],
+      [t('기본 모델'), state.default_model, t('요청에 model 이 없을 때')],
+      [t('계정 고르는 방법'), state.strategy === 'round_robin' ? t('돌아가며 (요청마다 다음 계정)') : t('순서대로 (지금 로그인된 계정 먼저, 한도가 차면 다음 계정)')],
+      [t('동시에 처리할 요청'), t('{requests}건', { requests: state.max_concurrency })],
+      [t('응답 제한 시간'), t('{sec}초', { sec: state.timeout })],
+      [t('빠른 응답'), state.fast ? t('켜짐 (생각 단계를 줄여 빨리 답함)') : t('꺼짐 (더 깊이 생각하고 답함 · 느림)')],
+      [t('요청 내용 저장'), state.keep_content ? t('켜짐 (프롬프트 · 답변을 {days}일 보관)', { days: state.content_days }) : t('꺼짐 (내용은 남기지 않음)')],
+      [t('격리 컨테이너'), state.sandbox?.problem ? t('쓸 수 없음') : state.sandbox?.running ? t('떠 있음 (univdash-llm)') : t('내려가 있음 (서버를 켜면 뜸)')],
+      [t('모델 별칭'), aliases.length ? aliases.map(([a, target]) => `${a} → ${target}`).join(', ') : t('없음')],
     ].map(([k, v, hint]) => `<div class="llm-set"><span>${escapeHtml(k)}${hint ? ` <span style="opacity:.5;font-weight:500">(${escapeHtml(hint)})</span>` : ''}</span><span>${escapeHtml(v)}</span></div>`).join('');
 
-    $('llmTokens').innerHTML = state.tokens.length ? state.tokens.map((t) => {
-      const limits = [t.providers.map(providerLabel).join(' + '), t.rpm ? `분당 ${t.rpm}회` : '횟수 제한 없음',
-        t.expires ? (t.expired ? '만료됨' : `${when(t.expires)} 만료`) : '만료 없음'];
-      const pinned = Object.entries(t.accounts || {}).filter(([, id]) => id).map(([p, id]) => {
+    $('llmTokens').innerHTML = state.tokens.length ? state.tokens.map((tk) => {
+      const limits = [tk.providers.map(providerLabel).join(' + '), tk.rpm ? t('분당 {rpm}회', { rpm: tk.rpm }) : t('횟수 제한 없음'),
+        tk.expires ? (tk.expired ? t('만료됨') : t('{time} 만료', { time: when(tk.expires) })) : t('만료 없음')];
+      const pinned = Object.entries(tk.accounts || {}).filter(([, id]) => id).map(([p, id]) => {
         const account = state.providers.find((x) => x.id === p)?.accounts.find((a) => a.id === id);
-        return `${providerLabel(p)} 계정 고정: ${account?.email || '없는 계정'}`;
+        return t('{provider} 계정 고정: {account}', { provider: providerLabel(p), account: account?.email || t('없는 계정') });
       });
-      return `<div class="llm-token${t.enabled && !t.expired ? '' : ' off'}" data-llm-token="${escapeHtml(t.id)}">
-          <div class="grow"><div class="name">${escapeHtml(t.name)} <code>${escapeHtml(t.hint)}</code>${t.expired ? ' <span class="llm-badge warn">만료</span>' : ''}</div>
+      return `<div class="llm-token${tk.enabled && !tk.expired ? '' : ' off'}" data-llm-token="${escapeHtml(tk.id)}">
+          <div class="grow"><div class="name">${escapeHtml(tk.name)} <code>${escapeHtml(tk.hint)}</code>${tk.expired ? ` <span class="llm-badge warn">${t('만료')}</span>` : ''}</div>
             <small>${limits.concat(pinned).map(escapeHtml).join(' · ')}</small>
-            <small>요청 ${num(t.requests)}회 (오류 ${num(t.errors)}) · 입력 ${num(t.input_tokens)} · 출력 ${num(t.output_tokens)} 토큰 · 마지막 사용 ${escapeHtml(when(t.last_used))}${t.last_ip ? ` · ${escapeHtml(t.last_ip)}` : ''}</small></div>
-          <div class="acts">${sw(t.enabled, 'data-act="toggle"', `${t.name} 토큰 켜기 · 끄기`)}
-            <button type="button" class="llm-btn" data-act="edit"><i class="fas fa-pen"></i> 설정</button>
-            <button type="button" class="llm-btn" data-act="rotate"><i class="fas fa-rotate"></i> 다시 만들기</button>
+            <small>${t('요청 {requests}회 (오류 {errors}) · 입력 {input} · 출력 {output} 토큰 · 마지막 사용 {last}', { requests: num(tk.requests), errors: num(tk.errors), input: num(tk.input_tokens), output: num(tk.output_tokens), last: escapeHtml(when(tk.last_used)) })}${tk.last_ip ? ` · ${escapeHtml(tk.last_ip)}` : ''}</small></div>
+          <div class="acts">${sw(tk.enabled, 'data-act="toggle"', t('{name} 토큰 켜기 · 끄기', { name: tk.name }))}
+            <button type="button" class="llm-btn" data-act="edit"><i class="fas fa-pen"></i> ${t('설정')}</button>
+            <button type="button" class="llm-btn" data-act="rotate"><i class="fas fa-rotate"></i> ${t('다시 만들기')}</button>
             <button type="button" class="llm-btn danger" data-act="delete"><i class="fas fa-trash-can"></i></button></div></div>`;
-    }).join('') : '<p class="llm-empty">토큰이 없습니다. 토큰을 만들어야 API 를 쓸 수 있습니다.</p>';
+    }).join('') : `<p class="llm-empty">${t('토큰이 없습니다. 토큰을 만들어야 API 를 쓸 수 있습니다.')}</p>`;
 
     const select = $('llmTestModel');
     const chosen = select.value || state.default_model;
     select.innerHTML = state.models.map((m) => `<option value="${escapeHtml(m)}"${m === chosen ? ' selected' : ''}>${escapeHtml(m)}</option>`).join('');
 
-    $('llmLog').innerHTML = state.log.length ? `<table class="llm-log"><thead><tr><th>시각</th><th>토큰</th><th>모델</th><th>계정</th><th>결과</th><th>걸린 시간</th><th>입력</th><th>출력</th><th>IP</th><th></th></tr></thead><tbody>${
+    $('llmLog').innerHTML = state.log.length ? `<table class="llm-log"><thead><tr><th>${t('시각')}</th><th>${t('토큰')}</th><th>${t('모델')}</th><th>${t('계정')}</th><th>${t('결과')}</th><th>${t('걸린 시간')}</th><th>${t('입력')}</th><th>${t('출력')}</th><th>IP</th><th></th></tr></thead><tbody>${
       state.log.map((e) => `<tr><td>${escapeHtml(when(e.ts))}</td><td>${escapeHtml(e.token || '')}</td><td>${escapeHtml(e.model || '')}${e.stream ? ' <span style="opacity:.5">stream</span>' : ''}</td><td>${escapeHtml(e.account || '—')}</td>
-        <td class="${e.status < 400 ? 'ok' : 'bad'}">${e.status}${e.error ? ` ${escapeHtml(e.error)}` : ''}</td><td>${(e.ms / 1000).toFixed(1)}초</td><td>${num(e.input_tokens)}</td><td>${num(e.output_tokens)}</td><td>${escapeHtml(e.ip || '')}</td><td>${e.id ? `<button type="button" class="llm-btn" data-llm-view="${escapeHtml(e.id)}"${e.has_content ? '' : ' disabled title="내용을 저장하지 않은 요청입니다"'}><i class="fas fa-eye"></i> 내용</button>` : ''}</td></tr>`).join('')
-    }</tbody></table>` : '<p class="llm-empty">아직 요청이 없습니다.</p>';
+        <td class="${e.status < 400 ? 'ok' : 'bad'}">${e.status}${e.error ? ` ${escapeHtml(e.error)}` : ''}</td><td>${t('{sec}초', { sec: (e.ms / 1000).toFixed(1) })}</td><td>${num(e.input_tokens)}</td><td>${num(e.output_tokens)}</td><td>${escapeHtml(e.ip || '')}</td><td>${e.id ? `<button type="button" class="llm-btn" data-llm-view="${escapeHtml(e.id)}"${e.has_content ? '' : ` disabled title="${t('내용을 저장하지 않은 요청입니다')}"`}><i class="fas fa-eye"></i> ${t('내용')}</button>` : ''}</td></tr>`).join('')
+    }</tbody></table>` : `<p class="llm-empty">${t('아직 요청이 없습니다.')}</p>`;
     renderExample();
   }
 
   function renderExample() {
     const url = baseUrl();
     const model = state?.default_model || 'claude';
+    const hello = t('안녕!');
     const samples = {
-      curl: `curl ${url}/chat/completions \\\n  -H "Authorization: Bearer $UNIVDASH_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model": "${model}", "messages": [{"role": "user", "content": "안녕!"}]}'`,
-      python: `from openai import OpenAI\n\nclient = OpenAI(base_url="${url}", api_key="ud-...")\nstream = client.chat.completions.create(\n    model="${model}",\n    messages=[{"role": "user", "content": "안녕!"}],\n    stream=True,\n)\nfor chunk in stream:\n    if chunk.choices:\n        print(chunk.choices[0].delta.content or "", end="")`,
-      node: `import OpenAI from "openai";\n\nconst client = new OpenAI({ baseURL: "${url}", apiKey: "ud-..." });\nconst res = await client.chat.completions.create({\n  model: "${model}",\n  messages: [{ role: "user", content: "안녕!" }],\n});\nconsole.log(res.choices[0].message.content);`,
+      curl: `curl ${url}/chat/completions \\\n  -H "Authorization: Bearer $UNIVDASH_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model": "${model}", "messages": [{"role": "user", "content": "${hello}"}]}'`,
+      python: `from openai import OpenAI\n\nclient = OpenAI(base_url="${url}", api_key="ud-...")\nstream = client.chat.completions.create(\n    model="${model}",\n    messages=[{"role": "user", "content": "${hello}"}],\n    stream=True,\n)\nfor chunk in stream:\n    if chunk.choices:\n        print(chunk.choices[0].delta.content or "", end="")`,
+      node: `import OpenAI from "openai";\n\nconst client = new OpenAI({ baseURL: "${url}", apiKey: "ud-..." });\nconst res = await client.chat.completions.create({\n  model: "${model}",\n  messages: [{ role: "user", content: "${hello}" }],\n});\nconsole.log(res.choices[0].message.content);`,
     };
     $('llmExample').textContent = samples[example];
     document.querySelectorAll('[data-llm-ex]').forEach((b) => b.classList.toggle('on', b.dataset.llmEx === example));
@@ -139,25 +140,25 @@
   document.querySelectorAll('[data-llm-ex]').forEach((b) => b.addEventListener('click', () => { example = b.dataset.llmEx; renderExample(); }));
 
   async function copy(text, done) {
-    try { await navigator.clipboard.writeText(text); toast(done, 'success'); } catch (e) { toast('복사하지 못했습니다 (HTTPS 에서만 가능).', 'error'); }
+    try { await navigator.clipboard.writeText(text); toast(done, 'success'); } catch (e) { toast(t('복사하지 못했습니다 (HTTPS 에서만 가능).'), 'error'); }
   }
-  $('llmCopyUrl').addEventListener('click', () => copy(baseUrl(), 'Base URL 을 복사했습니다.'));
+  $('llmCopyUrl').addEventListener('click', () => copy(baseUrl(), t('Base URL 을 복사했습니다.')));
 
-  // ── 서버 켜고 끄기 ──
+  // ── Turn the server on / off ──
   $('llmEnabled').addEventListener('click', async () => {
     if (!state) return;
     if (!state.enabled) {
       const ok = await ui().confirmSheet({
-        title: 'API 서버를 켜시겠습니까?',
-        message: `토큰을 가진 프로그램이 ${baseUrl()} 로 이 서버의 Claude · Codex · Gemini 를 사용할 수 있게 됩니다. 사용량은 켜 둔 계정의 구독 한도에서 차감됩니다.`,
-        confirmLabel: '켜기',
+        title: t('API 서버를 켜시겠습니까?'),
+        message: t('토큰을 가진 프로그램이 {url} 로 이 서버의 Claude · Codex · Gemini 를 사용할 수 있게 됩니다. 사용량은 켜 둔 계정의 구독 한도에서 차감됩니다.', { url: baseUrl() }),
+        confirmLabel: t('켜기'),
       });
       if (!ok) return;
     }
-    change('/api/llm/settings', 'PUT', { enabled: !state.enabled }, state.enabled ? 'API 서버를 껐습니다.' : 'API 서버를 켰습니다.');
+    change('/api/llm/settings', 'PUT', { enabled: !state.enabled }, state.enabled ? t('API 서버를 껐습니다.') : t('API 서버를 켰습니다.'));
   });
 
-  // ── 제공자 · 계정 ──
+  // ── Providers · accounts ──
   $('llmProviders').addEventListener('click', (event) => {
     const button = event.target.closest('button');
     if (!button || button.disabled || !state) return;
@@ -166,28 +167,28 @@
     else if (button.dataset.llmAccount) change('/api/llm/accounts', 'PUT', { provider: button.dataset.provider, id: button.dataset.llmAccount, enabled: on });
   });
 
-  // ── 설정 ──
+  // ── Settings ──
   $('llmEditSettings').addEventListener('click', () => {
     if (!state) return;
-    const aliasText = Object.entries(state.aliases || {}).map(([a, t]) => `${a} = ${t}`).join('\n');
+    const aliasText = Object.entries(state.aliases || {}).map(([a, target]) => `${a} = ${target}`).join('\n');
     ui().formSheet({
-      title: 'API 설정', subtitle: '바꾸면 다음 요청부터 적용됩니다',
-      fields: [{ name: 'default_model', label: '기본 모델 (예: claude, claude/sonnet, codex, gemini)', value: state.default_model, maxlength: 80 }],
-      extraHtml: `<label>계정 고르는 방법<select name="strategy">
-            <option value="order"${state.strategy === 'order' ? ' selected' : ''}>순서대로 — 지금 로그인된 계정 먼저, 한도가 차면 다음 계정</option>
-            <option value="round_robin"${state.strategy === 'round_robin' ? ' selected' : ''}>돌아가며 — 요청마다 다음 계정 (한도를 고르게 씀)</option></select></label>
-        <label>동시에 처리할 요청 (1–8)<input name="max_concurrency" inputmode="numeric" value="${state.max_concurrency}" maxlength="1" autocomplete="off"></label>
-        <label class="check-row"><input type="checkbox" name="fast"${state.fast ? ' checked' : ''}> 빠른 응답 — 생각(추론) 단계를 줄여 답을 빨리 받기</label>
-        <label class="check-row"><input type="checkbox" name="keep_content"${state.keep_content ? ' checked' : ''}> 요청 내용 저장 — 받은 프롬프트와 보낸 답변을 최근 요청에서 볼 수 있게</label>
-        <label>내용 보관 기간 (일, 1–365)<input name="content_days" inputmode="numeric" value="${state.content_days}" maxlength="3" autocomplete="off"></label>
-        <label>응답 제한 시간 (초, 10–1800)<input name="timeout" inputmode="numeric" value="${state.timeout}" maxlength="4" autocomplete="off"></label>
-        <label>모델 별칭 — 한 줄에 하나, "받을 이름 = 실제 모델"<textarea name="aliases" rows="4" spellcheck="false" placeholder="gpt-4o = claude/sonnet&#10;gpt-4o-mini = claude/haiku">${escapeHtml(aliasText)}</textarea></label>
-        <p class="text-[11px] opacity-60 leading-5">별칭을 두면 모델 이름이 gpt-4o 로 고정된 프로그램도 그대로 쓸 수 있습니다.</p>`,
+      title: t('API 설정'), subtitle: t('바꾸면 다음 요청부터 적용됩니다'),
+      fields: [{ name: 'default_model', label: t('기본 모델 (예: claude, claude/sonnet, codex, gemini)'), value: state.default_model, maxlength: 80 }],
+      extraHtml: `<label>${t('계정 고르는 방법')}<select name="strategy">
+            <option value="order"${state.strategy === 'order' ? ' selected' : ''}>${t('순서대로 — 지금 로그인된 계정 먼저, 한도가 차면 다음 계정')}</option>
+            <option value="round_robin"${state.strategy === 'round_robin' ? ' selected' : ''}>${t('돌아가며 — 요청마다 다음 계정 (한도를 고르게 씀)')}</option></select></label>
+        <label>${t('동시에 처리할 요청 (1–8)')}<input name="max_concurrency" inputmode="numeric" value="${state.max_concurrency}" maxlength="1" autocomplete="off"></label>
+        <label class="check-row"><input type="checkbox" name="fast"${state.fast ? ' checked' : ''}> ${t('빠른 응답 — 생각(추론) 단계를 줄여 답을 빨리 받기')}</label>
+        <label class="check-row"><input type="checkbox" name="keep_content"${state.keep_content ? ' checked' : ''}> ${t('요청 내용 저장 — 받은 프롬프트와 보낸 답변을 최근 요청에서 볼 수 있게')}</label>
+        <label>${t('내용 보관 기간 (일, 1–365)')}<input name="content_days" inputmode="numeric" value="${state.content_days}" maxlength="3" autocomplete="off"></label>
+        <label>${t('응답 제한 시간 (초, 10–1800)')}<input name="timeout" inputmode="numeric" value="${state.timeout}" maxlength="4" autocomplete="off"></label>
+        <label>${t('모델 별칭 — 한 줄에 하나, "받을 이름 = 실제 모델"')}<textarea name="aliases" rows="4" spellcheck="false" placeholder="gpt-4o = claude/sonnet&#10;gpt-4o-mini = claude/haiku">${escapeHtml(aliasText)}</textarea></label>
+        <p class="text-[11px] opacity-60 leading-5">${t('별칭을 두면 모델 이름이 gpt-4o 로 고정된 프로그램도 그대로 쓸 수 있습니다.')}</p>`,
       async onSubmit(values) {
         const aliases = {};
         String(values.aliases || '').split('\n').map((line) => line.trim()).filter(Boolean).forEach((line) => {
           const at = line.indexOf('=');
-          if (at < 1) throw new Error(`별칭 줄을 "이름 = 모델" 로 적어 주십시오: ${line}`);
+          if (at < 1) throw new Error(t('별칭 줄을 "이름 = 모델" 로 적어 주십시오: {line}', { line }));
           aliases[line.slice(0, at).trim()] = line.slice(at + 1).trim();
         });
         state = await api('/api/llm/settings', { method: 'PUT', body: {
@@ -197,26 +198,27 @@
           keep_content: !!values.keep_content, content_days: Math.max(1, Math.min(365, Number(values.content_days) || 30)),
         } });
         render();
-        toast('설정을 저장했습니다.', 'success');
+        toast(t('설정을 저장했습니다.'), 'success');
       },
     });
   });
 
-  // ── 토큰 ──
-  const EXPIRES = [[0, '만료 없음'], [1, '1일'], [7, '7일'], [30, '30일'], [90, '90일'], [365, '1년']];
+  // ── Tokens ──
+  const EXPIRES = [[0, t('만료 없음')], [1, t('1일 뒤')], [7, t('7일 뒤')], [30, t('30일 뒤')], [90, t('90일 뒤')], [365, t('1년 뒤')]];
   const providerLabel = (id) => state.providers.find((p) => p.id === id)?.label || id;
   function tokenFormHtml(token) {
     const has = (p) => !token || token.providers.includes(p);
     const accountSelect = (p) => {
       const provider = state.providers.find((x) => x.id === p);
       const current = token?.accounts?.[p] || '';
-      return `<label>${escapeHtml(provider.label)} 계정<select name="account_${p}"><option value="">자동 — 켜 둔 계정 중에서</option>${
-        provider.accounts.map((a) => `<option value="${escapeHtml(a.id)}"${a.id === current ? ' selected' : ''}>${escapeHtml(a.email || a.id)}${a.enabled ? '' : ' (꺼져 있음)'}</option>`).join('')}</select></label>`;
+      return `<label>${t('{provider} 계정', { provider: escapeHtml(provider.label) })}<select name="account_${p}"><option value="">${t('자동 — 켜 둔 계정 중에서')}</option>${
+        provider.accounts.map((a) => `<option value="${escapeHtml(a.id)}"${a.id === current ? ' selected' : ''}>${a.enabled ? escapeHtml(a.email || a.id) : t('{account} (꺼져 있음)', { account: escapeHtml(a.email || a.id) })}</option>`).join('')}</select></label>`;
     };
-    return `${state.providers.map((p) => `<label class="check-row"><input type="checkbox" name="p_${p.id}"${has(p.id) ? ' checked' : ''}> ${escapeHtml(p.label)} 모델 사용</label>`).join('\n      ')}
-      <label>분당 요청 수 제한 (0 = 제한 없음)<input name="rpm" inputmode="numeric" value="${token ? token.rpm : 30}" maxlength="3" autocomplete="off"></label>
-      <label>${token ? '만료 다시 정하기' : '만료'}<select name="expires_days">${token ? '<option value="-1" selected>그대로 두기</option>' : ''}${
-        EXPIRES.map(([d, label]) => `<option value="${d}"${!token && d === 0 ? ' selected' : ''}>${label}${d ? ' 뒤' : ''}</option>`).join('')}</select></label>
+    // '만료 ' (trailing space, invisible in the label) is the field name "Expires"; plain '만료' is the status "Expired".
+    return `${state.providers.map((p) => `<label class="check-row"><input type="checkbox" name="p_${p.id}"${has(p.id) ? ' checked' : ''}> ${t('{provider} 모델 사용', { provider: escapeHtml(p.label) })}</label>`).join('\n      ')}
+      <label>${t('분당 요청 수 제한 (0 = 제한 없음)')}<input name="rpm" inputmode="numeric" value="${token ? token.rpm : 30}" maxlength="3" autocomplete="off"></label>
+      <label>${token ? t('만료 다시 정하기') : t('만료 ')}<select name="expires_days">${token ? `<option value="-1" selected>${t('그대로 두기')}</option>` : ''}${
+        EXPIRES.map(([d, label]) => `<option value="${d}"${!token && d === 0 ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
       ${state.providers.map((p) => accountSelect(p.id)).join('')}`;
   }
   function tokenBody(values) {
@@ -232,26 +234,26 @@
   function showToken(token, info, title) {
     ui().infoSheet({
       title, subtitle: info.name,
-      bodyHtml: `<div class="share-box"><div class="share-link"><input readonly value="${escapeHtml(token)}" aria-label="API 토큰" spellcheck="false">
-          <button type="button" class="btn-glow" data-copy><i class="fas fa-copy mr-1"></i>복사</button></div>
-        <p class="text-[11px] opacity-60 leading-5 mt-3"><i class="fas fa-triangle-exclamation mr-1"></i>토큰은 지금만 보입니다. 서버에는 알아볼 수 없는 형태(해시)로만 저장해서 나중에 다시 볼 수 없습니다. 잃어버리면 "다시 만들기"로 새 값을 받으십시오.</p></div>`,
+      bodyHtml: `<div class="share-box"><div class="share-link"><input readonly value="${escapeHtml(token)}" aria-label="${t('API 토큰')}" spellcheck="false">
+          <button type="button" class="btn-glow" data-copy><i class="fas fa-copy mr-1"></i>${t('복사')}</button></div>
+        <p class="text-[11px] opacity-60 leading-5 mt-3"><i class="fas fa-triangle-exclamation mr-1"></i>${t('토큰은 지금만 보입니다. 서버에는 알아볼 수 없는 형태(해시)로만 저장해서 나중에 다시 볼 수 없습니다. 잃어버리면 "다시 만들기"로 새 값을 받으십시오.')}</p></div>`,
       onMount(body) {
         const input = body.querySelector('input');
         input.addEventListener('focus', () => input.select());
-        body.querySelector('[data-copy]').addEventListener('click', () => copy(token, 'API 토큰을 복사했습니다.'));
+        body.querySelector('[data-copy]').addEventListener('click', () => copy(token, t('API 토큰을 복사했습니다.')));
       },
     });
   }
   $('llmNewToken').addEventListener('click', () => {
     if (!state) return;
     ui().formSheet({
-      title: '새 API 토큰', subtitle: '프로그램 · 사람마다 하나씩 만들면 따로 끊을 수 있습니다', submitLabel: '만들기',
-      fields: [{ name: 'name', label: '이름 (어디에 쓰는 토큰인지)', placeholder: '예: 내 노트북 스크립트', maxlength: 40 }],
+      title: t('새 API 토큰'), subtitle: t('프로그램 · 사람마다 하나씩 만들면 따로 끊을 수 있습니다'), submitLabel: t('만들기'),
+      fields: [{ name: 'name', label: t('이름 (어디에 쓰는 토큰인지)'), placeholder: t('예: 내 노트북 스크립트'), maxlength: 40 }],
       extraHtml: tokenFormHtml(null),
       async onSubmit(values) {
         const result = await api('/api/llm/tokens', { method: 'POST', body: tokenBody(values) });
         await load(true);
-        setTimeout(() => showToken(result.token, result.info, 'API 토큰을 만들었습니다'), 0);
+        setTimeout(() => showToken(result.token, result.info, t('API 토큰을 만들었습니다')), 0);
         return false;
       },
     });
@@ -260,34 +262,34 @@
     const button = event.target.closest('button');
     const row = event.target.closest('[data-llm-token]');
     if (!button || !row || !state) return;
-    const token = state.tokens.find((t) => t.id === row.dataset.llmToken);
+    const token = state.tokens.find((tk) => tk.id === row.dataset.llmToken);
     if (!token) return;
     const url = `/api/llm/tokens/${encodeURIComponent(token.id)}`;
     if (button.dataset.act === 'toggle') {
-      change(url, 'PATCH', { enabled: !token.enabled }, token.enabled ? '토큰을 껐습니다. 이 토큰으로는 요청할 수 없습니다.' : '토큰을 켰습니다.');
+      change(url, 'PATCH', { enabled: !token.enabled }, token.enabled ? t('토큰을 껐습니다. 이 토큰으로는 요청할 수 없습니다.') : t('토큰을 켰습니다.'));
     } else if (button.dataset.act === 'edit') {
       ui().formSheet({
-        title: '토큰 설정', subtitle: `${token.name} · ${token.hint}`,
-        fields: [{ name: 'name', label: '이름', value: token.name, maxlength: 40 }],
+        title: t('토큰 설정'), subtitle: `${token.name} · ${token.hint}`,
+        fields: [{ name: 'name', label: t('이름'), value: token.name, maxlength: 40 }],
         extraHtml: tokenFormHtml(token),
         async onSubmit(values) {
           await api(url, { method: 'PATCH', body: tokenBody(values) });
           await load(true);
-          toast('토큰 설정을 저장했습니다.', 'success');
+          toast(t('토큰 설정을 저장했습니다.'), 'success');
         },
       });
     } else if (button.dataset.act === 'rotate') {
-      const ok = await ui().confirmSheet({ title: '토큰 값을 다시 만드시겠습니까?', message: `"${token.name}" 의 지금 값은 바로 못 쓰게 되고 새 값이 나옵니다. 설정과 사용 기록은 그대로입니다.`, confirmLabel: '다시 만들기', danger: true });
+      const ok = await ui().confirmSheet({ title: t('토큰 값을 다시 만드시겠습니까?'), message: t('"{name}" 의 지금 값은 바로 못 쓰게 되고 새 값이 나옵니다. 설정과 사용 기록은 그대로입니다.', { name: token.name }), confirmLabel: t('다시 만들기'), danger: true });
       if (!ok) return;
       const result = await change(`${url}/rotate`, 'POST');
-      if (result?.token) showToken(result.token, result.info, '새 토큰 값입니다');
+      if (result?.token) showToken(result.token, result.info, t('새 토큰 값입니다'));
     } else if (button.dataset.act === 'delete') {
-      const ok = await ui().confirmSheet({ title: '토큰을 지우시겠습니까?', message: `"${token.name}" 토큰으로는 더 이상 요청할 수 없습니다.`, confirmLabel: '지우기', danger: true });
-      if (ok) change(url, 'DELETE', undefined, '토큰을 지웠습니다.');
+      const ok = await ui().confirmSheet({ title: t('토큰을 지우시겠습니까?'), message: t('"{name}" 토큰으로는 더 이상 요청할 수 없습니다.', { name: token.name }), confirmLabel: t('지우기'), danger: true });
+      if (ok) change(url, 'DELETE', undefined, t('토큰을 지웠습니다.'));
     }
   });
 
-  // ── 시험 · 기록 ──
+  // ── Test · log ──
   $('llmTestRun').addEventListener('click', async () => {
     const out = $('llmTestOut');
     const button = $('llmTestRun');
@@ -295,10 +297,10 @@
     if (!prompt) return;
     button.disabled = true;
     out.classList.remove('hidden', 'error');
-    out.textContent = '답을 기다리는 중…';
+    out.textContent = t('답을 기다리는 중…');
     try {
       const result = await api('/api/llm/test', { method: 'POST', body: { model: $('llmTestModel').value, prompt } });
-      out.textContent = `${result.text}\n\n— ${result.model} · ${result.account || ''} · ${(result.ms / 1000).toFixed(1)}초 · 입력 ${num(result.usage.prompt_tokens)} / 출력 ${num(result.usage.completion_tokens)} 토큰`;
+      out.textContent = `${result.text}\n\n— ${result.model} · ${result.account || ''} · ${t('{sec}초', { sec: (result.ms / 1000).toFixed(1) })} · ${t('입력 {input} / 출력 {output} 토큰', { input: num(result.usage.prompt_tokens), output: num(result.usage.completion_tokens) })}`;
     } catch (error) {
       out.classList.add('error');
       out.textContent = error.message;
@@ -306,8 +308,8 @@
     button.disabled = false;
     load(true);
   });
-  // 요청 하나의 받은 프롬프트 · 보낸 답변 보기
-  const ROLE = { system: '시스템', developer: '시스템', user: '사용자', assistant: '어시스턴트', tool: '도구', function: '도구' };
+  // View the received prompt · sent answer of a single request
+  const ROLE = { system: t('시스템'), developer: t('시스템'), user: t('사용자'), assistant: t('어시스턴트'), tool: t('도구'), function: t('도구') };
   $('llmLog').addEventListener('click', async (event) => {
     const button = event.target.closest('[data-llm-view]');
     if (!button || button.disabled) return;
@@ -315,27 +317,27 @@
     try { data = await api(`/api/llm/log/${encodeURIComponent(button.dataset.llmView)}`); } catch (error) { toast(error.message, 'error'); return; }
     const e = data.entry || {};
     const c = data.content;
-    const block = (label, text, cls = '') => `<div class="llm-msg"><div class="llm-msg-head"><b>${escapeHtml(label)}</b><span>${num(String(text || '').length)}자</span>
-        <button type="button" class="llm-btn" data-copy-text><i class="fas fa-copy"></i> 복사</button></div><pre class="llm-out ${cls}">${escapeHtml(text || '(비어 있음)')}</pre></div>`;
+    const block = (label, text, cls = '') => `<div class="llm-msg"><div class="llm-msg-head"><b>${escapeHtml(label)}</b><span>${t('{count}자', { count: num(String(text || '').length) })}</span>
+        <button type="button" class="llm-btn" data-copy-text><i class="fas fa-copy"></i> ${t('복사')}</button></div><pre class="llm-out ${cls}">${escapeHtml(text || t('(비어 있음)'))}</pre></div>`;
     const body = c
-      ? `${c.messages.map((m) => block(ROLE[m.role] || m.role, m.text)).join('')}${c.answer || !c.error ? block('답변', c.answer) : ''}${c.error ? block('오류', c.error, 'error') : ''}`
-      : '<p class="llm-empty">이 요청은 내용이 저장되어 있지 않습니다 (내용 저장이 꺼져 있었거나 보관 기간이 지났습니다).</p>';
+      ? `${c.messages.map((m) => block(ROLE[m.role] || m.role, m.text)).join('')}${c.answer || !c.error ? block(t('답변'), c.answer) : ''}${c.error ? block(t('오류'), c.error, 'error') : ''}`
+      : `<p class="llm-empty">${t('이 요청은 내용이 저장되어 있지 않습니다 (내용 저장이 꺼져 있었거나 보관 기간이 지났습니다).')}</p>`;
     ui().infoSheet({
-      title: '요청 내용',
-      subtitle: [when(e.ts), e.token, e.model, e.account, e.status ? `${e.status}${e.error ? ` ${e.error}` : ''}` : '', e.ms ? `${(e.ms / 1000).toFixed(1)}초` : ''].filter(Boolean).join(' · '),
+      title: t('요청 내용'),
+      subtitle: [when(e.ts), e.token, e.model, e.account, e.status ? `${e.status}${e.error ? ` ${e.error}` : ''}` : '', e.ms ? t('{sec}초', { sec: (e.ms / 1000).toFixed(1) }) : ''].filter(Boolean).join(' · '),
       bodyHtml: `<div class="share-box llm-content">${body}</div>`,
       onMount(sheet) {
-        sheet.querySelectorAll('[data-copy-text]').forEach((b) => b.addEventListener('click', () => copy(b.closest('.llm-msg').querySelector('pre').textContent, '복사했습니다.')));
+        sheet.querySelectorAll('[data-copy-text]').forEach((b) => b.addEventListener('click', () => copy(b.closest('.llm-msg').querySelector('pre').textContent, t('복사했습니다.'))));
       },
     });
   });
   $('llmRefresh').addEventListener('click', () => load());
   $('llmClearLog').addEventListener('click', async () => {
-    const ok = await ui().confirmSheet({ title: '요청 기록을 비우시겠습니까?', message: '저장해 둔 프롬프트 · 답변도 함께 지워집니다. 토큰별 누적 사용량은 그대로 남습니다.', confirmLabel: '비우기', danger: true });
-    if (ok) change('/api/llm/log', 'DELETE', undefined, '기록을 비웠습니다.');
+    const ok = await ui().confirmSheet({ title: t('요청 기록을 비우시겠습니까?'), message: t('저장해 둔 프롬프트 · 답변도 함께 지워집니다. 토큰별 누적 사용량은 그대로 남습니다.'), confirmLabel: t('비우기'), danger: true });
+    if (ok) change('/api/llm/log', 'DELETE', undefined, t('기록을 비웠습니다.'));
   });
 
   showTab(location.hash === '#api' ? 'api' : 'usage', false);
-  // 사용량 탭에 있어도 서버가 켜져 있는지는 탭의 초록 점으로 보여 준다
+  // Even on the usage tab, the green dot on the tab shows whether the server is on
   if (location.hash !== '#api') api('/api/llm/state').then((data) => { state = data; $('llmTabDot').classList.toggle('hidden', !data.enabled); }).catch(() => {});
 })();

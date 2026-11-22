@@ -1,10 +1,11 @@
 <!doctype html>
-<html lang="ko">
+<html lang="{{ ui_lang() }}">
 <head>
 <meta charset="utf-8">
+<script src="{{ i18n_src() }}"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow, noarchive">
-<title>{% if name %}{{ name }} · {% endif %}파일 받기</title>
+<title>{% if name %}{{ t("{name} · 파일 받기", name=name) }}{% else %}{{ t("파일 받기") }}{% endif %}</title>
 <style>
   :root { color-scheme: light dark; --bg: #f4f6fb; --card: #fff; --text: #111827; --muted: #6b7280; --line: #e5e7eb; --accent: #2563eb; --accent-text: #fff; --warn: #b45309; }
   @media (prefers-color-scheme: dark) { :root { --bg: #0b1020; --card: #141a2e; --text: #e5e7eb; --muted: #9ca3af; --line: #253049; --accent: #3b82f6; --warn: #fbbf24; } }
@@ -27,37 +28,37 @@
 <main class="card">
 {% if missing %}
   <div class="icon" aria-hidden="true">🔒</div>
-  <h1>링크가 없거나 만료되었습니다</h1>
-  <p class="meta">받을 수 있는 시간이 지났거나, 보낸 사람이 링크를 지웠습니다.</p>
+  <h1>{{ t("링크가 없거나 만료되었습니다") }}</h1>
+  <p class="meta">{{ t("받을 수 있는 시간이 지났거나, 보낸 사람이 링크를 지웠습니다.") }}</p>
 {% elif locked %}
   <div class="icon" aria-hidden="true">⏳</div>
-  <h1>잠시 뒤 다시 시도해 주십시오</h1>
-  <p class="meta">잘못된 링크를 너무 많이 열었습니다.</p>
+  <h1>{{ t("잠시 뒤 다시 시도해 주십시오") }}</h1>
+  <p class="meta">{{ t("잘못된 링크를 너무 많이 열었습니다.") }}</p>
 {% elif code_locked %}
   <div class="icon" aria-hidden="true">⏳</div>
-  <h1>잠시 뒤 다시 시도해 주십시오</h1>
-  <p class="meta">접근 코드가 여러 번 틀려 약 {{ wait }}분 동안 막혔습니다.</p>
+  <h1>{{ t("잠시 뒤 다시 시도해 주십시오") }}</h1>
+  <p class="meta">{{ t("접근 코드가 여러 번 틀려 약 {wait}분 동안 막혔습니다.", wait=wait) }}</p>
 {% elif need_code %}
   <div class="icon" aria-hidden="true">🔒</div>
-  <h1>접근 코드가 필요합니다</h1>
-  <p class="meta">보낸 사람에게 따로 받은 코드를 넣으면 받을 수 있습니다.</p>
+  <h1>{{ t("접근 코드가 필요합니다") }}</h1>
+  <p class="meta">{{ t("보낸 사람에게 따로 받은 코드를 넣으면 받을 수 있습니다.") }}</p>
   <form method="post" action="{{ action }}" autocomplete="off">
-    <input name="code" class="code" inputmode="text" autocapitalize="characters" autocomplete="one-time-code" spellcheck="false" maxlength="20" placeholder="XXXX-XXXX-XXXX" aria-label="접근 코드" required>
-    <button type="submit">코드 확인하고 내려받기</button>
+    <input name="code" class="code" inputmode="text" autocapitalize="characters" autocomplete="one-time-code" spellcheck="false" maxlength="20" placeholder="XXXX-XXXX-XXXX" aria-label="{{ t('접근 코드') }}" required>
+    <button type="submit">{{ t("코드 확인하고 내려받기") }}</button>
   </form>
-  {% if wrong %}<p class="note warn" role="alert">접근 코드가 맞지 않습니다. 다시 넣어 주십시오.</p>{% endif %}
+  {% if wrong %}<p class="note warn" role="alert">{{ t("접근 코드가 맞지 않습니다. 다시 넣어 주십시오.") }}</p>{% endif %}
 {% elif busy %}
   <div class="icon" aria-hidden="true">⏳</div>
-  <h1>받는 사람이 많습니다</h1>
-  <p class="meta">조금 뒤 이 페이지를 새로 고쳐 다시 받아 주십시오.</p>
+  <h1>{{ t("받는 사람이 많습니다") }}</h1>
+  <p class="meta">{{ t("조금 뒤 이 페이지를 새로 고쳐 다시 받아 주십시오.") }}</p>
 {% else %}
   <div class="icon" aria-hidden="true">{% if is_dir %}🗂️{% else %}📄{% endif %}</div>
   <h1>{{ name }}</h1>
-  <p class="meta">{% if is_dir %}폴더 (zip) · {% endif %}{{ size }}</p>
+  <p class="meta">{% if is_dir %}{{ t("폴더 (zip)") }} · {% endif %}{{ size }}</p>
   <form method="post" action="{{ action }}">
-    <button type="submit">내려받기</button>
+    <button type="submit">{{ t("내려받기") }}</button>
   </form>
-  <p class="note">{{ expires }}까지 받을 수 있습니다 (약 {{ minutes }}분 남음){% if left is not none %} · <span class="warn">{{ left }}번 더 받을 수 있습니다</span>{% endif %}</p>
+  <p class="note">{{ t("{expires}까지 받을 수 있습니다 (약 {minutes}분 남음)", expires=expires, minutes=minutes) }}{% if left is not none %} · <span class="warn">{{ t("{left}번 더 받을 수 있습니다", left=left) }}</span>{% endif %}</p>
 {% endif %}
 </main>
 </body>

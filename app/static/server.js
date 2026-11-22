@@ -1,4 +1,4 @@
-// 서버 & 프로세스 페이지: 서버 자원, PM2 프로세스 상태 · 제어 · 실시간 로그
+// Server & processes page: server resources, PM2 process status · control · live logs
 (function () {
 'use strict';
 
@@ -109,7 +109,7 @@ function formatBytes(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-// CPU 온도 배지: 경고 온도(high) 기준으로 초록 → 주황(10°C 이내) → 빨강(넘음)
+// CPU temperature badge: relative to the warning temperature (high), green → orange (within 10°C) → red (above)
 function renderCpuTemp(temp) {
     const badge = document.getElementById('srvCpuTemp');
     if (!badge) return;
@@ -120,7 +120,12 @@ function renderCpuTemp(temp) {
         : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400';
     badge.className = `text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${level}`;
     badge.innerHTML = `<i class="fas fa-temperature-half mr-1"></i>${Math.round(temp.current)}°C`;
-    badge.title = `CPU 온도 ${temp.current}°C${temp.hottest_core ? ` · 가장 뜨거운 코어 ${temp.hottest_core}°C` : ''}${temp.high ? ` · 경고 ${temp.high}°C` : ''}${temp.critical ? ` · 위험 ${temp.critical}°C` : ''}`;
+    badge.title = [
+        t('CPU 온도 {temp}°C', { temp: temp.current }),
+        temp.hottest_core ? t('가장 뜨거운 코어 {temp}°C', { temp: temp.hottest_core }) : '',
+        temp.high ? t('경고 {temp}°C', { temp: temp.high }) : '',
+        temp.critical ? t('위험 {temp}°C', { temp: temp.critical }) : '',
+    ].filter(Boolean).join(' · ');
 }
 
 async function updateServerStats() {
@@ -257,13 +262,13 @@ function formatUptime(ms) {
 }
 
 async function controlPM2(action, name) {
-    const actionKo = {
-        'restart': '재시작(환경 변수 갱신 --update-env)',
-        'stop': '중지',
-        'delete': '삭제(리스트에서 제거)'
-    }[action] || action;
+    const question = {
+        'restart': t('{name} 프로세스를 재시작(환경 변수 갱신 --update-env) 하시겠습니까?', { name }),
+        'stop': t('{name} 프로세스를 중지 하시겠습니까?', { name }),
+        'delete': t('{name} 프로세스를 삭제(리스트에서 제거) 하시겠습니까?', { name })
+    }[action] || t('{name} 프로세스를 {action} 하시겠습니까?', { name, action });
 
-    if (!confirm(`${name} 프로세스를 ${actionKo} 하시겠습니까?`)) return;
+    if (!confirm(question)) return;
 
     try {
         const response = await fetch(`/control/${encodeURIComponent(action)}/${encodeURIComponent(name)}`, { method: 'POST' });
@@ -274,27 +279,31 @@ async function controlPM2(action, name) {
                 updateStats();
             }
         } else {
-            alert('명령 실행 실패');
+            alert(t('명령 실행 실패'));
         }
     } catch (err) {
-        alert('서버 통신 오류');
+        alert(t('서버 통신 오류'));
     }
 }
 
 async function restartAllPM2() {
     const count = document.querySelectorAll('.proc-row').length;
-    if (!confirm(`PM2 앱 ${count}개를 모두 재시작하시겠습니까? (환경 변수 갱신 --update-env)\n대시보드도 마지막에 재시작되어 잠깐 연결이 끊깁니다.`)) return;
+    if (!confirm(t('PM2 앱 {count}개를 모두 재시작하시겠습니까? (환경 변수 갱신 --update-env)\n대시보드도 마지막에 재시작되어 잠깐 연결이 끊깁니다.', { count }))) return;
     const button = document.getElementById('pm2RestartAllButton');
     button.disabled = true;
     button.classList.add('opacity-50');
     try {
         const data = await UnivDash.api('/restart-all', { method: 'POST' });
-        const failed = data.failed.length ? ` · 실패: ${data.failed.join(', ')}` : '';
-        UnivDash.toast(`${data.restarted.length}개 재시작 완료${failed}${data.self ? ' · 대시보드 재시작 중…' : ''}`, data.failed.length ? 'error' : 'success');
-        if (data.self) setTimeout(() => location.reload(), 5000);   // 대시보드가 다시 뜨면 새로고침
+        const summary = [
+            t('{count}개 재시작 완료', { count: data.restarted.length }),
+            data.failed.length ? t('실패: {names}', { names: data.failed.join(', ') }) : '',
+            data.self ? t('대시보드 재시작 중…') : '',
+        ].filter(Boolean).join(' · ');
+        UnivDash.toast(summary, data.failed.length ? 'error' : 'success');
+        if (data.self) setTimeout(() => location.reload(), 5000);   // reload once the dashboard is back up
         else updateStats();
     } catch (error) {
-        UnivDash.toast(error.message || '전체 재시작에 실패했습니다.', 'error');
+        UnivDash.toast(error.message || t('전체 재시작에 실패했습니다.'), 'error');
     } finally {
         button.disabled = false;
         button.classList.remove('opacity-50');
@@ -302,16 +311,16 @@ async function restartAllPM2() {
 }
 
 async function savePM2() {
-    if (!confirm("현재 프로세스 리스트를 저장하시겠습니까? 재부팅 시 이 상태로 자동 복구됩니다.")) return;
+    if (!confirm(t("현재 프로세스 리스트를 저장하시겠습니까? 재부팅 시 이 상태로 자동 복구됩니다."))) return;
     try {
         const response = await fetch('/save', { method: 'POST' });
         if (response.ok) {
-            alert("성공적으로 저장되었습니다 (pm2 save 완료)");
+            alert(t("성공적으로 저장되었습니다 (pm2 save 완료)"));
         } else {
-            alert("저장 실패");
+            alert(t("저장 실패"));
         }
     } catch (err) {
-        alert("서버 통신 오류");
+        alert(t("서버 통신 오류"));
     }
 }
 
@@ -321,10 +330,10 @@ async function toggleWatch(name) {
         if (response.ok) {
             updateStats();
         } else {
-            alert('Watch 모드 변경 실패');
+            alert(t('Watch 모드 변경 실패'));
         }
     } catch (err) {
-        alert('서버 통신 오류');
+        alert(t('서버 통신 오류'));
     }
 }
 
@@ -335,7 +344,7 @@ function openLogModal(name) {
 
     modal.classList.remove('hidden');
     title.innerText = `REAL-TIME LOGS: ${name}`;
-    container.innerHTML = '<div class="terminal-muted italic px-2">데이터를 불러오는 중입니다...</div>';
+    container.innerHTML = `<div class="terminal-muted italic px-2">${t('데이터를 불러오는 중입니다...')}</div>`;
 
     if (logSocket) logSocket.close();
 
@@ -353,12 +362,12 @@ function openLogModal(name) {
     logSocket.onclose = function() {
         const msg = document.createElement('div');
         msg.className = 'terminal-muted text-[10px] mt-4 text-center border-t border-white/10 pt-4 font-bold tracking-widest';
-        msg.innerText = "로그 스트림 종료됨 (STREAM ENDED)";
+        msg.innerText = t("로그 스트림 종료됨 (STREAM ENDED)");
         container.appendChild(msg);
     };
 
     logSocket.onerror = function() {
-        container.innerHTML = '<div class="text-red-400 font-bold p-2">WebSocket 연결 오류 발생</div>';
+        container.innerHTML = `<div class="text-red-400 font-bold p-2">${t('WebSocket 연결 오류 발생')}</div>`;
     };
 }
 
@@ -371,16 +380,16 @@ function showOutput(title, text, cls = '') {
     modal.classList.remove('hidden');
     document.getElementById('logTitle').innerText = title;
     container.innerHTML = '';
-    String(text || '(출력 없음)').split('\n').forEach((t) => {
+    String(text || t('(출력 없음)')).split('\n').forEach((lineText) => {
         const line = document.createElement('div');
         line.className = `terminal-line pl-3 py-0.5 whitespace-pre-wrap break-all ${cls}`;
-        line.innerText = t;
+        line.innerText = lineText;
         container.appendChild(line);
     });
     container.scrollTop = container.scrollHeight;
 }
 
-// 버튼 아이콘을 스피너로 바꾸고, 같은 앱에서 같은 작업이 겹치지 않게 한다
+// Swap the button icon for a spinner and keep the same task from overlapping on the same app
 async function procTask(key, button, icon, run) {
     if (procBusy.has(key)) return;
     procBusy.add(key);
@@ -397,27 +406,27 @@ async function procTask(key, button, icon, run) {
 }
 
 async function restartAfter(name, what) {
-    if (!confirm(`${name} ${what} 완료. 지금 재시작하시겠습니까? (--update-env)`)) return;
+    if (!confirm(t('{name} {what} 완료. 지금 재시작하시겠습니까? (--update-env)', { name, what }))) return;
     const res = await fetch(`/control/restart/${encodeURIComponent(name)}`, { method: 'POST' });
-    UnivDash.toast(res.ok ? `${name} 재시작됨` : '재시작 실패', res.ok ? 'success' : 'error');
+    UnivDash.toast(res.ok ? t('{name} 재시작됨', { name }) : t('재시작 실패'), res.ok ? 'success' : 'error');
     updateStats();
 }
 
-// 성공하면 true. then 이 false 면 재시작을 묻지 않는다 (git pull 에서 이어 부를 때)
+// Returns true on success. When then is false it does not ask about restarting (when chained from git pull)
 async function uvSync(name, button, { ask = true, then = true } = {}) {
-    if (ask && !confirm(`${name} 작업 폴더에서 uv sync 를 실행하시겠습니까?\n(uv.lock 이 있는 폴더 기준 · 끝나면 재시작 여부를 묻습니다)`)) return false;
+    if (ask && !confirm(t('{name} 작업 폴더에서 uv sync 를 실행하시겠습니까?\n(uv.lock 이 있는 폴더 기준 · 끝나면 재시작 여부를 묻습니다)', { name }))) return false;
     button = button || document.querySelector(`[data-proc-action="uv-sync"][data-name="${CSS.escape(name)}"]`);
     let ok = false;
     await procTask(`uv:${name}`, button, 'fa-box-open', async () => {
-        showOutput(`UV SYNC: ${name}`, 'uv sync 실행 중...', 'terminal-muted italic');
+        showOutput(`UV SYNC: ${name}`, t('uv sync 실행 중...'), 'terminal-muted italic');
         try {
             const data = await UnivDash.api(`/uv-sync/${encodeURIComponent(name)}`, { method: 'POST' });
             showOutput(`UV SYNC: ${name}`, data.output, data.ok ? '' : 'text-red-400');
             ok = data.ok;
-            UnivDash.toast(`${name} uv sync ${ok ? '완료' : '실패'}`, ok ? 'success' : 'error');
+            UnivDash.toast(ok ? t('{name} uv sync 완료', { name }) : t('{name} uv sync 실패', { name }), ok ? 'success' : 'error');
         } catch (error) {
-            showOutput(`UV SYNC: ${name}`, error.message || 'uv sync 요청 실패', 'text-red-400');
-            UnivDash.toast(error.message || 'uv sync 실패', 'error');
+            showOutput(`UV SYNC: ${name}`, error.message || t('uv sync 요청 실패'), 'text-red-400');
+            UnivDash.toast(error.message || t('uv sync 실패'), 'error');
         }
     });
     if (ok && then) await restartAfter(name, 'uv sync');
@@ -425,23 +434,23 @@ async function uvSync(name, button, { ask = true, then = true } = {}) {
 }
 
 async function gitPull(name, button) {
-    if (!confirm(`${name} 저장소에서 git pull 하시겠습니까?\n(--ff-only · 로컬 커밋과 갈라져 있으면 실패하고 아무것도 바꾸지 않습니다)`)) return;
+    if (!confirm(t('{name} 저장소에서 git pull 하시겠습니까?\n(--ff-only · 로컬 커밋과 갈라져 있으면 실패하고 아무것도 바꾸지 않습니다)', { name }))) return;
     let data = null;
     await procTask(`git:${name}`, button, 'fa-code-pull-request', async () => {
-        showOutput(`GIT PULL: ${name}`, 'git pull 실행 중...', 'terminal-muted italic');
+        showOutput(`GIT PULL: ${name}`, t('git pull 실행 중...'), 'terminal-muted italic');
         try {
             data = await UnivDash.api(`/git-pull/${encodeURIComponent(name)}`, { method: 'POST' });
-            const files = data.changed.length ? `\n\n바뀐 파일 ${data.changed.length}개:\n${data.changed.join('\n')}` : '';
+            const files = data.changed.length ? `\n\n${t('바뀐 파일 {count}개:', { count: data.changed.length })}\n${data.changed.join('\n')}` : '';
             showOutput(`GIT PULL: ${name}${data.branch ? ` (${data.branch})` : ''}`, data.output + files, data.ok ? '' : 'text-red-400');
-            UnivDash.toast(!data.ok ? `${name} git pull 실패` : data.updated ? `${name} 업데이트됨` : `${name} 이미 최신`, data.ok ? 'success' : 'error');
+            UnivDash.toast(!data.ok ? t('{name} git pull 실패', { name }) : data.updated ? t('{name} 업데이트됨', { name }) : t('{name} 이미 최신', { name }), data.ok ? 'success' : 'error');
         } catch (error) {
-            showOutput(`GIT PULL: ${name}`, error.message || 'git pull 요청 실패', 'text-red-400');
-            UnivDash.toast(error.message || 'git pull 실패', 'error');
+            showOutput(`GIT PULL: ${name}`, error.message || t('git pull 요청 실패'), 'text-red-400');
+            UnivDash.toast(error.message || t('git pull 실패'), 'error');
         }
     });
     if (!data?.ok || !data.updated) return;
     const uvButton = document.querySelector(`[data-proc-action="uv-sync"][data-name="${CSS.escape(name)}"]`);
-    if (data.deps_changed && uvButton && confirm(`${name} 의존성(uv.lock / pyproject.toml)이 바뀌었습니다. uv sync 를 실행하시겠습니까?`)) {
+    if (data.deps_changed && uvButton && confirm(t('{name} 의존성(uv.lock / pyproject.toml)이 바뀌었습니다. uv sync 를 실행하시겠습니까?', { name }))) {
         if (!await uvSync(name, uvButton, { ask: false, then: false })) return;
     }
     await restartAfter(name, 'git pull');
@@ -457,7 +466,7 @@ function closeLogModal() {
     modal.classList.add('hidden');
 }
 
-// 가벼운 모드: 1초 갱신을 2초로, 탭이 안 보이면 건너뛴다
+// Lite mode: refresh every 2 seconds instead of 1, and skip while the tab is hidden
 let liteTicks = 0;
 function liteSkip() {
     if (!document.documentElement.hasAttribute('data-ui-lite')) return false;
@@ -470,7 +479,7 @@ if (document.getElementById('pm2-list-body')) {
     checkStartupStatus();
     setInterval(() => { if (!liteSkip()) updateStats(); }, 1000);
 
-    // 프로세스 이름을 인라인 onclick 문자열에 넣지 않고 data 속성 + 이벤트 위임으로 처리한다
+    // Process names are not put into inline onclick strings; data attributes + event delegation are used instead
     document.getElementById('pm2-list-body').addEventListener('click', (event) => {
         const button = event.target.closest('[data-proc-action]');
         if (!button) return;
@@ -517,7 +526,7 @@ window.addEventListener('keydown', (event) => {
 });
 })();
 
-// ── ecosystem.config.js: 등록된 앱 목록 · 새 앱 추가 · 시작 ─────────────────────
+// ── ecosystem.config.js: registered app list · add a new app · start ────────────
 (function () {
   'use strict';
   const list = document.getElementById('ecoList');
@@ -529,18 +538,18 @@ window.addEventListener('keydown', (event) => {
   function statusBadge(status) {
     if (status === 'online') return '<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/25"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>ONLINE</span>';
     if (status) return `<span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-red-500/10 text-red-400 border border-red-500/25">${escapeHtml(String(status).toUpperCase())}</span>`;
-    return '<span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-white/10 text-white/40 border border-white/10">미실행</span>';
+    return `<span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-white/10 text-white/40 border border-white/10">${t('미실행')}</span>`;
   }
 
   function render(data) {
-    document.getElementById('ecoPath').textContent = data.path + (data.exists ? '' : ' (아직 없음 — 첫 앱을 추가하면 만들어집니다)');
+    document.getElementById('ecoPath').textContent = data.exists ? data.path : t('{path} (아직 없음 — 첫 앱을 추가하면 만들어집니다)', { path: data.path });
     if (data.error) {
       list.innerHTML = `<div class="p-5 text-xs text-red-300">${escapeHtml(data.error)}</div>`;
       return;
     }
     apps = data.apps;
     if (!apps.length) {
-      list.innerHTML = '<div class="p-5 text-xs text-white/40">등록된 앱이 없습니다. <b>새 앱</b>으로 추가하십시오.</div>';
+      list.innerHTML = `<div class="p-5 text-xs text-white/40">${t('등록된 앱이 없습니다. <b>새 앱</b>으로 추가하십시오.')}</div>`;
       return;
     }
     list.innerHTML = apps.map((app) => `
@@ -549,9 +558,9 @@ window.addEventListener('keydown', (event) => {
           <div class="flex items-center gap-2 min-w-0"><span class="truncate text-sm font-bold text-white/90">${escapeHtml(app.name)}</span>${statusBadge(app.status)}${app.watch ? '<i class="fas fa-eye text-[10px] text-white/35" title="watch"></i>' : ''}</div>
           <p class="mt-0.5 truncate font-mono text-[10px] text-white/40">${escapeHtml([app.cwd, [app.interpreter ? app.interpreter.split('/').pop() : '', app.script, app.args || ''].filter(Boolean).join(' ')].filter(Boolean).join(' · '))}</p>
         </div>
-        ${app.status ? '' : `<button type="button" data-eco-start="${escapeHtml(app.name)}" class="flex-shrink-0 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-3 py-2 text-xs font-bold text-white"><i class="fas fa-play mr-1"></i>시작</button>`}
-        <button type="button" data-eco-edit="${escapeHtml(app.name)}" class="flex-shrink-0 w-9 h-9 rounded-xl bg-white/5 text-white/60 hover:bg-white/10 hover:text-white transition" title="수정" aria-label="${escapeHtml(app.name)} 수정"><i class="fas fa-pen text-xs"></i></button>
-        ${app.self ? '' : `<button type="button" data-eco-delete="${escapeHtml(app.name)}" class="flex-shrink-0 w-9 h-9 rounded-xl bg-white/5 text-red-400/70 hover:bg-red-500/15 hover:text-red-400 transition" title="삭제" aria-label="${escapeHtml(app.name)} 삭제"><i class="fas fa-trash text-xs"></i></button>`}
+        ${app.status ? '' : `<button type="button" data-eco-start="${escapeHtml(app.name)}" class="flex-shrink-0 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-3 py-2 text-xs font-bold text-white"><i class="fas fa-play mr-1"></i>${t('시작')}</button>`}
+        <button type="button" data-eco-edit="${escapeHtml(app.name)}" class="flex-shrink-0 w-9 h-9 rounded-xl bg-white/5 text-white/60 hover:bg-white/10 hover:text-white transition" title="${t('수정')}" aria-label="${t('{name} 수정', { name: escapeHtml(app.name) })}"><i class="fas fa-pen text-xs"></i></button>
+        ${app.self ? '' : `<button type="button" data-eco-delete="${escapeHtml(app.name)}" class="flex-shrink-0 w-9 h-9 rounded-xl bg-white/5 text-red-400/70 hover:bg-red-500/15 hover:text-red-400 transition" title="${t('삭제')}" aria-label="${t('{name} 삭제', { name: escapeHtml(app.name) })}"><i class="fas fa-trash text-xs"></i></button>`}
       </article>`).join('');
   }
 
@@ -560,22 +569,22 @@ window.addEventListener('keydown', (event) => {
   }
 
   async function start(name) {
-    if (!await ui().confirmSheet({ title: `${name} 시작`, message: `pm2 start ecosystem.config.js --only ${name}`, confirmLabel: '시작' })) return;
+    if (!await ui().confirmSheet({ title: t('{name} 시작', { name }), message: `pm2 start ecosystem.config.js --only ${name}`, confirmLabel: t('시작') })) return;
     try {
       await api(`/api/ecosystem/apps/${encodeURIComponent(name)}/start`, { method: 'POST' });
-      ui().toast(`${name} 을(를) 시작했습니다. 새로고침하면 프로세스 목록에 보입니다.`, 'ok', { label: '새로고침', onClick: () => location.reload() }, 6000);
+      ui().toast(t('{name} 을(를) 시작했습니다. 새로고침하면 프로세스 목록에 보입니다.', { name }), 'ok', { label: t('새로고침'), onClick: () => location.reload() }, 6000);
       load();
     } catch (error) { ui().toast(error.message, 'error', null, 8000); }
   }
   async function remove(name) {
     const app = apps.find((item) => item.name === name);
-    const check = app?.status ? { label: 'pm2 에서도 지우기', desc: '돌고 있는 프로세스를 멈추고 pm2 목록에서 뺍니다.', checked: true } : null;
-    if (!await ui().confirmSheet({ title: `${name} 삭제`, message: 'ecosystem.config.js 에서 이 항목을 지웁니다. 원본은 .bak 으로 백업됩니다.', confirmLabel: '삭제', danger: true, check })) return;
+    const check = app?.status ? { label: t('pm2 에서도 지우기'), desc: t('돌고 있는 프로세스를 멈추고 pm2 목록에서 뺍니다.'), checked: true } : null;
+    if (!await ui().confirmSheet({ title: t('{name} 삭제', { name }), message: t('ecosystem.config.js 에서 이 항목을 지웁니다. 원본은 .bak 으로 백업됩니다.'), confirmLabel: t('삭제'), danger: true, check })) return;
     try {
       const pm2 = check?.checked ? '?pm2=true' : '';
       const result = await api(`/api/ecosystem/apps/${encodeURIComponent(name)}${pm2}`, { method: 'DELETE' });
-      if (result.pm2_deleted === false) ui().toast(`${name} 을(를) ecosystem 에서 지웠지만 pm2 에서는 지우지 못했습니다.`, 'error', null, 8000);
-      else ui().toast(`${name} 을(를) 지웠습니다${result.pm2_deleted ? ' · pm2 에서도 삭제' : ''}.`, 'ok', result.pm2_deleted ? { label: '새로고침', onClick: () => location.reload() } : null, 6000);
+      if (result.pm2_deleted === false) ui().toast(t('{name} 을(를) ecosystem 에서 지웠지만 pm2 에서는 지우지 못했습니다.', { name }), 'error', null, 8000);
+      else ui().toast(result.pm2_deleted ? t('{name} 을(를) 지웠습니다 · pm2 에서도 삭제.', { name }) : t('{name} 을(를) 지웠습니다.', { name }), 'ok', result.pm2_deleted ? { label: t('새로고침'), onClick: () => location.reload() } : null, 6000);
       load();
     } catch (error) { ui().toast(error.message, 'error', null, 8000); }
   }
@@ -585,30 +594,30 @@ window.addEventListener('keydown', (event) => {
     try { app = await api(`/api/ecosystem/apps/${encodeURIComponent(name)}`); } catch (error) { ui().toast(error.message, 'error', null, 8000); return; }
     const running = !!apps.find((item) => item.name === name)?.status;
     const notes = [
-      app.kept.length ? `폼에 없는 설정(${app.kept.join(', ')})은 그대로 둡니다.` : '',
-      app.watch_custom ? 'watch 가 폴더 목록으로 되어 있습니다. 체크를 풀지 않으면 그대로 둡니다.' : '',
-      app.env_editable ? '' : 'env 가 객체가 아니라 여기서 고칠 수 없습니다.',
+      app.kept.length ? t('폼에 없는 설정({keys})은 그대로 둡니다.', { keys: app.kept.join(', ') }) : '',
+      app.watch_custom ? t('watch 가 폴더 목록으로 되어 있습니다. 체크를 풀지 않으면 그대로 둡니다.') : '',
+      app.env_editable ? '' : t('env 가 객체가 아니라 여기서 고칠 수 없습니다.'),
     ].filter(Boolean);
     ui().formSheet({
-      title: `${name} 수정`,
-      subtitle: '바꾼 설정만 고칩니다. 원본은 .bak 으로 백업됩니다.',
+      title: t('{name} 수정', { name }),
+      subtitle: t('바꾼 설정만 고칩니다. 원본은 .bak 으로 백업됩니다.'),
       fields: [
-        { name: 'name', label: '앱 이름', value: app.name, maxlength: 64 },
-        { name: 'cwd', label: '작업 폴더 (cwd)', value: app.cwd, maxlength: 1024 },
-        { name: 'script', label: '실행 파일 (script)', value: app.script, maxlength: 500 },
-        { name: 'interpreter', label: '인터프리터 (비우면 pm2 기본값)', value: app.interpreter, maxlength: 500 },
-        { name: 'args', label: '실행 인자 (선택)', value: app.args, maxlength: 500 },
+        { name: 'name', label: t('앱 이름'), value: app.name, maxlength: 64 },
+        { name: 'cwd', label: t('작업 폴더 (cwd)'), value: app.cwd, maxlength: 1024 },
+        { name: 'script', label: t('실행 파일 (script)'), value: app.script, maxlength: 500 },
+        { name: 'interpreter', label: t('인터프리터 (비우면 pm2 기본값)'), value: app.interpreter, maxlength: 500 },
+        { name: 'args', label: t('실행 인자 (선택)'), value: app.args, maxlength: 500 },
       ],
       extraHtml: `
-        <label>환경 변수 (한 줄에 KEY=VALUE)<textarea name="env" rows="3" maxlength="20000" autocapitalize="off" spellcheck="false" ${app.env_editable ? '' : 'disabled'}>${escapeHtml(app.env)}</textarea></label>
+        <label>${t('환경 변수 (한 줄에 KEY=VALUE)')}<textarea name="env" rows="3" maxlength="20000" autocapitalize="off" spellcheck="false" ${app.env_editable ? '' : 'disabled'}>${escapeHtml(app.env)}</textarea></label>
         <div class="grid gap-2">
-          <label class="check-row"><input type="checkbox" name="watch" ${app.watch ? 'checked' : ''}> 파일이 바뀌면 자동 재시작 (watch)</label>
-          <label class="check-row"><input type="checkbox" name="time" ${app.time ? 'checked' : ''}> 로그에 시간 표시 (time)</label>
-          ${running && !app.self ? '<label class="check-row"><input type="checkbox" name="apply" checked> 저장한 뒤 새 설정으로 다시 시작</label>' : ''}
+          <label class="check-row"><input type="checkbox" name="watch" ${app.watch ? 'checked' : ''}> ${t('파일이 바뀌면 자동 재시작 (watch)')}</label>
+          <label class="check-row"><input type="checkbox" name="time" ${app.time ? 'checked' : ''}> ${t('로그에 시간 표시 (time)')}</label>
+          ${running && !app.self ? `<label class="check-row"><input type="checkbox" name="apply" checked> ${t('저장한 뒤 새 설정으로 다시 시작')}</label>` : ''}
         </div>
-        ${app.self ? '<p class="text-[11px] text-amber-300/80">이 대시보드 자신입니다. 이름은 바꿀 수 없고, 저장한 설정은 직접 다시 시작해야 반영됩니다. 잘못 고치면 대시보드가 켜지지 않을 수 있습니다.</p>' : ''}
+        ${app.self ? `<p class="text-[11px] text-amber-300/80">${t('이 대시보드 자신입니다. 이름은 바꿀 수 없고, 저장한 설정은 직접 다시 시작해야 반영됩니다. 잘못 고치면 대시보드가 켜지지 않을 수 있습니다.')}</p>` : ''}
         ${notes.map((note) => `<p class="text-[11px] opacity-60">${escapeHtml(note)}</p>`).join('')}`,
-      submitLabel: '저장',
+      submitLabel: t('저장'),
       onMount(body) {
         if (app.self) body.querySelector('[name="name"]').readOnly = true;
       },
@@ -620,10 +629,10 @@ window.addEventListener('keydown', (event) => {
           watch: values.watch === 'on', time: values.time === 'on', apply: values.apply === 'on',
         };
         const result = await api(`/api/ecosystem/apps/${encodeURIComponent(name)}`, { method: 'PUT', body: payload });
-        if (!result.changed.length) ui().toast('바뀐 설정이 없습니다.', 'ok');
-        else if (result.applied === false) ui().toast(`저장했지만 다시 시작하지 못했습니다:\n${result.output || ''}`, 'error', null, 9000);
-        else if (result.applied === 'self') ui().toast(`저장했습니다. 반영하려면 pm2 delete ${name} && pm2 start ecosystem.config.js --only ${name} 를 직접 실행하십시오.`, 'ok', null, 10000);
-        else ui().toast(`${payload.name} 설정을 저장했습니다${result.applied ? ' · 새 설정으로 다시 시작' : ''}.`, 'ok', result.applied ? { label: '새로고침', onClick: () => location.reload() } : null, 6000);
+        if (!result.changed.length) ui().toast(t('바뀐 설정이 없습니다.'), 'ok');
+        else if (result.applied === false) ui().toast(`${t('저장했지만 다시 시작하지 못했습니다:')}\n${result.output || ''}`, 'error', null, 9000);
+        else if (result.applied === 'self') ui().toast(t('저장했습니다. 반영하려면 pm2 delete {name} && pm2 start ecosystem.config.js --only {name} 를 직접 실행하십시오.', { name }), 'ok', null, 10000);
+        else ui().toast(result.applied ? t('{name} 설정을 저장했습니다 · 새 설정으로 다시 시작.', { name: payload.name }) : t('{name} 설정을 저장했습니다.', { name: payload.name }), 'ok', result.applied ? { label: t('새로고침'), onClick: () => location.reload() } : null, 6000);
         load();
       },
     });
@@ -639,24 +648,24 @@ window.addEventListener('keydown', (event) => {
 
   document.getElementById('ecoAddBtn').addEventListener('click', () => {
     ui().formSheet({
-      title: 'ecosystem 에 새 앱 추가',
-      subtitle: '파일 끝에 항목을 추가합니다. 원본은 .bak 으로 백업됩니다.',
+      title: t('ecosystem 에 새 앱 추가'),
+      subtitle: t('파일 끝에 항목을 추가합니다. 원본은 .bak 으로 백업됩니다.'),
       fields: [
-        { name: 'cwd', label: '작업 폴더 (cwd)', placeholder: '/home/user/my-app', maxlength: 1024 },
-        { name: 'name', label: '앱 이름', placeholder: 'my-app', maxlength: 64 },
-        { name: 'script', label: '실행 파일 (script)', placeholder: 'run.py / index.js', maxlength: 500 },
-        { name: 'interpreter', label: '인터프리터 (비우면 pm2 기본값)', placeholder: '/home/user/my-app/.venv/bin/python', maxlength: 500 },
-        { name: 'args', label: '실행 인자 (선택)', placeholder: '--port 9000', maxlength: 500 },
+        { name: 'cwd', label: t('작업 폴더 (cwd)'), placeholder: '/home/user/my-app', maxlength: 1024 },
+        { name: 'name', label: t('앱 이름'), placeholder: 'my-app', maxlength: 64 },
+        { name: 'script', label: t('실행 파일 (script)'), placeholder: 'run.py / index.js', maxlength: 500 },
+        { name: 'interpreter', label: t('인터프리터 (비우면 pm2 기본값)'), placeholder: '/home/user/my-app/.venv/bin/python', maxlength: 500 },
+        { name: 'args', label: t('실행 인자 (선택)'), placeholder: '--port 9000', maxlength: 500 },
       ],
       extraHtml: `
-        <label>환경 변수 (선택, 한 줄에 KEY=VALUE)<textarea name="env" rows="3" maxlength="20000" placeholder="PORT=9000" autocapitalize="off" spellcheck="false"></textarea></label>
+        <label>${t('환경 변수 (선택, 한 줄에 KEY=VALUE)')}<textarea name="env" rows="3" maxlength="20000" placeholder="PORT=9000" autocapitalize="off" spellcheck="false"></textarea></label>
         <div class="grid gap-2">
-          <label class="check-row"><input type="checkbox" name="watch"> 파일이 바뀌면 자동 재시작 (watch)</label>
-          <label class="check-row"><input type="checkbox" name="time" checked> 로그에 시간 표시 (time)</label>
-          <label class="check-row"><input type="checkbox" name="start" checked> 추가한 뒤 바로 pm2 로 시작</label>
+          <label class="check-row"><input type="checkbox" name="watch"> ${t('파일이 바뀌면 자동 재시작 (watch)')}</label>
+          <label class="check-row"><input type="checkbox" name="time" checked> ${t('로그에 시간 표시 (time)')}</label>
+          <label class="check-row"><input type="checkbox" name="start" checked> ${t('추가한 뒤 바로 pm2 로 시작')}</label>
         </div>
         <p data-eco-hint class="text-[11px] opacity-60"></p>`,
-      submitLabel: '추가',
+      submitLabel: t('추가'),
       onMount(body) {
         const field = (name) => body.querySelector(`[name="${name}"]`);
         const touched = new Set();
@@ -669,10 +678,10 @@ window.addEventListener('keydown', (event) => {
             if (!field('cwd').value.trim()) { hint.textContent = ''; return; }
             try {
               const info = await api(`/api/ecosystem/inspect?cwd=${encodeURIComponent(field('cwd').value.trim())}`);
-              if (!info.exists) { hint.textContent = '폴더를 찾을 수 없습니다.'; return; }
+              if (!info.exists) { hint.textContent = t('폴더를 찾을 수 없습니다.'); return; }
               hint.textContent = `✓ ${info.cwd}`;
               ['name', 'script', 'interpreter'].forEach((name) => { if (!touched.has(name) && info[name]) field(name).value = info[name]; });
-            } catch (error) { /* 무시 */ }
+            } catch (error) { /* ignore */ }
           }, 350);
         });
       },
@@ -683,8 +692,8 @@ window.addEventListener('keydown', (event) => {
           watch: values.watch === 'on', time: values.time === 'on', start: values.start === 'on',
         };
         const result = await api('/api/ecosystem/apps', { method: 'POST', body: payload });
-        if (result.started === false) ui().toast(`추가했지만 시작하지 못했습니다:\n${result.output || ''}`, 'error', null, 9000);
-        else ui().toast(`${payload.name} 을(를) ecosystem 에 추가했습니다${result.started ? ' · pm2 시작됨' : ''}.`, 'ok', result.started ? { label: '새로고침', onClick: () => location.reload() } : null, 6000);
+        if (result.started === false) ui().toast(`${t('추가했지만 시작하지 못했습니다:')}\n${result.output || ''}`, 'error', null, 9000);
+        else ui().toast(result.started ? t('{name} 을(를) ecosystem 에 추가했습니다 · pm2 시작됨.', { name: payload.name }) : t('{name} 을(를) ecosystem 에 추가했습니다.', { name: payload.name }), 'ok', result.started ? { label: t('새로고침'), onClick: () => location.reload() } : null, 6000);
         load();
       },
     });

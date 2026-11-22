@@ -1,4 +1,4 @@
-/* 화면 공유 보기 페이지 (로그인 없이 보는 읽기 전용 터미널) */
+/* Screen-share viewer page (read-only terminal viewed without signing in) */
 :root { color-scheme: dark; --bg: #05070c; --panel: #0d1117; --line: #1f2633; --text: #d4d8e1; --muted: #8b93a5; --ok: #4ade80; --warn: #fbbf24; --bad: #f87171; --accent: #3b82f6; }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
@@ -37,7 +37,7 @@ p, li, h1, h2, h3 { text-wrap: pretty; }
 .vw-tabs button { font: inherit; font-size: 12px; font-weight: 700; color: var(--muted); background: transparent; border: 0; padding: 4px 12px; cursor: pointer; }
 .vw-tabs button[aria-selected="true"] { background: rgba(59,130,246,.22); color: var(--text); }
 
-/* 채팅 (에이전트 대화 기록) */
+/* Chat (agent conversation transcript) */
 .vw-chat { max-width: 900px; margin: 0 auto; }
 .vw-list { display: flex; flex-direction: column; gap: 10px; }
 .vw-list > * { content-visibility: auto; contain-intrinsic-size: auto 72px; }

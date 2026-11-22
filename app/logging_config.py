@@ -25,7 +25,7 @@ console = Console(theme=LOG_THEME, highlight=True)
 
 
 def configure_logging(level: str = "INFO") -> None:
-    """애플리케이션과 Uvicorn 로그를 하나의 Rich 콘솔로 통합합니다."""
+    """Merges the application and Uvicorn logs into one Rich console."""
     level_name = level.upper()
     numeric_level = getattr(logging, level_name, logging.INFO)
     handler = RichHandler(
@@ -59,7 +59,7 @@ def configure_logging(level: str = "INFO") -> None:
 def show_startup_banner(
     *, host: str, port: int, log_level: str, environment: str
 ) -> None:
-    """UnivDash 실행 정보를 Rich 패널로 표시합니다."""
+    """Shows the UnivDash start-up information as a Rich panel."""
     local_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
     table = Table.grid(padding=(0, 2))
     table.add_column(style="dashboard.label", justify="right")

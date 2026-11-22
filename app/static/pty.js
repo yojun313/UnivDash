@@ -1,6 +1,6 @@
-// Terminal (tmux 아님): 서버 PTY 에 WebSocket 으로 붙는 xterm.js 화면.
-// UnivDashPty.create(cwd) → 서버에 셸을 띄우고 { id } 를 돌려준다.
-// UnivDashPty.attach(container, id, { onTitle, onExit, onGone }) → 화면을 붙인다 (끊기면 다시 붙고 최근 출력을 이어서 보여준다).
+// Terminal (not tmux): an xterm.js screen attached to a server PTY over WebSocket.
+// UnivDashPty.create(cwd) → starts a shell on the server and returns { id }.
+// UnivDashPty.attach(container, id, { onTitle, onExit, onGone }) → attaches a screen (reconnects when dropped and continues from the recent output).
 (function () {
   'use strict';
   const { api } = window.UnivDash;
@@ -24,7 +24,7 @@
     return api('/api/pty', { method: 'POST', body: { cwd, cols, rows } });
   }
   async function list() { return (await api('/api/pty')).terminals; }
-  async function kill(id) { try { await api(`/api/pty/${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch (e) { /* 이미 없음 */ } }
+  async function kill(id) { try { await api(`/api/pty/${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch (e) { /* already gone */ } }
 
   function attach(container, id, handlers = {}) {
     const el = document.createElement('div');
@@ -34,7 +34,7 @@
     const term = new window.Terminal({
       fontFamily: "'JetBrains Mono', ui-monospace, 'D2Coding', monospace", fontSize: coarse ? 12 : 13, lineHeight: 1.15,
       cursorBlink: true, scrollback: 8000, theme: isLight() ? LIGHT : THEME, allowProposedApi: false, macOptionIsMeta: true, convertEol: false,
-      minimumContrastRatio: isLight() ? 4.5 : 1,   // 라이트 모드: 어두운 배경용 색도 읽히게
+      minimumContrastRatio: isLight() ? 4.5 : 1,   // light mode: keep colors meant for dark backgrounds readable
     });
     const themeWatch = new MutationObserver(() => {
       term.options.theme = isLight() ? LIGHT : THEME;
@@ -60,15 +60,15 @@
         let message;
         try { message = JSON.parse(event.data); } catch (e) { return; }
         if (message.t === 'out') {
-          if (message.replay) term.reset();   // 다시 붙을 때는 서버에 남은 최근 출력으로 화면을 새로 그린다
+          if (message.replay) term.reset();   // on reattach, redraw the screen from the recent output kept on the server
           term.write(message.d);
         } else if (message.t === 'exit') {
           dead = true;
-          term.write(`\r\n\x1b[2m[Terminal 이 종료되었습니다${message.code != null ? ` (코드 ${message.code})` : ''}]\x1b[0m\r\n`);
+          term.write(`\r\n\x1b[2m${message.code != null ? t('[Terminal 이 종료되었습니다 (코드 {code})]', { code: message.code }) : t('[Terminal 이 종료되었습니다]')}\x1b[0m\r\n`);
           handlers.onExit?.(message.code);
         } else if (message.t === 'gone') {
           gone = true;
-          term.write('\r\n\x1b[2m[이 Terminal 은 더 이상 없습니다 — 서버가 다시 시작되었을 수 있습니다]\x1b[0m\r\n');
+          term.write(`\r\n\x1b[2m${t('[이 Terminal 은 더 이상 없습니다 — 서버가 다시 시작되었을 수 있습니다]')}\x1b[0m\r\n`);
           handlers.onGone?.();
         }
       };
@@ -83,7 +83,7 @@
     term.onTitleChange((title) => handlers.onTitle?.(title));
 
     function refit() {
-      if (!el.offsetParent) return;   // 안 보이는 탭은 크기를 잴 수 없다
+      if (!el.offsetParent) return;   // a hidden tab cannot be measured
       try { fit.fit(); } catch (e) { /* noop */ }
     }
     const observer = new ResizeObserver(() => refit());
@@ -100,7 +100,7 @@
     };
   }
 
-  // 휴대폰 키보드에 없는 키 (특수 키 줄)
+  // Keys missing from phone keyboards (special key row)
   const KEYS = {
     Esc: '\x1b', Tab: '\t', '^C': '\x03', '^D': '\x04', '^Z': '\x1a', '^L': '\x0c', '^R': '\x12',
     '↑': '\x1b[A', '↓': '\x1b[B', '←': '\x1b[D', '→': '\x1b[C', Home: '\x1b[H', End: '\x1b[F', PgUp: '\x1b[5~', PgDn: '\x1b[6~',

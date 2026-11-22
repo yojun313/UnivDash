@@ -1,5 +1,5 @@
-// 웹 푸시 알림 구독 (이 기기): 에이전트 작업이 끝나거나 응답이 필요하면 서버가 시스템 알림을 보낸다.
-// 맥 · 윈도우 · 안드로이드 브라우저, 아이폰 · 아이패드는 홈 화면에 추가한 앱에서 동작한다. 설정 'notify-desktop' 으로 켜고 끈다.
+// Web push subscription (this device): the server sends a system notification when an agent finishes or needs an answer.
+// Works in Mac, Windows and Android browsers; on iPhone and iPad it works in the app added to the home screen. Toggled by the 'notify-desktop' setting.
 (function () {
   'use strict';
   const U = window.UnivDash;
@@ -13,7 +13,7 @@
   function label() {
     const ua = navigator.userAgent;
     const os = ios ? (/iPad/.test(ua) || navigator.maxTouchPoints > 1 && !/iPhone/.test(ua) ? 'iPad' : 'iPhone')
-      : /Android/.test(ua) ? 'Android' : /Mac OS X/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : '기기';
+      : /Android/.test(ua) ? 'Android' : /Mac OS X/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : t('기기');
     const browser = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : '';
     return [os, browser].filter(Boolean).join(' · ');
   }
@@ -34,7 +34,7 @@
     const reg = await worker();
     const { key } = await U.api('/api/push/key');
     let sub = await reg.pushManager.getSubscription();
-    // 서버 키가 바뀌었으면(데이터 폴더 초기화 등) 새로 구독
+    // Subscribe again if the server key changed (data folder reset, etc.)
     if (sub && sub.options?.applicationServerKey && toB64(sub.options.applicationServerKey) !== key) { await sub.unsubscribe(); sub = null; }
     if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: fromB64(key) });
     const json = sub.toJSON();
@@ -47,40 +47,40 @@
         const reg = await navigator.serviceWorker.getRegistration('/');
         const sub = await reg?.pushManager.getSubscription();
         if (sub) await sub.unsubscribe();
-      } catch (e) { /* 이미 해지됨 */ }
+      } catch (e) { /* already unsubscribed */ }
     }
     await U.api('/api/push/unsubscribe', { method: 'POST', body: { device: U.deviceId() } }).catch(() => {});
   }
 
-  // 설정에 맞춰 구독 상태를 맞춘다. ask=true 면 (사용자 동작 안에서) 권한을 묻는다.
+  // Bring the subscription in line with the setting. With ask=true, asks for permission (inside a user gesture).
   async function sync({ ask = false } = {}) {
     if (!supported) return status();
     if (!U.settings.get(SETTING)) { await unsubscribe(); return status(); }
     let permission = Notification.permission;
     if (permission === 'default' && ask) {
-      try { localStorage.setItem(ASKED, '1'); } catch (e) { /* 저장 불가 */ }
+      try { localStorage.setItem(ASKED, '1'); } catch (e) { /* storage unavailable */ }
       permission = await Notification.requestPermission();
     }
     if (permission === 'granted') await subscribe();
     return status();
   }
 
-  // 설정 창에 보여 줄 현재 상태
+  // Current status shown in the settings window
   async function status() {
-    if (!U.settings.get(SETTING)) return { state: 'off', text: '꺼져 있습니다. 켜면 이 기기로 알림을 받습니다.' };
-    if (!window.isSecureContext) return { state: 'unsupported', text: 'HTTPS 주소로 접속해야 알림을 받을 수 있습니다.' };
+    if (!U.settings.get(SETTING)) return { state: 'off', text: t('꺼져 있습니다. 켜면 이 기기로 알림을 받습니다.') };
+    if (!window.isSecureContext) return { state: 'unsupported', text: t('HTTPS 주소로 접속해야 알림을 받을 수 있습니다.') };
     if (!supported) {
       return ios && !standalone
-        ? { state: 'unsupported', text: '아이폰 · 아이패드는 Safari 공유 버튼 → "홈 화면에 추가"로 설치한 앱에서 열어야 알림을 받을 수 있습니다 (iOS 16.4 이상).' }
-        : { state: 'unsupported', text: '이 브라우저는 푸시 알림을 지원하지 않습니다.' };
+        ? { state: 'unsupported', text: t('아이폰 · 아이패드는 Safari 공유 버튼 → "홈 화면에 추가"로 설치한 앱에서 열어야 알림을 받을 수 있습니다 (iOS 16.4 이상).') }
+        : { state: 'unsupported', text: t('이 브라우저는 푸시 알림을 지원하지 않습니다.') };
     }
-    if (Notification.permission === 'denied') return { state: 'denied', text: '브라우저에서 이 사이트 알림이 차단돼 있습니다. 주소창 왼쪽 사이트 설정에서 알림을 허용해 주십시오.' };
-    if (Notification.permission === 'default') return { state: 'ask', text: '아직 알림 권한을 허용하지 않았습니다. 「테스트 알림」을 누르면 브라우저가 물어봅니다.' };
+    if (Notification.permission === 'denied') return { state: 'denied', text: t('브라우저에서 이 사이트 알림이 차단돼 있습니다. 주소창 왼쪽 사이트 설정에서 알림을 허용해 주십시오.') };
+    if (Notification.permission === 'default') return { state: 'ask', text: t('아직 알림 권한을 허용하지 않았습니다. 「테스트 알림」을 누르면 브라우저가 물어봅니다.') };
     try {
       const { subscribed } = await U.api(`/api/push/status?device=${encodeURIComponent(U.deviceId())}`);
-      if (!subscribed) return { state: 'ask', text: '아직 이 기기가 등록되지 않았습니다. 「테스트 알림」을 눌러 주십시오.' };
-    } catch (e) { /* 상태 확인 실패는 무시 */ }
-    return { state: 'on', text: `이 기기(${label()})로 알림을 받고 있습니다. 대시보드를 보고 있는 동안에는 화면 안 알림만 표시됩니다.` };
+      if (!subscribed) return { state: 'ask', text: t('아직 이 기기가 등록되지 않았습니다. 「테스트 알림」을 눌러 주십시오.') };
+    } catch (e) { /* ignore a failed status check */ }
+    return { state: 'on', text: t('이 기기({device})로 알림을 받고 있습니다. 대시보드를 보고 있는 동안에는 화면 안 알림만 표시됩니다.', { device: label() }) };
   }
 
   async function test() {
@@ -90,7 +90,7 @@
 
   window.UnivDashPush = { supported, sync, status, test };
 
-  // 알림을 누르면: 해당 창 열기 (워크스페이스면 그 자리에서, 아니면 이동)
+  // When a notification is clicked: open that window (in place on the workspace, otherwise navigate)
   if (supported) {
     navigator.serviceWorker.addEventListener('message', (event) => {
       if (event.data?.type !== 'univdash-open' || typeof event.data.url !== 'string' || !event.data.url.startsWith('/')) return;
@@ -101,12 +101,12 @@
     });
   }
 
-  // 기본값 켜짐: 권한이 있으면 조용히 구독을 맞추고, 아직 안 물었으면 첫 클릭 때 한 번 묻는다
+  // On by default: with permission, sync the subscription silently; if not asked yet, ask once on the first click
   const start = () => {
     if (!supported || !U.settings.get(SETTING)) return;
     if (Notification.permission === 'granted') { sync().catch(() => {}); return; }
     let asked = false;
-    try { asked = localStorage.getItem(ASKED) === '1'; } catch (e) { /* 저장 불가 */ }
+    try { asked = localStorage.getItem(ASKED) === '1'; } catch (e) { /* storage unavailable */ }
     if (Notification.permission === 'default' && !asked) {
       document.addEventListener('click', () => { sync({ ask: true }).catch(() => {}); }, { once: true, capture: true });
     }

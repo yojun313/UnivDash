@@ -1,7 +1,7 @@
-"""정적 파일 주소에 버전을 붙인다: /static/app.js → /static/app.js?v=<내용이 바뀌면 바뀌는 값>.
+"""Adds a version to static file addresses: /static/app.js → /static/app.js?v=<value that changes with the content>.
 
-버전이 붙은 주소는 SecurityMiddleware 가 1년 immutable 로 캐시시킨다.
-그래서 페이지를 옮길 때 JS · CSS 를 다시 받지 않고, 파일을 고치면 주소가 바뀌어 바로 새 파일을 받는다.
+SecurityMiddleware has versioned addresses cached as immutable for a year.
+So moving between pages does not re-download JS · CSS, and editing a file changes its address so the new file is fetched at once.
 """
 
 from pathlib import Path
@@ -11,7 +11,7 @@ _cache: dict[str, tuple[int, int, str]] = {}
 
 
 def asset_url(path: str) -> str:
-    """템플릿용: {{ asset('app.js') }}"""
+    """For templates: {{ asset('app.js') }}"""
     rel = path.lstrip("/")
     try:
         stat = (STATIC_DIR / rel).stat()
@@ -27,19 +27,22 @@ def asset_url(path: str) -> str:
 
 
 def install(templates) -> None:
+    from app import i18n
+
     templates.env.globals["asset"] = asset_url
+    i18n.install(templates)  # {{ t("…") }} · {{ ui_lang() }} · {{ i18n_src() }}
 
 
 def static_cache_control(path: str, query: str) -> bytes | None:
-    """/static 응답의 Cache-Control. 그 밖의 경로는 None (기본 no-store 유지)."""
+    """Cache-Control of /static responses. None for any other path (keeps the default no-store)."""
     if not path.startswith("/static/"):
         return None
     if any(part.startswith("v=") for part in query.split("&")):
         return b"public, max-age=31536000, immutable"
     if path.startswith("/static/vendor/"):
-        # CSS 안에서 상대 경로로 부르는 글꼴 등 — 바뀌지 않는 외부 라이브러리 파일
+        # Fonts etc. referenced by relative path from CSS — third-party library files that do not change
         return b"public, max-age=2592000"
-    # 버전 없는 주소(아이콘 · manifest 등)는 매번 ETag 로 확인 (바뀌지 않았으면 304)
+    # Unversioned addresses (icons, manifest etc.) are revalidated by ETag every time (304 when unchanged)
     return b"no-cache"
 
 

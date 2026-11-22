@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# UnivDash launcher.
+#
+#   ./univdash start     start the server in this terminal (runs setup first if there is no .env)
+#   ./univdash up        start it in the background, inside its own tmux session ("univdash")
+#   ./univdash down      stop the background server
+#   ./univdash status    is it running? where?
+#   ./univdash logs      follow the background server's output
+#   ./univdash setup     create or replace the login / port settings (.env)
+#   ./univdash update    pull the latest version and refresh dependencies
+set -euo pipefail
+
+cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+SESSION="univdash"
+
+say() { printf '%s\n' "$*"; }
+die() { printf 'univdash: %s\n' "$*" >&2; exit 1; }
+
+command -v uv >/dev/null 2>&1 || export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+command -v uv >/dev/null 2>&1 || die "uv is not installed. Run ./install.sh (or see https://docs.astral.sh/uv/)."
+
+port() { sed -n 's/^PORT=//p' .env 2>/dev/null | tail -1 | tr -d '[:space:]'; }
+ensure_env() { [ -f .env ] || uv run --quiet python tools/setup.py "$@"; }
+running() { tmux has-session -t "=$SESSION" 2>/dev/null; }
+
+case "${1:-start}" in
+  start)
+    ensure_env
+    exec uv run --quiet python run.py
+    ;;
+  up)
+    command -v tmux >/dev/null 2>&1 || die "tmux is not installed (sudo apt install tmux)."
+    ensure_env
+    if running; then say "UnivDash is already running (tmux session '$SESSION')."; exit 0; fi
+    tmux new-session -d -s "$SESSION" -n server "uv run --quiet python run.py; echo; echo 'UnivDash stopped. Press Enter to close.'; read -r _"
+    say "UnivDash is running in the background: http://127.0.0.1:$(port)"
+    say "  ./univdash logs    watch the output (Ctrl+B then D to leave)"
+    say "  ./univdash down    stop it"
+    ;;
+  down)
+    # Only the dashboard's own session is closed. Your other tmux sessions are never touched.
+    if running; then tmux send-keys -t "=$SESSION:server" C-c; sleep 1; tmux send-keys -t "=$SESSION:server" Enter 2>/dev/null || true; say "UnivDash stopped."
+    else say "UnivDash is not running in the background."; fi
+    ;;
+  status)
+    if running; then say "running · http://127.0.0.1:$(port) · tmux session '$SESSION'"
+    else say "not running in the background (start it with ./univdash up)"; fi
+    ;;
+  logs)
+    running || die "UnivDash is not running in the background."
+    exec tmux attach -t "=$SESSION"
+    ;;
+  setup)
+    shift
+    exec uv run --quiet python tools/setup.py --reset "$@"
+    ;;
+  update)
+    git pull --ff-only
+    uv sync
+    say "Updated. Restart the server to use the new version (./univdash down && ./univdash up)."
+    ;;
+  -h|--help|help)
+    sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
+    ;;
+  *)
+    die "unknown command '$1' (try ./univdash help)"
+    ;;
+esac

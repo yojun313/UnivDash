@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UnivDash — run Claude Code, Codex and Gemini from your phone</title>
+<meta name="description" content="A self-hosted web dashboard for coding agents in tmux. See which agent is working or waiting, read the whole conversation, answer from your phone. Usage limits, accounts, Git, server and an OpenAI-compatible API in one place.">
+<meta property="og:title" content="UnivDash — run your coding agents from your phone">
+<meta property="og:description" content="Self-hosted dashboard for Claude Code, Codex and Gemini running in tmux.">
+<meta property="og:image" content="https://yojun313.github.io/UnivDash/assets/screens/desktop-workspace.png">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#070b16">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #070b16; --bg-2: #0c1222; --card: #101829; --line: #1e2a44; --text: #e6ebf5; --muted: #93a0b8;
+    --accent: #5b8cff; --accent-2: #9b7bff; --ok: #34d399; --warn: #fbbf24;
+    --radius: 16px; --max: 1120px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) { --bg: #f6f8fc; --bg-2: #eef2f9; --card: #ffffff; --line: #dbe2ee; --text: #0f172a; --muted: #55627a; }
+  }
+  :root[data-theme="light"] { --bg: #f6f8fc; --bg-2: #eef2f9; --card: #ffffff; --line: #dbe2ee; --text: #0f172a; --muted: #55627a; }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Apple SD Gothic Neo", sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: inherit; }
+  img { max-width: 100%; height: auto; display: block; }
+  .frame img, .shot img { aspect-ratio: 16 / 10; width: 100%; }
+  .phone img { aspect-ratio: 780 / 1688; width: 100%; }
+  .wrap { max-width: var(--max); margin: 0 auto; padding: 0 20px; }
+  .grad { background: linear-gradient(90deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+  header { position: sticky; top: 0; z-index: 10; backdrop-filter: blur(12px); background: color-mix(in srgb, var(--bg) 82%, transparent); border-bottom: 1px solid var(--line); }
+  .nav { display: flex; align-items: center; gap: 20px; height: 60px; }
+  .brand { font-weight: 800; font-size: 20px; text-decoration: none; letter-spacing: -.01em; }
+  .nav nav { margin-left: auto; display: flex; gap: 22px; font-size: 14px; color: var(--muted); }
+  .nav nav a { text-decoration: none; }
+  .nav nav a:hover { color: var(--text); }
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 12px; font-weight: 700; font-size: 14px; text-decoration: none; border: 1px solid var(--line); background: var(--card); cursor: pointer; color: var(--text); }
+  .btn.primary { border: 0; color: #fff; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+  @media (max-width: 720px) { .nav nav a:not(.btn) { display: none; } }
+
+  .hero { padding: 72px 0 40px; text-align: center; background: radial-gradient(900px 420px at 50% -10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%); }
+  .eyebrow { display: inline-flex; gap: 8px; align-items: center; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); font-size: 12.5px; color: var(--muted); font-weight: 600; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  h1 { font-size: clamp(34px, 6vw, 60px); line-height: 1.08; letter-spacing: -.03em; margin: 22px auto 16px; max-width: 880px; text-wrap: balance; }
+  .lead { font-size: clamp(16px, 2.2vw, 19px); color: var(--muted); max-width: 720px; margin: 0 auto; text-wrap: pretty; }
+  .install { margin: 30px auto 0; max-width: 760px; display: flex; align-items: center; gap: 10px; padding: 12px 12px 12px 18px; border-radius: 14px; border: 1px solid var(--line); background: var(--bg-2); text-align: left; }
+  .install code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .install code::before { content: "$ "; color: var(--muted); }
+  .cta { margin-top: 18px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .note { margin-top: 14px; font-size: 13px; color: var(--muted); }
+
+  .shot { margin: 46px auto 0; border-radius: 18px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 30px 80px rgba(0, 0, 0, .45); background: var(--card); }
+  section { padding: 76px 0; }
+  section.alt { background: var(--bg-2); border-block: 1px solid var(--line); }
+  h2 { font-size: clamp(26px, 4vw, 38px); letter-spacing: -.02em; line-height: 1.15; margin: 0 0 12px; text-wrap: balance; }
+  .sub { color: var(--muted); max-width: 680px; margin: 0 0 36px; text-wrap: pretty; }
+  .center { text-align: center; } .center .sub { margin-inline: auto; }
+
+  .agents { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 26px; }
+  .chip { padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); font-size: 13px; font-weight: 700; }
+  .chip.claude { color: #f0a080; } .chip.codex { color: #4fd1a5; } .chip.gemini { color: #8ab4f8; }
+
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
+  .grid > *, .steps > *, .split > * { min-width: 0; }
+  .card { padding: 22px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--card); }
+  .card h3 { margin: 0 0 8px; font-size: 17px; letter-spacing: -.01em; }
+  .card p { margin: 0; color: var(--muted); font-size: 14.5px; text-wrap: pretty; }
+  .icon { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; margin-bottom: 14px; font-size: 18px; background: color-mix(in srgb, var(--accent) 16%, transparent); }
+
+  .split { display: grid; gap: 40px; grid-template-columns: 1.05fr 1fr; align-items: center; }
+  .split.flip > :first-child { order: 2; }
+  @media (max-width: 900px) { .split, .split.flip { grid-template-columns: 1fr; } .split.flip > :first-child { order: 0; } }
+  .split ul { padding: 0; margin: 18px 0 0; list-style: none; display: grid; gap: 10px; }
+  .split li { padding-left: 26px; position: relative; color: var(--muted); }
+  .split li::before { content: "✓"; position: absolute; left: 0; color: var(--ok); font-weight: 800; }
+  .split li b { color: var(--text); }
+  .frame { border-radius: 16px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 20px 60px rgba(0, 0, 0, .35); }
+
+  .phones { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+  @media (max-width: 800px) { .phones { grid-template-columns: repeat(2, 1fr); } }
+  .phone { border-radius: 30px; padding: 8px; background: #05070d; border: 1px solid #2a3550; box-shadow: 0 18px 50px rgba(0, 0, 0, .45); }
+  .phone img { border-radius: 23px; }
+  .phone + figcaption, figure figcaption { text-align: center; color: var(--muted); font-size: 13px; margin-top: 10px; }
+  figure { margin: 0; }
+
+  .steps { counter-reset: step; display: grid; gap: 16px; grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 800px) { .steps { grid-template-columns: 1fr; } }
+  .step { counter-increment: step; }
+  .step h3::before { content: counter(step); display: inline-grid; place-items: center; width: 26px; height: 26px; margin-right: 10px; border-radius: 50%; font-size: 13px; color: #fff; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+  pre { margin: 12px 0 0; padding: 12px 14px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); overflow-x: auto; font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+  .faq details { border-bottom: 1px solid var(--line); padding: 16px 0; }
+  .faq summary { cursor: pointer; font-weight: 700; list-style: none; }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary::after { content: "+"; float: right; color: var(--muted); }
+  .faq details[open] summary::after { content: "–"; }
+  .faq p { color: var(--muted); margin: 10px 0 0; max-width: 760px; }
+
+  footer { padding: 36px 0 56px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); }
+  footer .wrap { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; }
+  footer a { text-decoration: none; } footer a:hover { color: var(--text); }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap nav">
+    <a class="brand grad" href="#top">UnivDash</a>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#screens">Screens</a>
+      <a href="#install">Install</a>
+      <a href="#faq">FAQ</a>
+      <a class="btn" href="https://github.com/yojun313/UnivDash">GitHub ★</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <div class="hero">
+    <div class="wrap">
+      <span class="eyebrow"><span class="dot"></span> Self-hosted · open source · no database, no CDN</span>
+      <h1>Your coding agents, <span class="grad">from any screen</span></h1>
+      <p class="lead">UnivDash turns the tmux sessions on your server into a dashboard you open in a browser. See which agent is working and which one is waiting for you, read the whole conversation, and answer from your phone.</p>
+      <div class="agents">
+        <span class="chip claude">Claude Code</span>
+        <span class="chip codex">Codex</span>
+        <span class="chip gemini">Gemini · Antigravity</span>
+      </div>
+      <div class="install" id="quick">
+        <code id="cmd">curl -fsSL https://raw.githubusercontent.com/yojun313/UnivDash/main/install.sh | sh</code>
+        <button class="btn" id="copy" type="button">Copy</button>
+      </div>
+      <div class="cta">
+        <a class="btn primary" href="#install">Get started</a>
+        <a class="btn" href="https://github.com/yojun313/UnivDash">View on GitHub</a>
+      </div>
+      <p class="note">Linux with tmux (macOS is not tested yet). Installs into your home folder, never asks for sudo.</p>
+      <div class="shot"><img src="assets/screens/desktop-workspace.png" alt="UnivDash workspace: the window list with agent states on the right, the full conversation with tool calls and diffs in the middle" width="2400" height="1500"></div>
+    </div>
+  </div>
+
+  <section id="features">
+    <div class="wrap">
+      <div class="center">
+        <h2>Everything around the agent, in one place</h2>
+        <p class="sub">Not another terminal. A console for the work that happens around your terminals: who needs you, what was said, how much quota is left, and what changed in the repository.</p>
+      </div>
+      <div class="grid">
+        <div class="card"><div class="icon">🟢</div><h3>Know who needs you</h3><p>Every tmux window in one list with its agent and state: working, waiting for your answer, or idle. Unread replies are marked, and your phone gets a notification when an agent finishes or asks.</p></div>
+        <div class="card"><div class="icon">💬</div><h3>The whole conversation</h3><p>The chat view reads the agent's own session log, so you can scroll back to the first prompt. Tool calls fold away, file edits show as diffs, and search finds any prompt or answer.</p></div>
+        <div class="card"><div class="icon">📱</div><h3>Built for the phone</h3><p>Installable to the home screen. A composer that keeps the keyboard open, a key bar for Esc, Shift+Tab and arrows, photo and file attachments, and one-tap answers to permission prompts.</p></div>
+        <div class="card"><div class="icon">📊</div><h3>Limits and usage</h3><p>Remaining session and weekly limits for every account, next to the window you are in. Token statistics by day, hour, model and project.</p></div>
+        <div class="card"><div class="icon">👥</div><h3>Several accounts</h3><p>Save more than one login per agent and switch in two taps. Windows come back in the same conversation. Codex can switch automatically when a limit runs out.</p></div>
+        <div class="card"><div class="icon">🔌</div><h3>OpenAI-compatible API</h3><p>Expose your subscriptions as <code>/v1/chat/completions</code> for your own scripts. Each request runs inside a locked-down container with no network except the model provider.</p></div>
+        <div class="card"><div class="icon">🌿</div><h3>Git without a laptop</h3><p>Diffs, staging, commit and push, branches, merges, stashes and scheduled pulls. Commit messages can be drafted by a model you choose.</p></div>
+        <div class="card"><div class="icon">🖥️</div><h3>Server and files</h3><p>CPU, GPU, memory and disk at a glance, PM2 processes with logs, nginx domains with certificates, and a file explorer that opens code, Markdown, PDF and Office documents.</p></div>
+        <div class="card"><div class="icon">🔗</div><h3>Share, read-only</h3><p>Show a live terminal or a whole agent conversation to someone else with a link and an access code. Secrets are masked and nothing can be typed.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="alt" id="screens">
+    <div class="wrap">
+      <div class="split">
+        <div>
+          <h2>Answer in one tap</h2>
+          <p class="sub" style="margin-bottom:0">When an agent stops to ask, the question and its choices appear under the chat. Pick one and it is typed into the terminal for you.</p>
+          <ul>
+            <li><b>Permission prompts, model pickers, trust dialogs</b> are recognised from the screen.</li>
+            <li><b>Works for all three agents</b>, even though each draws its prompts differently.</li>
+            <li><b>The raw terminal is one tab away</b> when you want to type keys yourself.</li>
+          </ul>
+        </div>
+        <div class="frame"><img src="assets/screens/desktop-waiting.png" alt="An agent waiting for permission, with the choices shown as buttons" loading="lazy"></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="split flip">
+        <div class="frame"><img src="assets/screens/desktop-usage.png" alt="Usage page: remaining limits per account and token charts" loading="lazy"></div>
+        <div>
+          <h2>See the limit before you hit it</h2>
+          <p class="sub" style="margin-bottom:0">Session and weekly limits for Claude Code, Codex and Gemini on one page, with the reset time and the accounts you can switch to.</p>
+          <ul>
+            <li><b>Per-account limits</b>, including accounts you are not logged into right now.</li>
+            <li><b>Token statistics</b> for today, 7 and 30 days, by model and project.</li>
+            <li><b>Add, switch and sign out</b> of accounts from the same page.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="alt">
+    <div class="wrap">
+      <div class="center">
+        <h2>Made for the small screen</h2>
+        <p class="sub">The phone layout is not a shrunken desktop. It has its own tab bar, bottom sheets and long-press menus.</p>
+      </div>
+      <div class="phones">
+        <figure><div class="phone"><img src="assets/screens/mobile-list.png" alt="Window list on a phone" loading="lazy"></div><figcaption>Every window and its state</figcaption></figure>
+        <figure><div class="phone"><img src="assets/screens/mobile-workspace.png" alt="Agent conversation on a phone" loading="lazy"></div><figcaption>Read and reply</figcaption></figure>
+        <figure><div class="phone"><img src="assets/screens/mobile-usage.png" alt="Usage on a phone" loading="lazy"></div><figcaption>Limits at a glance</figcaption></figure>
+        <figure><div class="phone"><img src="assets/screens/mobile-git.png" alt="Git on a phone" loading="lazy"></div><figcaption>Commit and push</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="grid" style="grid-template-columns: repeat(2, 1fr)">
+        <figure><div class="frame"><img src="assets/screens/desktop-git.png" alt="Git manager" loading="lazy"></div><figcaption>Git: stage, commit, branch, merge, stash, push</figcaption></figure>
+        <figure><div class="frame"><img src="assets/screens/desktop-api.png" alt="OpenAI-compatible API management" loading="lazy"></div><figcaption>OpenAI-compatible API: keys, accounts, request log</figcaption></figure>
+        <figure><div class="frame"><img src="assets/screens/desktop-server.png" alt="Server and PM2 processes" loading="lazy"></div><figcaption>Server resources and PM2 processes</figcaption></figure>
+        <figure><div class="frame"><img src="assets/screens/desktop-explorer.png" alt="File explorer and viewer" loading="lazy"></div><figcaption>Explorer: browse, view and edit files</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="alt" id="install">
+    <div class="wrap">
+      <h2>Running in three steps</h2>
+      <p class="sub">The installer checks what you have, downloads UnivDash into <code>~/UnivDash</code>, asks for a login, and starts it. It never uses sudo.</p>
+      <div class="steps">
+        <div class="card step"><h3>Install</h3><p>One command on the machine where your agents run.</p><pre>curl -fsSL https://raw.githubusercontent.com/yojun313/UnivDash/main/install.sh | sh</pre></div>
+        <div class="card step"><h3>Log in</h3><p>Open the address it prints and sign in with the login you chose. A strong password is generated if you press Enter.</p><pre>http://127.0.0.1:8000</pre></div>
+        <div class="card step"><h3>Open it on your phone</h3><p>Put it behind HTTPS (Tailscale, Cloudflare Tunnel, nginx or Caddy) and add it to your home screen.</p><pre>~/UnivDash/univdash status</pre></div>
+      </div>
+      <p class="note" style="margin-top:22px">Want to look around first? <code>uv run python tools/demo/demo.py up</code> starts a demo with made-up projects and no real accounts.</p>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="wrap faq">
+      <h2>Questions</h2>
+      <details><summary>Do my prompts or code leave my server?</summary><p>No. UnivDash runs on your machine and talks only to your browser. It loads no external scripts or fonts, has no telemetry, and stores its settings as files in your home folder. The agents themselves talk to their providers exactly as they do without UnivDash.</p></details>
+      <details><summary>Is it safe to expose?</summary><p>Treat it like shell access, because it can type into your terminals. It ships with a strict content security policy, same-origin checks on every write, server-side sessions, rate-limited login and optional two-factor codes. Put it behind HTTPS, and prefer a private network such as Tailscale.</p></details>
+      <details><summary>Does it replace tmux or my agent CLI?</summary><p>No. It sits on top of them. Your sessions keep running in tmux, and you can attach from a terminal at any time. UnivDash never needs to be the thing that started a window.</p></details>
+      <details><summary>Which agents are supported?</summary><p>Claude Code, Codex and Gemini through the Antigravity CLI. Any other program in a tmux window still shows up as a terminal you can read and type into.</p></details>
+      <details><summary>Which languages does the interface speak?</summary><p>English and Korean. Switch in Settings › Display.</p></details>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span class="brand grad">UnivDash</span>
+    <a href="https://github.com/yojun313/UnivDash">GitHub</a>
+    <a href="https://github.com/yojun313/UnivDash#readme">Documentation</a>
+    <a href="https://github.com/yojun313/UnivDash/issues">Issues</a>
+    <span style="margin-left:auto">Screenshots show a demo with made-up projects and accounts.</span>
+  </div>
+</footer>
+
+<script>
+  document.getElementById('copy').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    try { await navigator.clipboard.writeText(document.getElementById('cmd').textContent); button.textContent = 'Copied'; }
+    catch (error) { button.textContent = 'Select and copy'; }
+    setTimeout(() => { button.textContent = 'Copy'; }, 1600);
+  });
+</script>
+</body>
+</html>

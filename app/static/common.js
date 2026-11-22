@@ -1,4 +1,4 @@
-// UnivDash 공통 유틸리티 (페이지 스크립트들이 window.UnivDash 로 사용)
+// UnivDash shared utilities (page scripts use them through window.UnivDash)
 (function () {
   'use strict';
 
@@ -12,7 +12,7 @@
   }
 
   async function api(url, options = {}) {
-    // 방금 누른 버튼이 이 요청을 시작했다면, 응답이 늦을 때(120ms+) 그 버튼에 '기다리는 중' 표시
+    // If the button just pressed started this request, mark that button as 'waiting' when the response is slow (120ms+)
     const tap = lastTap && performance.now() - lastTap.t < 80 ? lastTap.el : null;
     if (tap) {
       lastTap = null;
@@ -23,7 +23,7 @@
   }
   let lastTap = null;
   document.addEventListener('click', (event) => {
-    if (hapticLabel && hapticLabel.contains(event.target)) return;   // 햅틱용 가짜 클릭은 무시
+    if (hapticLabel && hapticLabel.contains(event.target)) return;   // ignore the fake click used for haptics
     const el = event.target.closest?.('button, [role="button"]');
     lastTap = el && !el.closest('.sheet-overlay, #sheetOverlay') ? { el, t: performance.now() } : null;
   }, true);
@@ -37,21 +37,21 @@
     const response = await fetch(url, init);
     if (response.status === 401) {
       location.href = '/login';
-      throw new Error('로그인이 필요합니다.');
+      throw new Error(t('로그인이 필요합니다.'));
     }
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const detail = typeof data.detail === 'string' ? data.detail : '요청이 실패했습니다.';
+      const detail = typeof data.detail === 'string' ? data.detail : t('요청이 실패했습니다.');
       throw new Error(detail);
     }
     return data;
   }
 
-  // ── 이 기기 설정 (설정 창) ─────────────────────────────────────────────
-  // 기기마다 다르게 둘 값은 localStorage 에 둔다. 바뀌면 'univdash:settings' 이벤트로 열린 화면에 알린다.
+  // ── This-device settings (settings window) ────────────────────────────
+  // Values that differ per device live in localStorage. Changes are announced to open screens with the 'univdash:settings' event.
   const SETTING_DEFAULTS = {
     'notify-agents': true, 'notify-desktop': true, 'notify-git': true, haptics: true, 'editor-font': 13,
-    // 사이드바: OVERVIEW 숫자 카드, 서버 상태 (sysmon.js)
+    // Sidebar: OVERVIEW number cards, server status (sysmon.js)
     'show-overview': true,
     'sysmon-cpu': true, 'sysmon-gpu': true, 'sysmon-mem': true, 'sysmon-disk': true, 'sysmon-net': false, 'sysmon-interval': 2, 'sysmon-detail': false,
   };
@@ -61,7 +61,7 @@
       try { const raw = localStorage.getItem(`univdash-set-${key}`); return raw === null ? SETTING_DEFAULTS[key] : JSON.parse(raw); } catch (e) { return SETTING_DEFAULTS[key]; }
     },
     set(key, value) {
-      try { localStorage.setItem(`univdash-set-${key}`, JSON.stringify(value)); } catch (e) { /* 저장 불가 환경 */ }
+      try { localStorage.setItem(`univdash-set-${key}`, JSON.stringify(value)); } catch (e) { /* storage unavailable */ }
       applySettings();
       window.dispatchEvent(new CustomEvent('univdash:settings', { detail: { key, value } }));
     },
@@ -72,17 +72,17 @@
     document.documentElement.classList.toggle('hide-overview', !settings.get('show-overview'));
   }
   applySettings();
-  // 다른 탭에서 바꾼 설정도 바로 따른다
+  // Settings changed in another tab are followed right away
   window.addEventListener('storage', (event) => {
     if (!event.key || !event.key.startsWith('univdash-')) return;
     applySettings();
     window.dispatchEvent(new CustomEvent('univdash:settings', { detail: { key: event.key.replace(/^univdash-(set-)?/, '') } }));
   });
 
-  // ── 파일 올리기 ────────────────────────────────────────────────────────
-  // 32MB 이하는 한 번에, 더 크면 32MB 조각으로 나눠 차례로 보낸다 (프록시의 요청 크기 제한과 상관없이 설정한 최대 크기까지).
-  // kind: 'attach'(프롬프트 첨부 · /api/uploads) | 'fs'(파일 탐색기 · dir, rel). onProgress(0~1).
-  // 돌려주는 값: { promise, abort } — promise 는 서버 응답(JSON)으로 끝나고, 실패하면 Error(.status, .aborted).
+  // ── File upload ───────────────────────────────────────────────────────
+  // Up to 32MB goes in one request; larger files are sent in 32MB chunks in order (up to the configured maximum, regardless of the proxy's request size limit).
+  // kind: 'attach' (prompt attachment · /api/uploads) | 'fs' (file explorer · dir, rel). onProgress(0~1).
+  // Returns { promise, abort } — the promise resolves with the server response (JSON) and rejects with Error(.status, .aborted).
   const UPLOAD_CHUNK = 32 * 1024 * 1024;
   function uploadFile(file, { kind = 'attach', dir = '', rel = '', name = file.name, type = file.type, onProgress } = {}) {
     let current = null;
@@ -90,7 +90,7 @@
     let token = null;
     const fail = (message, status = 0) => Object.assign(new Error(message), { status, aborted });
     const send = (method, url, body, headers = {}, progress) => new Promise((resolve, reject) => {
-      if (aborted) { reject(fail('업로드를 취소했습니다.')); return; }
+      if (aborted) { reject(fail(t('업로드를 취소했습니다.'))); return; }
       const xhr = new XMLHttpRequest();
       current = xhr;
       xhr.open(method, url);
@@ -99,12 +99,12 @@
       xhr.onload = () => {
         let data = {};
         try { data = JSON.parse(xhr.responseText); } catch (e) { /* noop */ }
-        if (xhr.status === 401) { location.href = '/login'; reject(fail('로그인이 필요합니다.', 401)); return; }
+        if (xhr.status === 401) { location.href = '/login'; reject(fail(t('로그인이 필요합니다.'), 401)); return; }
         if (xhr.status >= 200 && xhr.status < 300) resolve(data);
-        else reject(Object.assign(fail(typeof data.detail === 'string' ? data.detail : `업로드 실패 (${xhr.status})`, xhr.status), { data }));
+        else reject(Object.assign(fail(typeof data.detail === 'string' ? data.detail : t('업로드 실패 ({status})', { status: xhr.status }), xhr.status), { data }));
       };
-      xhr.onerror = () => reject(fail('네트워크 오류'));
-      xhr.onabort = () => reject(fail('업로드를 취소했습니다.'));
+      xhr.onerror = () => reject(fail(t('네트워크 오류')));
+      xhr.onabort = () => reject(fail(t('업로드를 취소했습니다.')));
       xhr.send(body);
     });
     const report = (n) => onProgress?.(file.size ? Math.min(1, n / file.size) : 1);
@@ -129,7 +129,7 @@
           retries = 0;
         } catch (error) {
           if (aborted) throw error;
-          // 순서가 어긋났으면(409) 서버가 받은 곳부터, 네트워크가 잠깐 끊겼으면 같은 조각을 몇 번 다시 보낸다
+          // Out of order (409): continue from where the server got to; on a brief network drop, resend the same chunk a few times
           if (error.status === 409 && Number.isFinite(error.data?.received)) { offset = error.data.received; continue; }
           if ((error.status === 0 || error.status >= 500) && retries < 4) { retries += 1; await new Promise((r) => setTimeout(r, 1000 * retries)); continue; }
           throw error;
@@ -141,13 +141,13 @@
       return result;
     }
     const promise = (file.size > UPLOAD_CHUNK ? chunked() : single()).catch((error) => {
-      if (token) fetch(`/api/uploads/chunked/${token}`, { method: 'DELETE' }).catch(() => {});   // 남은 조각 정리
+      if (token) fetch(`/api/uploads/chunked/${token}`, { method: 'DELETE' }).catch(() => {});   // clean up leftover chunks
       throw error;
     });
     return { promise, abort() { aborted = true; current?.abort(); } };
   }
 
-  // 레이아웃의 #toastHost 에 app.css 의 .toast 모양으로 띄운다 (Workspace 알림과 같은 모양).
+  // Shown in the layout's #toastHost with the .toast look from app.css (same look as Workspace notifications).
   function toast(message, type = 'info', timeout = 0) {
     const host = document.getElementById('toastHost');
     if (!host) return;
@@ -162,10 +162,10 @@
     setTimeout(() => item.remove(), timeout || (kind === 'error' ? 6000 : 3500));
   }
 
-  // ── Git 자동 흐름(ruff · AI 커밋 · 푸시) 완료 알림 ─────────────────────────
-  // 흐름은 서버에서 별도 프로세스로 돌아서 페이지를 떠나도 계속된다. UnivDash 의 어느 페이지에 있든
-  // 도는 작업이 있을 때만 상태를 확인하고(2초), 끝나면 한 번 알린다. 알린 작업 id 는 저장해 두어
-  // 다른 페이지 · 탭에서 같은 알림이 또 뜨지 않게 하고, 떠나 있던 사이 끝난 작업(10분 이내)은 돌아왔을 때 알린다.
+  // ── Completion notice for the automatic Git flow (ruff · AI commit · push) ──
+  // The flow runs as a separate process on the server, so it continues after leaving the page. On any UnivDash page,
+  // status is polled (every 2s) only while a job is running, and completion is announced once. Announced job ids are stored
+  // so the same notice does not appear again on another page or tab, and jobs that finished while away (within 10 minutes) are announced on return.
   const gitWorkflows = (() => {
     const SEEN = 'univdash-git-wf-seen';
     const ACTIVE = 'univdash-git-wf-active';
@@ -175,15 +175,15 @@
     let timer = 0;
     let polling = false;
     const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch (e) { return fallback; } };
-    const write = (key, value) => { try { if (value == null) localStorage.removeItem(key); else localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* 저장 못 해도 동작 */ } };
+    const write = (key, value) => { try { if (value == null) localStorage.removeItem(key); else localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* works even when it cannot be stored */ } };
     function show(job) {
       const where = job.branch ? `${job.repository} (${job.branch})` : job.repository;
       if (job.status === 'done') {
         if (!settings.get('notify-git')) return;
         const subject = (job.message || '').split('\n')[0];
-        toast(`${where} 푸시 완료${subject ? `\n${subject}` : ''}`, 'success', 7000);
+        toast(`${t('{where} 푸시 완료', { where })}${subject ? `\n${subject}` : ''}`, 'success', 7000);
       } else {
-        toast(`${where} 자동 커밋이 멈췄습니다:${job.error || '알 수 없는 오류'}`, 'error', 9000);
+        toast(t('{where} 자동 커밋이 멈췄습니다:{error}', { where, error: job.error || t('알 수 없는 오류') }), 'error', 9000);
       }
     }
     function notify(job) {
@@ -211,7 +211,7 @@
       write(SEEN, seen.slice(-80));
       const running = jobs.some((job) => job.status === 'running');
       write(ACTIVE, running ? 1 : null);
-      listeners.forEach((fn) => { try { fn(jobs); } catch (e) { /* 다른 구독자는 계속 */ } });
+      listeners.forEach((fn) => { try { fn(jobs); } catch (e) { /* other subscribers carry on */ } });
       if (running) timer = setTimeout(poll, document.hidden ? 6000 : 2000);
     }
     document.addEventListener('visibilitychange', () => {
@@ -219,7 +219,7 @@
       later.splice(0).forEach(show);
       if (read(ACTIVE, null)) poll();
     });
-    // 다른 탭에서 흐름을 시작하면 이 탭도 지켜본다
+    // When a flow starts in another tab, this tab watches it too
     window.addEventListener('storage', (event) => { if (event.key === ACTIVE && event.newValue) poll(); });
     const begin = () => { if (document.getElementById('toastHost') && (read(ACTIVE, null) || listeners.size)) poll(); };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', begin); else begin();
@@ -236,7 +236,7 @@
     if (amount >= 1e9) return `${(amount / 1e9).toFixed(2)}B`;
     if (amount >= 1e6) return `${(amount / 1e6).toFixed(amount >= 1e7 ? 1 : 2)}M`;
     if (amount >= 1e3) return `${(amount / 1e3).toFixed(amount >= 1e5 ? 0 : 1)}K`;
-    return amount.toLocaleString('ko-KR');
+    return amount.toLocaleString(t.locale);
   }
 
   function relativeTime(value) {
@@ -246,29 +246,28 @@
     const seconds = Math.round((Date.now() - date.getTime()) / 1000);
     const future = seconds < 0;
     const abs = Math.abs(seconds);
-    let text;
-    if (abs < 60) text = `${abs}초`;
-    else if (abs < 3600) text = `${Math.floor(abs / 60)}분`;
-    else if (abs < 86400) text = `${Math.floor(abs / 3600)}시간`;
-    else text = `${Math.floor(abs / 86400)}일`;
-    return future ? `${text} 후` : `${text} 전`;
+    if (abs < 60) return future ? t('{n}초 후', { n: abs }) : t('{n}초 전', { n: abs });
+    if (abs < 3600) { const n = Math.floor(abs / 60); return future ? t('{n}분 후', { n }) : t('{n}분 전', { n }); }
+    if (abs < 86400) { const n = Math.floor(abs / 3600); return future ? t('{n}시간 후', { n }) : t('{n}시간 전', { n }); }
+    const n = Math.floor(abs / 86400);
+    return future ? t('{n}일 후', { n }) : t('{n}일 전', { n });
   }
 
   function duration(ms) {
-    if (ms <= 0) return '곧';
+    if (ms <= 0) return t('곧');
     const minutes = Math.floor(ms / 60000);
     const days = Math.floor(minutes / 1440);
     const hours = Math.floor((minutes % 1440) / 60);
     const mins = minutes % 60;
-    if (days > 0) return `${days}일 ${hours}시간`;
-    if (hours > 0) return `${hours}시간 ${mins}분`;
-    return `${mins}분`;
+    if (days > 0) return t('{days}일 {hours}시간', { days, hours });
+    if (hours > 0) return t('{hours}시간 {mins}분', { hours, mins });
+    return t('{mins}분', { mins });
   }
 
   function formatDate(value, withYear = false) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value || '—';
-    return new Intl.DateTimeFormat('ko-KR', {
+    return new Intl.DateTimeFormat(t.locale, {
       ...(withYear ? { year: '2-digit' } : {}),
       month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
     }).format(date);
@@ -281,23 +280,23 @@
       : { grid: 'rgba(255, 255, 255, 0.07)', ticks: 'rgba(255, 255, 255, 0.45)', tooltipBg: 'rgba(15,20,36,0.95)', tooltipText: '#e8e9ee' };
   }
 
-  // 단축키용: 지금 글자를 입력하는 중인지 (입력창 · 편집기 · 터미널 · 직접 입력 모드) 또는 시트 · 메뉴가 열려 있는지
+  // For shortcuts: whether the user is typing right now (input, editor, terminal, direct input mode) or a sheet / menu is open
   function typingOrBusy(event) {
     const el = event.target;
     if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.closest?.('.xterm'))) return true;
     const sheet = document.getElementById('sheetOverlay');
     if (sheet && !sheet.hidden) return true;
-    // 열려 있는(보이는) 메뉴만 — 숨겨 둔 메뉴 요소(Git 페이지 등)는 무시
+    // Only open (visible) menus — hidden menu elements (Git page, etc.) are ignored
     return [...document.querySelectorAll('.git-menu, .ex-menu')].some((menu) => !menu.classList.contains('hidden') && menu.offsetParent !== null);
   }
-  // 한/영 상관없이 같은 자리 키 (w · ㅈ): event.code 로 본다
+  // The same physical key regardless of Korean/English input (w · ㅈ): judged by event.code
   function plainKey(event, code) {
     return event.code === code && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && !event.isComposing && !event.repeat;
   }
 
-  // ── 아이폰 앱처럼 누르는 느낌 ────────────────────────────────────────────────
-  // 햅틱: 안드로이드는 vibrate, iOS(18+)는 숨긴 스위치 체크박스를 눌러 시스템 햅틱을 낸다.
-  // iOS 는 사용자 제스처(click/touchend) 안에서 불러야 울린다 — await 뒤나 타이머 안에서는 조용히 무시된다.
+  // ── Press feedback like an iPhone app ───────────────────────────────────────
+  // Haptics: Android uses vibrate; iOS (18+) triggers the system haptic by clicking a hidden switch checkbox.
+  // On iOS it only fires when called inside a user gesture (click/touchend) — after an await or in a timer it is silently ignored.
   let hapticLabel = null;
   function haptic(pattern = 8) {
     if (!settings.get('haptics')) return;
@@ -313,7 +312,7 @@
         box.setAttribute('switch', '');
         box.tabIndex = -1;
         hapticLabel.appendChild(box);
-        // 이 가짜 클릭이 "바깥 클릭 → 메뉴 닫기" 같은 처리로 번지지 않게 막는다
+        // Keep this fake click from spreading into handlers such as "outside click → close menu"
         const stop = (event) => event.stopPropagation();
         hapticLabel.addEventListener('click', stop);
         box.addEventListener('click', stop);
@@ -323,9 +322,9 @@
     } catch (e) { /* noop */ }
   }
 
-  // 눌림 표시: 누르는 순간 바로(0ms) 어두워지고, 뗄 때 천천히(200ms) 돌아온다.
-  // - 버튼은 즉시, 목록 줄은 50ms 뒤에 (스크롤하려고 댄 손가락에 줄이 번쩍이지 않게 — UITableView 와 같은 방식)
-  // - 손가락이 움직이거나 스크롤이 시작되면 바로 취소
+  // Pressed state: darkens the instant it is pressed (0ms) and returns slowly on release (200ms).
+  // - Buttons immediately, list rows after 50ms (so rows do not flash under a finger that is about to scroll — the same approach as UITableView)
+  // - Cancelled right away when the finger moves or scrolling starts
   const PRESSABLE = 'button, [role="button"], a[href], summary, label.check-row, .key-chip, .tab-item, .filter-chip, .win-item, .ex-row, .ex-root, .sheet-action, .wt, .tt-tab, .exv-tab, .fp-row, .folder-head, .org-item, .git-file-row, .git-repo-item';
   const ROW = '.win-item, .ex-row, .ex-root, .sheet-action, .fp-row, .folder-head, .org-item, .git-file-row, .git-repo-item';
   let pressed = null;
@@ -344,7 +343,7 @@
   document.addEventListener('pointerdown', (event) => {
     if (event.button > 0) return;
     release(false);
-    // 줄 안의 작은 버튼(⋯, ✕)을 누르면 줄 전체가 아니라 그 버튼만 (closest 가 가장 안쪽을 고른다)
+    // Pressing a small button inside a row (⋯, ✕) marks only that button, not the whole row (closest picks the innermost)
     const target = event.target.closest?.(PRESSABLE);
     if (!target || target.disabled || target.getAttribute('aria-disabled') === 'true' || target.closest('.xterm')) return;
     pressed = target;
@@ -357,7 +356,7 @@
     if (Math.hypot(event.clientX - pressStart.x, event.clientY - pressStart.y) > 10) release(false);
   }, { capture: true, passive: true });
   document.addEventListener('pointerup', () => {
-    // 줄을 짧게 톡 친 경우(50ms 전에 뗌)도 눌림을 한 번 보여 준다
+    // A quick tap on a row (released before 50ms) still shows the pressed state once
     if (pressed && !pressed.classList.contains('is-pressed')) {
       clearTimeout(pressTimer);
       const el = pressed;
@@ -370,18 +369,18 @@
   document.addEventListener('pointercancel', () => release(false), { capture: true, passive: true });
   document.addEventListener('scroll', () => release(false), { capture: true, passive: true });
   document.addEventListener('dragstart', () => release(false), { capture: true, passive: true });
-  // 고르는 동작(모드 전환 · 필터 · 스위치 · 확인)에는 가벼운 햅틱 — UISelectionFeedbackGenerator 자리
+  // A light haptic for selection actions (mode switch, filter, switch, confirm) — stands in for UISelectionFeedbackGenerator
   document.addEventListener('click', (event) => {
     if (event.target.closest?.('.ws-switch button, .filter-chip, .pmd-mode-switch, .sheet-form input[type="checkbox"], [data-yes], [data-haptic]')) haptic(6);
   });
-  // 탭바 · 사이드바 이동은 손가락이 닿는 순간 시작한다 (iOS 탭바처럼 — 떼기를 기다리는 ~100ms 절약).
-  // 선택 표시도 바로 옮겨서 서버 응답 전에 눌린 탭이 켜진다.
+  // Tab bar / sidebar navigation starts the moment the finger touches (like the iOS tab bar — saves the ~100ms spent waiting for release).
+  // The selection mark moves right away too, so the pressed tab lights up before the server responds.
   let navTo = '';
   document.addEventListener('pointerdown', (event) => {
     if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     const link = event.target.closest?.('.tabbar a.tab-item, a.nav-link');
     if (!link || link.getAttribute('aria-current') === 'page' || link.target) return;
-    // 사이드바는 휴대폰에서 스크롤되는 서랍이라 터치는 평소처럼 click 에서
+    // On phones the sidebar is a scrolling drawer, so touch navigates on click as usual
     if (event.pointerType !== 'mouse' && !link.closest('.tabbar')) return;
     for (const other of document.querySelectorAll('.tabbar a.tab-item.active')) other.classList.remove('active');
     if (link.classList.contains('tab-item')) link.classList.add('active');
@@ -390,14 +389,14 @@
   }, { capture: true });
   document.addEventListener('click', (event) => {
     const link = event.target.closest?.('a[href]');
-    if (link && navTo && link.href === navTo) event.preventDefault();   // 이미 이동 중 — 두 번 이동하지 않게
+    if (link && navTo && link.href === navTo) event.preventDefault();   // already navigating — do not navigate twice
   }, true);
   window.addEventListener('pageshow', () => { navTo = ''; });
 
-  // iOS Safari 는 touchstart 리스너가 하나라도 있어야 :active 를 적용한다 (CSS :active 만 쓰는 곳 대비)
+  // iOS Safari applies :active only when at least one touchstart listener exists (for places that rely on CSS :active alone)
   document.addEventListener('touchstart', () => {}, { passive: true });
 
-  // 오래 걸리는 버튼: 일이 끝날 때까지 흐리게 두고 다시 못 누르게 한다.
+  // Long-running buttons: dimmed and not pressable again until the work finishes.
   async function busy(button, work) {
     if (!button) return work();
     button.classList.add('is-busy');
@@ -405,11 +404,11 @@
     try { return await work(); } finally { button.classList.remove('is-busy'); button.removeAttribute('aria-busy'); }
   }
 
-  // 수식 (탐색기 마크다운 · 채팅 공용): marked 가 \qquad · _ · \\ 같은 TeX 기호를 망가뜨리므로, 변환 전에 수식을 자리표시(KTXM0Z)로 빼 두고
-  // marked → DOMPurify 정리가 끝난 뒤 KaTeX 로 그려 넣는다 (KaTeX 결과는 trust:false 라 링크 · HTML 명령이 막혀 있다).
-  // 코드 블록(``` ~~~)과 인라인 코드(`…`) 안의 $ 는 건드리지 않는다.
-  // 백슬래시가 이스케이프로 먹힌 TeX 복구 (파이썬 일반 문자열로 쓴 파일: "\boxed" → 백스페이스+"oxed", "\frac" → 폼피드+"rac" …)
-  // \a \b \f \v 제어 문자는 글에 올 일이 없어 항상, 탭 · CR 은 TeX 명령 꼬리가 바로 이어질 때만 되돌린다.
+  // Math (shared by explorer markdown and chat): marked mangles TeX symbols such as \qquad · _ · \\, so formulas are pulled out into placeholders (KTXM0Z) before conversion
+  // and rendered with KaTeX after marked → DOMPurify cleanup (KaTeX output uses trust:false, so links and HTML commands are blocked).
+  // $ inside code blocks (``` ~~~) and inline code (`…`) is left alone.
+  // Repairs TeX whose backslash was eaten as an escape (files written with plain Python strings: "\boxed" → backspace+"oxed", "\frac" → form feed+"rac" …)
+  // The \a \b \f \v control characters never occur in prose so they are always restored; tab and CR only when a TeX command tail follows directly.
   function repairTexEscapes(src) {
     return src
       .replace(/[\x07\x08\x0b\x0c](?=[A-Za-z])/g, (c) => `\\${{ '\x07': 'a', '\x08': 'b', '\x0b': 'v', '\x0c': 'f' }[c]}`)
@@ -420,12 +419,12 @@
     src = repairTexEscapes(src);
     const math = [];
     if (!window.katex || !/\$|\\\(|\\\[/.test(src)) return { text: src, math };
-    const put = (tex, display) => { math.push({ tex: tex.trim(), display, nl: (tex.match(/\n/g) || []).length }); return `KTXM${math.length - 1}Z`; };   // nl: 자리표시가 삼킨 줄 수 (미리보기 줄 맞추기)
+    const put = (tex, display) => { math.push({ tex: tex.trim(), display, nl: (tex.match(/\n/g) || []).length }); return `KTXM${math.length - 1}Z`; };   // nl: number of lines the placeholder swallowed (to keep preview lines aligned)
     const inText = (text) => text
       .replace(/\$\$([\s\S]+?)\$\$/g, (m, tex) => put(tex, true))
       .replace(/\\\[([\s\S]+?)\\\]/g, (m, tex) => put(tex, true))
       .replace(/\\\(([\s\S]+?)\\\)/g, (m, tex) => put(tex, false))
-      // $…$: 여는 $ 뒤 · 닫는 $ 앞에 공백이 없고, 닫는 $ 뒤가 숫자가 아닐 때만 ($5 와 $10 같은 금액 제외)
+      // $…$: only when there is no space after the opening $ or before the closing $, and no digit follows the closing $ (excludes amounts like $5 and $10)
       .replace(/(^|[^\\$])\$(?![\s$])((?:\\.|[^$\n\\])+?)(?<!\s)\$(?!\d)/g, (m, pre, tex) => pre + put(tex, false));
     const text = src.split(/(^[ \t]*(?:```|~~~)[^\n]*\n[\s\S]*?^[ \t]*(?:```|~~~)[ \t]*$)/m)
       .map((part, i) => (i % 2 ? part : part.split(/(`+[^`\n]*?`+)/).map((piece, j) => (j % 2 ? piece : inText(piece))).join('')))
@@ -443,21 +442,21 @@
     });
   }
 
-  // 이 브라우저를 구분하는 임의 ID (웹 푸시 구독 · 지금 보고 있는 기기 판단용). 저장이 막힌 환경에서는 탭마다 새로 만든다.
+  // Random ID that identifies this browser (for the web push subscription and for telling which device is being viewed). Where storage is blocked, a new one is made per tab.
   let deviceIdCache = null;
   function deviceId() {
     if (deviceIdCache) return deviceIdCache;
-    try { deviceIdCache = localStorage.getItem('univdash-device-id'); } catch (e) { /* 저장 불가 */ }
+    try { deviceIdCache = localStorage.getItem('univdash-device-id'); } catch (e) { /* storage unavailable */ }
     if (!deviceIdCache || !/^[A-Za-z0-9_-]{8,64}$/.test(deviceIdCache)) {
       const bytes = crypto.getRandomValues(new Uint8Array(16));
       deviceIdCache = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-      try { localStorage.setItem('univdash-device-id', deviceIdCache); } catch (e) { /* 저장 불가 */ }
+      try { localStorage.setItem('univdash-device-id', deviceIdCache); } catch (e) { /* storage unavailable */ }
     }
     return deviceIdCache;
   }
 
-  // Codex 새 계정 적용(창 끄기 → 업데이트 → 다시 켜기) 진행을 따라가며 알려 준다.
-  // 작업 중인 Codex 창이 있으면 서버가 끝날 때까지 기다렸다가 자동으로 한다 — 페이지를 떠나도 서버에서는 계속된다.
+  // Follows and reports the progress of applying a new Codex account (stop windows → update → restart).
+  // If a Codex window is working, the server waits until it finishes and then does it automatically — it continues on the server after leaving the page.
   let applyWatch = 0;
   function followCodexApply(first) {
     const my = ++applyWatch;
@@ -470,23 +469,23 @@
         const waiting = (status.waiting || []).join(', ');
         if (status.state === 'waiting' && waiting && waiting !== shownWaiting) {
           shownWaiting = waiting;
-          toast(`작업 중인 Codex 창(${waiting})이 끝나면 자동으로 업데이트하고 새 계정으로 다시 켭니다.`, 'info', 7000);
+          toast(t('작업 중인 Codex 창({waiting})이 끝나면 자동으로 업데이트하고 새 계정으로 다시 켭니다.', { waiting }), 'info', 7000);
         } else if (status.state === 'applying' && !shownApplying) {
           shownApplying = true;
-          toast('Codex 창을 끄고 업데이트한 뒤 같은 대화로 다시 켜는 중…', 'info', 5000);
+          toast(t('Codex 창을 끄고 업데이트한 뒤 같은 대화로 다시 켜는 중…'), 'info', 5000);
         }
         setTimeout(() => request('/api/accounts/codex/apply').then(step, () => setTimeout(() => step(status), 4000)), status.state === 'waiting' ? 3000 : 1500);
         return;
       }
-      if (status.state === 'error') { toast(status.error || 'Codex 창에 적용하지 못했습니다.', 'error', 9000); return; }
+      if (status.state === 'error') { toast(status.error || t('Codex 창에 적용하지 못했습니다.'), 'error', 9000); return; }
       if (status.state === 'done') {
         const r = status.result || {};
         const after = r.after_stop || {};
         const parts = [];
-        parts.push(r.relaunched?.length ? `Codex 창 ${r.relaunched.length}개를 같은 대화로 다시 켰습니다` : '다시 켤 Codex 창이 없었습니다');
-        if (after.updated === true) parts.push('Codex 를 최신으로 업데이트했습니다');
-        else if (after.updated === false) parts.push('업데이트는 실패했습니다 (기존 버전으로 켰습니다)');
-        if (r.skipped?.length) parts.push(`직접 다시 켜야 하는 창: ${r.skipped.join(', ')}`);
+        parts.push(r.relaunched?.length ? t('Codex 창 {count}개를 같은 대화로 다시 켰습니다', { count: r.relaunched.length }) : t('다시 켤 Codex 창이 없었습니다'));
+        if (after.updated === true) parts.push(t('Codex 를 최신으로 업데이트했습니다'));
+        else if (after.updated === false) parts.push(t('업데이트는 실패했습니다 (기존 버전으로 켰습니다)'));
+        if (r.skipped?.length) parts.push(t('직접 다시 켜야 하는 창: {names}', { names: r.skipped.join(', ') }));
         toast(`${parts.join(' · ')}.`, r.skipped?.length || after.updated === false ? 'warn' : 'success', 8000);
         window.dispatchEvent(new CustomEvent('univdash:codex-applied', { detail: status }));
       }

@@ -1,4 +1,4 @@
-// AI 사용량 페이지: 남은 한도(세션/주간), 요약 지표, 일별·시간대 차트, 모델/프로젝트 순위
+// AI usage page: remaining limits (session/weekly), summary metrics, daily/hourly charts, model/project rankings
 (function () {
   'use strict';
   const { escapeHtml, api, formatNumber, relativeTime, duration, chartColors, toast } = window.UnivDash;
@@ -23,40 +23,42 @@
   }
 
   function renderWindow(window) {
-    // 이 계정에는 5시간 한도가 없다 (Anthropic 이 값을 주지 않음)
+    // This account has no 5-hour limit (Anthropic does not provide the value)
     if (window.unlimited) {
       return `
       <div class="glass-soft rounded-xl p-3.5">
         <div class="flex items-baseline justify-between gap-2">
-          <p class="text-xs font-bold text-white/70">${escapeHtml(window.label)} (5시간)</p>
-          <p class="font-mono text-sm font-bold text-emerald-300">제한 없음</p>
+          <p class="text-xs font-bold text-white/70">${t('{label} (5시간)', { label: escapeHtml(window.label) })}</p>
+          <p class="font-mono text-sm font-bold text-emerald-300">${t('제한 없음')}</p>
         </div>
-        <p class="mt-1.5 text-[10px] text-white/40">이 계정은 지금 5시간 한도가 적용되지 않습니다. 주간 한도만 있습니다.</p>
+        <p class="mt-1.5 text-[10px] text-white/40">${t('이 계정은 지금 5시간 한도가 적용되지 않습니다. 주간 한도만 있습니다.')}</p>
       </div>`;
     }
     const color = levelColor(window.remaining_percent);
     const reset = window.resets_at
-      ? `${duration(new Date(window.resets_at) - Date.now())} 후 리셋 · ${new Date(window.resets_at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' })}`
-      : (window.expired ? '리셋됨 — 새 창이 시작되었습니다' : '리셋 시각 정보 없음');
+      ? t('{time} 후 리셋 · {date}', { time: duration(new Date(window.resets_at) - Date.now()), date: new Date(window.resets_at).toLocaleString(t.locale, { month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' }) })
+      : (window.expired ? t('리셋됨 — 새 창이 시작되었습니다') : t('리셋 시각 정보 없음'));
     return `
       <div class="glass-soft rounded-xl p-3.5">
         <div class="flex items-baseline justify-between gap-2">
-          <p class="text-xs font-bold text-white/70">${escapeHtml(window.label)}${window.active ? '<span class="ml-1.5 rounded bg-blue-500/15 px-1.5 py-0.5 text-[9px] text-blue-300">적용 중</span>' : ''}</p>
-          <p class="font-mono text-lg font-bold ${color.text}">${window.remaining_percent.toFixed(0)}<span class="text-xs">% 남음</span></p>
+          <p class="text-xs font-bold text-white/70">${escapeHtml(window.label)}${window.active ? `<span class="ml-1.5 rounded bg-blue-500/15 px-1.5 py-0.5 text-[9px] text-blue-300">${t('적용 중')}</span>` : ''}</p>
+          <p class="font-mono text-lg font-bold ${color.text}">${t('{n}<span class="text-xs">% 남음</span>', { n: window.remaining_percent.toFixed(0) })}</p>
         </div>
         <div class="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/10">
           <div class="h-full rounded-full bg-gradient-to-r ${color.bar} transition-all duration-700" style="width:${window.remaining_percent}%"></div>
         </div>
         <div class="mt-1.5 flex justify-between gap-2 text-[10px] text-white/40">
-          <span>${window.used_percent.toFixed(0)}% 사용</span>
+          <span>${t('{n}% 사용', { n: window.used_percent.toFixed(0) })}</span>
           <span class="truncate text-right">${escapeHtml(reset)}</span>
         </div>
       </div>`;
   }
 
-  const canRelogin = (provider) => (provider.id === 'claude' && !provider.saved) || (provider.id === 'codex' && !provider.account?.startsWith('계정 미확인'));
-  // 저장된(지금 로그인되지 않은) Claude 계정은 한도 카드만: 지금 Claude 카드 바로 뒤에 붙인다
-  // Gemini 도 같다 (지금 Gemini 카드 바로 뒤).
+  // The server names usage records without account info "계정 미확인 (이전 기록)"; it may arrive translated.
+  const unknownAccount = (provider) => provider.unknown === true || /^(계정 미확인|Unknown account)/i.test(provider.account || '');
+  const canRelogin = (provider) => (provider.id === 'claude' && !provider.saved) || (provider.id === 'codex' && !unknownAccount(provider));
+  // Saved (not currently signed-in) Claude accounts get a limit card only: placed right after the current Claude card.
+  // Same for Gemini (right after the current Gemini card).
   function limitCards(providers, savedClaude, savedGemini = []) {
     let cards = [...providers];
     for (const [id, name, accent, list] of [['claude', 'Claude Code', '#d97757', savedClaude], ['gemini', 'Gemini', '#4285f4', savedGemini]]) {
@@ -83,36 +85,36 @@
               <span class="flex h-9 w-9 items-center justify-center rounded-xl text-white" style="background:${provider.accent}"><i class="fas ${{ claude: 'fa-asterisk', gemini: 'fa-gem' }[provider.id] || 'fa-terminal'} text-sm"></i></span>
               <div>
                 <h3 class="font-bold text-white/90">${escapeHtml(provider.name)}</h3>
-                ${provider.account ? `<p class="ai-account text-[11px] font-semibold text-white/60 break-all"><i class="far fa-user text-[9px] mr-1 opacity-70"></i>${escapeHtml(provider.account)}</p>` : '<p class="text-[11px] text-white/35">로그인 계정 정보 없음</p>'}
+                ${provider.account ? `<p class="ai-account text-[11px] font-semibold text-white/60 break-all"><i class="far fa-user text-[9px] mr-1 opacity-70"></i>${escapeHtml(provider.account)}</p>` : `<p class="text-[11px] text-white/35">${t('로그인 계정 정보 없음')}</p>`}
                 <div class="ai-account-actions">
-                  ${provider.id === 'codex' && provider.active !== false ? '<button type="button" class="ai-accounts-btn" data-codex-accounts><i class="fas fa-right-left"></i> 계정 전환 · 추가</button>' : ''}
-                  ${provider.id === 'claude' && !provider.saved ? '<button type="button" class="ai-accounts-btn" data-claude-accounts><i class="fas fa-right-left"></i> 계정 전환 · 추가</button>' : ''}
-                  ${provider.id === 'gemini' && !provider.saved ? '<button type="button" class="ai-accounts-btn" data-gemini-accounts><i class="fas fa-right-left"></i> 계정 전환 · 추가</button>' : ''}
-                  ${provider.saved && !provider.login_expired ? `<button type="button" class="ai-accounts-btn" data-provider="${provider.id}" data-claude-switch="${escapeHtml(provider.accountId)}" data-email="${escapeHtml(provider.account || '')}"><i class="fas fa-right-left"></i> 이 계정으로 바꾸기</button>` : ''}
-                  ${canRelogin(provider) ? `<button type="button" class="ai-accounts-btn" data-relogin="${provider.id}" data-email="${escapeHtml(provider.account || '')}"><i class="fas fa-right-to-bracket"></i> 다시 로그인</button>` : ''}
+                  ${provider.id === 'codex' && provider.active !== false ? `<button type="button" class="ai-accounts-btn" data-codex-accounts><i class="fas fa-right-left"></i> ${t('계정 전환 · 추가')}</button>` : ''}
+                  ${provider.id === 'claude' && !provider.saved ? `<button type="button" class="ai-accounts-btn" data-claude-accounts><i class="fas fa-right-left"></i> ${t('계정 전환 · 추가')}</button>` : ''}
+                  ${provider.id === 'gemini' && !provider.saved ? `<button type="button" class="ai-accounts-btn" data-gemini-accounts><i class="fas fa-right-left"></i> ${t('계정 전환 · 추가')}</button>` : ''}
+                  ${provider.saved && !provider.login_expired ? `<button type="button" class="ai-accounts-btn" data-provider="${provider.id}" data-claude-switch="${escapeHtml(provider.accountId)}" data-email="${escapeHtml(provider.account || '')}"><i class="fas fa-right-left"></i> ${t('이 계정으로 바꾸기')}</button>` : ''}
+                  ${canRelogin(provider) ? `<button type="button" class="ai-accounts-btn" data-relogin="${provider.id}" data-email="${escapeHtml(provider.account || '')}"><i class="fas fa-right-to-bracket"></i> ${t('다시 로그인')}</button>` : ''}
                 </div>
-                ${provider.active ? '<p class="text-[10px] font-bold text-emerald-400">현재 사용 중</p>' : ''}
-                <p class="text-[10px] text-white/40">${limits?.updated_at ? `기준 ${relativeTime(limits.updated_at)}` : '한도 정보 없음'}</p>
+                ${provider.active ? `<p class="text-[10px] font-bold text-emerald-400">${t('현재 사용 중')}</p>` : ''}
+                <p class="text-[10px] text-white/40">${limits?.updated_at ? t('기준 {time}', { time: relativeTime(limits.updated_at) }) : t('한도 정보 없음')}</p>
               </div>
             </div>
             ${limits?.plan ? `<span class="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-bold text-white/60">${escapeHtml(limits.plan)}</span>` : ''}
           </div>
           ${provider.saved && provider.login_expired ? `
             <div class="ai-login-alert">
-              <p><i class="fas fa-triangle-exclamation"></i> 저장된 로그인이 만료됐습니다.</p>
-              <button type="button" class="btn-glow" ${provider.id === 'gemini' ? 'data-gemini-accounts' : 'data-claude-accounts'}>계정 추가로 다시 로그인</button>
+              <p><i class="fas fa-triangle-exclamation"></i> ${t('저장된 로그인이 만료됐습니다.')}</p>
+              <button type="button" class="btn-glow" ${provider.id === 'gemini' ? 'data-gemini-accounts' : 'data-claude-accounts'}>${t('계정 추가로 다시 로그인')}</button>
             </div>` : provider.login_expired ? `
             <div class="ai-login-alert">
-              <p><i class="fas fa-triangle-exclamation"></i> 로그인이 만료됐습니다.</p>
-              <button type="button" class="btn-glow" data-relogin="${provider.id}" data-email="${escapeHtml(provider.account || '')}">다시 로그인</button>
+              <p><i class="fas fa-triangle-exclamation"></i> ${t('로그인이 만료됐습니다.')}</p>
+              <button type="button" class="btn-glow" data-relogin="${provider.id}" data-email="${escapeHtml(provider.account || '')}">${t('다시 로그인')}</button>
             </div>` : ''}
           ${windows.length ? `<div class="space-y-2.5">${windows.map(renderWindow).join('')}</div>` : provider.login_expired ? '' : `
             <div class="rounded-xl border border-dashed border-white/15 p-4 text-center text-xs text-white/40">
-              ${provider.saved ? '이 계정의 한도를 불러오지 못했습니다. 잠시 뒤 새로 고쳐 보십시오.' : provider.id === 'claude' && provider.login_stale && !provider.login_expired ? '한도를 읽지 못했습니다. 로그인 기한이 지났습니다. Claude Code 를 실행하면 대개 자동으로 이어지고, 안 되면 다시 로그인하십시오.' : provider.id === 'claude' ? '사용량 서버가 잠시 조회를 막았습니다 (요청이 몰리면 발생합니다). 잠시 뒤 다시 불러옵니다.' : provider.account?.startsWith('계정 미확인') ? '이전 기록에는 계정 정보가 없어 한도를 연결할 수 없습니다.' : '이 계정의 한도 정보를 불러오지 못했습니다.'}
+              ${provider.saved ? t('이 계정의 한도를 불러오지 못했습니다. 잠시 뒤 새로 고쳐 보십시오.') : provider.id === 'claude' && provider.login_stale && !provider.login_expired ? t('한도를 읽지 못했습니다. 로그인 기한이 지났습니다. Claude Code 를 실행하면 대개 자동으로 이어지고, 안 되면 다시 로그인하십시오.') : provider.id === 'claude' ? t('사용량 서버가 잠시 조회를 막았습니다 (요청이 몰리면 발생합니다). 잠시 뒤 다시 불러옵니다.') : unknownAccount(provider) ? t('이전 기록에는 계정 정보가 없어 한도를 연결할 수 없습니다.') : t('이 계정의 한도 정보를 불러오지 못했습니다.')}
             </div>`}
           ${breakdown.length ? `
             <div class="mt-4 border-t border-white/10 pt-3">
-              <p class="mb-2 text-[10px] font-bold uppercase tracking-wider text-white/40">이번 주 사용처</p>
+              <p class="mb-2 text-[10px] font-bold uppercase tracking-wider text-white/40">${t('이번 주 사용처')}</p>
               <div class="space-y-1.5">${breakdown.map((row) => `
                 <div class="flex items-center gap-2 text-[11px]">
                   <span class="w-20 truncate text-white/60">${escapeHtml(row.name)}</span>
@@ -120,7 +122,7 @@
                   <span class="w-9 text-right font-mono text-white/50">${row.percent.toFixed(0)}%</span>
                 </div>`).join('')}</div>
             </div>` : ''}
-          ${credits ? `<p class="mt-3 text-[10px] text-white/40"><i class="fas fa-coins mr-1"></i>크레딧 ${credits.unlimited ? '무제한' : escapeHtml(credits.balance)}</p>` : ''}
+          ${credits ? `<p class="mt-3 text-[10px] text-white/40"><i class="fas fa-coins mr-1"></i>${t('크레딧 {value}', { value: credits.unlimited ? t('무제한') : escapeHtml(credits.balance) })}</p>` : ''}
         </article>`;
     }).join('');
   }
@@ -134,10 +136,10 @@
       return acc;
     }, { value: 0, weight: 0 });
     const tiles = [
-      { label: '전체 토큰', value: formatNumber(sum('total_tokens')), sub: `오늘 ${formatNumber(sum('today_tokens'))}`, icon: 'fa-coins', color: 'text-blue-400' },
-      { label: '요청 수', value: formatNumber(sum('requests')), sub: `평균 ${formatNumber(sum('requests') ? sum('total_tokens') / sum('requests') : 0)} 토큰/요청`, icon: 'fa-bolt', color: 'text-amber-400' },
-      { label: '세션 수', value: formatNumber(sum('sessions')), sub: `활동일 ${Math.max(...providers.map((p) => p.active_days || 0))}/${state.data.window_days}일`, icon: 'fa-layer-group', color: 'text-purple-400' },
-      { label: '캐시 적중률', value: cacheWeighted.weight ? percent(cacheWeighted.value / cacheWeighted.weight) : '—', sub: '토큰 가중 평균', icon: 'fa-database', color: 'text-emerald-400' },
+      { label: t('전체 토큰'), value: formatNumber(sum('total_tokens')), sub: t('오늘 {n}', { n: formatNumber(sum('today_tokens')) }), icon: 'fa-coins', color: 'text-blue-400' },
+      { label: t('요청 수'), value: formatNumber(sum('requests')), sub: t('평균 {n} 토큰/요청', { n: formatNumber(sum('requests') ? sum('total_tokens') / sum('requests') : 0) }), icon: 'fa-bolt', color: 'text-amber-400' },
+      { label: t('세션 수'), value: formatNumber(sum('sessions')), sub: t('활동일 {active}/{total}일', { active: Math.max(...providers.map((p) => p.active_days || 0)), total: state.data.window_days }), icon: 'fa-layer-group', color: 'text-purple-400' },
+      { label: t('캐시 적중률'), value: cacheWeighted.weight ? percent(cacheWeighted.value / cacheWeighted.weight) : '—', sub: t('토큰 가중 평균'), icon: 'fa-database', color: 'text-emerald-400' },
     ];
     $('aiKpis').innerHTML = tiles.map((tile) => `
       <div class="glass rounded-2xl p-4 shadow-xl">
@@ -149,31 +151,31 @@
 
   function renderCompare(providers) {
     const peakHour = (p) => (p.peak_hour === null || p.peak_hour === undefined ? '—' : `${String(p.peak_hour).padStart(2, '0')}:00`);
-    const peakDay = (p) => (p.peak_day ? `${new Date(`${p.peak_day.date}T00:00:00`).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })} · ${formatNumber(p.peak_day.total_tokens)}` : '—');
+    const peakDay = (p) => (p.peak_day ? `${new Date(`${p.peak_day.date}T00:00:00`).toLocaleDateString(t.locale, { month: 'numeric', day: 'numeric' })} · ${formatNumber(p.peak_day.total_tokens)}` : '—');
     const rows = [
-      ['전체 토큰', (p) => formatNumber(p.total_tokens)],
-      ['오늘', (p) => formatNumber(p.today_tokens)],
-      ['입력', (p) => formatNumber(p.input_tokens)],
-      ['출력', (p) => formatNumber(p.output_tokens)],
-      ['캐시 읽기', (p) => formatNumber(p.cache_read_tokens)],
-      ['캐시 쓰기', (p) => (p.id === 'claude' ? formatNumber(p.cache_write_tokens) : '—')],
-      ['추론 토큰', (p) => (p.id === 'codex' || p.id === 'gemini' ? formatNumber(p.reasoning_tokens) : '—')],
-      ['캐시 적중률', (p) => percent(p.cache_hit_rate)],
-      ['요청 수', (p) => formatNumber(p.requests)],
-      ['세션 수', (p) => formatNumber(p.sessions)],
-      ['평균 토큰 / 요청', (p) => formatNumber(p.avg_tokens_per_request)],
-      ['평균 출력 / 요청', (p) => formatNumber(p.avg_output_per_request)],
-      ['평균 토큰 / 세션', (p) => formatNumber(p.avg_tokens_per_session)],
-      ['활동일', (p) => `${p.active_days}일`],
-      ['최다 사용일', peakDay],
-      ['피크 시간대', peakHour],
-      ['주 사용 모델', (p) => escapeHtml(p.model || '—')],
-      ['마지막 활동', (p) => relativeTime(p.last_activity)],
+      [t('전체 토큰'), (p) => formatNumber(p.total_tokens)],
+      [t('오늘'), (p) => formatNumber(p.today_tokens)],
+      [t('입력'), (p) => formatNumber(p.input_tokens)],
+      [t('출력'), (p) => formatNumber(p.output_tokens)],
+      [t('캐시 읽기'), (p) => formatNumber(p.cache_read_tokens)],
+      [t('캐시 쓰기'), (p) => (p.id === 'claude' ? formatNumber(p.cache_write_tokens) : '—')],
+      [t('추론 토큰'), (p) => (p.id === 'codex' || p.id === 'gemini' ? formatNumber(p.reasoning_tokens) : '—')],
+      [t('캐시 적중률'), (p) => percent(p.cache_hit_rate)],
+      [t('요청 수'), (p) => formatNumber(p.requests)],
+      [t('세션 수'), (p) => formatNumber(p.sessions)],
+      [t('평균 토큰 / 요청'), (p) => formatNumber(p.avg_tokens_per_request)],
+      [t('평균 출력 / 요청'), (p) => formatNumber(p.avg_output_per_request)],
+      [t('평균 토큰 / 세션'), (p) => formatNumber(p.avg_tokens_per_session)],
+      [t('활동일'), (p) => t('{days}일', { days: p.active_days })],
+      [t('최다 사용일'), peakDay],
+      [t('피크 시간대'), peakHour],
+      [t('주 사용 모델'), (p) => escapeHtml(p.model || '—')],
+      [t('마지막 활동'), (p) => relativeTime(p.last_activity)],
     ];
     $('aiCompare').innerHTML = `
       <table class="w-full text-left text-xs">
         <thead><tr class="border-b border-white/10 text-[10px] uppercase tracking-wider text-white/40">
-          <th class="py-2.5 pr-3 font-bold">지표</th>
+          <th class="py-2.5 pr-3 font-bold">${t('지표')}</th>
           ${providers.map((p) => `<th class="py-2.5 px-3 text-right font-bold"><span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full" style="background:${p.accent}"></span>${escapeHtml(providerLabel(p))}</span></th>`).join('')}
         </tr></thead>
         <tbody>${rows.map(([label, fn]) => `
@@ -187,10 +189,10 @@
   function renderComposition(providers) {
     $('aiComposition').innerHTML = providers.map((p) => {
       const parts = p.id === 'gemini'
-        ? [['입력', p.input_tokens, '#60a5fa'], ['출력', p.output_tokens, '#f472b6'], ['캐시 읽기', p.cache_read_tokens, '#34d399']]
+        ? [[t('입력'), p.input_tokens, '#60a5fa'], [t('출력'), p.output_tokens, '#f472b6'], [t('캐시 읽기'), p.cache_read_tokens, '#34d399']]
         : p.id === 'claude'
-        ? [['입력', p.input_tokens, '#60a5fa'], ['출력', p.output_tokens, '#f472b6'], ['캐시 읽기', p.cache_read_tokens, '#34d399'], ['캐시 쓰기', p.cache_write_tokens, '#fbbf24']]
-        : [['입력(비캐시)', Math.max(p.input_tokens - p.cache_read_tokens, 0), '#60a5fa'], ['출력', p.output_tokens, '#f472b6'], ['캐시 입력', p.cache_read_tokens, '#34d399']];
+        ? [[t('입력'), p.input_tokens, '#60a5fa'], [t('출력'), p.output_tokens, '#f472b6'], [t('캐시 읽기'), p.cache_read_tokens, '#34d399'], [t('캐시 쓰기'), p.cache_write_tokens, '#fbbf24']]
+        : [[t('입력(비캐시)'), Math.max(p.input_tokens - p.cache_read_tokens, 0), '#60a5fa'], [t('출력'), p.output_tokens, '#f472b6'], [t('캐시 입력'), p.cache_read_tokens, '#34d399']];
       const total = parts.reduce((sum, part) => sum + part[1], 0) || 1;
       return `
         <div>
@@ -214,9 +216,9 @@
         </div>
         <div class="mt-1 flex items-center gap-2">
           <div class="h-1 flex-1 overflow-hidden rounded-full bg-white/10"><div class="h-full rounded-full" style="width:${(row.total_tokens / max) * 100}%;background:${row.provider.accent}"></div></div>
-          <span class="w-24 text-right text-[10px] text-white/35">${formatNumber(row.requests)}회${row.sessions !== undefined ? ` · ${row.sessions}세션` : ''}</span>
+          <span class="w-24 text-right text-[10px] text-white/35">${row.sessions !== undefined ? t('{requests}회 · {sessions}세션', { requests: formatNumber(row.requests), sessions: row.sessions }) : t('{requests}회', { requests: formatNumber(row.requests) })}</span>
         </div>
-      </div>`).join('') : '<p class="py-6 text-center text-xs text-white/35">기록이 없습니다.</p>';
+      </div>`).join('') : `<p class="py-6 text-center text-xs text-white/35">${t('기록이 없습니다.')}</p>`;
   }
 
   function baseOptions(colors) {
@@ -229,7 +231,7 @@
         tooltip: {
           backgroundColor: colors.tooltipBg, titleColor: colors.tooltipText, bodyColor: colors.tooltipText,
           borderColor: colors.grid, borderWidth: 1,
-          callbacks: { label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.raw).toLocaleString('ko-KR')} tokens` },
+          callbacks: { label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.raw).toLocaleString(t.locale)} tokens` },
         },
       },
       scales: {
@@ -248,7 +250,7 @@
 
   function renderCharts(providers) {
     const colors = chartColors();
-    const labels = providers[0].daily.map((day) => new Date(`${day.date}T00:00:00`).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' }));
+    const labels = providers[0].daily.map((day) => new Date(`${day.date}T00:00:00`).toLocaleDateString(t.locale, { month: 'numeric', day: 'numeric' }));
     upsertChart('daily', 'aiUsageChart', {
       type: 'bar',
       data: {
@@ -265,7 +267,7 @@
     upsertChart('hourly', 'aiHourlyChart', {
       type: 'bar',
       data: {
-        labels: Array.from({ length: 24 }, (_, h) => `${h}시`),
+        labels: Array.from({ length: 24 }, (_, h) => t('{h}시', { h })),
         datasets: providers.map((p) => ({
           label: providerLabel(p), data: p.hourly, backgroundColor: `${p.accent}b3`, borderRadius: 4, maxBarThickness: 18,
         })),
@@ -273,7 +275,8 @@
       options: hourly,
     });
 
-    const weekdayLabels = ['월', '화', '수', '목', '금', '토', '일'];
+    // Monday-first short weekday names in the interface language (2024-01-01 is a Monday; ko-KR gives 월 … 일)
+    const weekdayLabels = Array.from({ length: 7 }, (_, i) => new Date(2024, 0, 1 + i).toLocaleDateString(t.locale, { weekday: 'short' }));
     upsertChart('weekday', 'aiWeekdayChart', {
       type: 'bar',
       data: {
@@ -299,8 +302,8 @@
     renderCharts(providers);
     const withData = providers.filter((p) => p.has_data).length;
     $('aiUsageCaption').textContent = withData
-      ? `${withData}개 기록 그룹 · 최근 ${data.window_days}일 · ${new Date(data.generated_at).toLocaleTimeString('ko-KR')} 집계`
-      : '선택한 기간에 로컬 세션 기록이 없습니다.';
+      ? t('{count}개 기록 그룹 · 최근 {days}일 · {time} 집계', { count: withData, days: data.window_days, time: new Date(data.generated_at).toLocaleTimeString(t.locale) })
+      : t('선택한 기간에 로컬 세션 기록이 없습니다.');
   }
 
   let loadGeneration = 0;
@@ -316,7 +319,7 @@
       render();
     } catch (error) {
       if (generation !== loadGeneration) return;
-      $('aiUsageCaption').textContent = 'AI 사용량 정보를 불러오지 못했습니다.';
+      $('aiUsageCaption').textContent = t('AI 사용량 정보를 불러오지 못했습니다.');
       toast(error.message, 'error');
     } finally {
       if (generation === loadGeneration) {
@@ -339,8 +342,8 @@
     load();
   }
 
-  // ── Codex 계정 여러 개: 전환 · 추가(기기 인증 로그인) · 지우기 ──
-  // 서버는 계정마다 로그인 파일 복사본을 보관하고, 전환하면 ~/.codex/auth.json 을 바꿔 끼운다 (토큰은 브라우저로 오지 않는다).
+  // ── Multiple Codex accounts: switch · add (device-auth login) · remove ──
+  // The server keeps a copy of the login file per account and swaps ~/.codex/auth.json on switch (tokens never reach the browser).
   const ui = () => window.UnivDashUI;
   const planName = (plan) => (plan ? plan.charAt(0).toUpperCase() + plan.slice(1) : '');
   async function codexAccounts() {
@@ -350,52 +353,52 @@
       [data, auto] = await Promise.all([api('/api/accounts/codex'), api('/api/accounts/codex/auto-switch')]);
     } catch (error) { toast(error.message, 'error'); return; }
     ui().actionSheet({
-      title: 'Codex 계정',
-      subtitle: '고르면 그 계정으로 바뀝니다. 새로 여는 Codex 세션부터 적용됩니다.',
+      title: t('Codex 계정'),
+      subtitle: t('고르면 그 계정으로 바뀝니다. 새로 여는 Codex 세션부터 적용됩니다.'),
       actions: [
         ...data.accounts.map((a) => ({
-          icon: 'fa-user', label: a.email, current: a.active, sub: a.active ? '사용 중' : '',
-          desc: [planName(a.plan), a.active ? '지금 로그인된 계정' : `저장 ${relativeTime(new Date(a.saved_at * 1000).toISOString())}`].filter(Boolean).join(' · '),
+          icon: 'fa-user', label: a.email, current: a.active, sub: a.active ? t('사용 중') : '',
+          desc: [planName(a.plan), a.active ? t('지금 로그인된 계정') : t('저장 {time}', { time: relativeTime(new Date(a.saved_at * 1000).toISOString()) })].filter(Boolean).join(' · '),
           onClick: () => { if (!a.active) switchCodex(a); },
           side: logoutSide('codex', 'Codex', a),
         })),
         ...(data.accounts.length ? ['sep'] : []),
         {
-          icon: 'fa-shuffle', label: '사용량이 다 떨어지면 자동 전환', sub: auto.enabled ? '켜짐' : '꺼짐',
-          desc: auto.message || (data.accounts.length < 2 ? '계정이 2개 이상일 때 동작합니다' : '남은 계정으로 바꾸고 멈춘 창을 이어서 진행합니다'),
+          icon: 'fa-shuffle', label: t('사용량이 다 떨어지면 자동 전환'), sub: auto.enabled ? t('켜짐') : t('꺼짐'),
+          desc: auto.message || (data.accounts.length < 2 ? t('계정이 2개 이상일 때 동작합니다') : t('남은 계정으로 바꾸고 멈춘 창을 이어서 진행합니다')),
           onClick: () => toggleAutoSwitch(!auto.enabled),
         },
-        { icon: 'fa-plus', label: '계정 추가', desc: '다른 ChatGPT 계정으로 로그인 (지금 로그인은 그대로)', onClick: () => addCodexAccount() },
-        { icon: 'fa-rotate', label: '모든 Codex 창에 지금 계정 적용', desc: "'다른 계정으로 로그인했다' 토큰 오류가 날 때 · 같은 대화로 다시 켜기", onClick: applyCodexAccount },
+        { icon: 'fa-plus', label: t('계정 추가'), desc: t('다른 ChatGPT 계정으로 로그인 (지금 로그인은 그대로)'), onClick: () => addCodexAccount() },
+        { icon: 'fa-rotate', label: t('모든 Codex 창에 지금 계정 적용'), desc: t("'다른 계정으로 로그인했다' 토큰 오류가 날 때 · 같은 대화로 다시 켜기"), onClick: applyCodexAccount },
       ],
     });
   }
   async function toggleAutoSwitch(enabled) {
     try {
       await api('/api/accounts/codex/auto-switch', { method: 'PUT', body: { enabled } });
-      toast(enabled ? '자동 전환을 켰습니다.' : '자동 전환을 껐습니다.', 'success');
+      toast(enabled ? t('자동 전환을 켰습니다.') : t('자동 전환을 껐습니다.'), 'success');
     } catch (error) { toast(error.message, 'error'); }
   }
 
   async function switchCodex(account) {
     const ok = await ui().confirmSheet({
-      title: 'Codex 계정 바꾸기',
-      message: `${account.email} 로 바꾸시겠습니까?\n모든 Codex 창을 잠깐 껐다가 Codex 를 최신으로 업데이트하고, 새 계정으로 같은 대화를 이어서 다시 켭니다 (공유 데몬도 다시 시작). 작업 중인 Codex 창이 있으면 모두 끝난 뒤 자동으로 진행합니다. 지금 계정은 목록에 남아 언제든 다시 고를 수 있습니다.`,
-      confirmLabel: '바꾸기',
+      title: t('Codex 계정 바꾸기'),
+      message: t('{email} 로 바꾸시겠습니까?\n모든 Codex 창을 잠깐 껐다가 Codex 를 최신으로 업데이트하고, 새 계정으로 같은 대화를 이어서 다시 켭니다 (공유 데몬도 다시 시작). 작업 중인 Codex 창이 있으면 모두 끝난 뒤 자동으로 진행합니다. 지금 계정은 목록에 남아 언제든 다시 고를 수 있습니다.', { email: account.email }),
+      confirmLabel: t('바꾸기'),
     });
     if (!ok) return;
     try {
       const result = await api('/api/accounts/codex/switch', { method: 'POST', body: { id: account.id } });
-      toast(`Codex 계정을 ${account.email} 로 바꿨습니다.`, 'success');
+      toast(t('Codex 계정을 {email} 로 바꿨습니다.', { email: account.email }), 'success');
       ui().codexAccountChanged(result.limits);
       if (result.applied) window.UnivDash.followCodexApply(result.applied);
     } catch (error) { toast(error.message, 'error'); }
   }
   async function applyCodexAccount() {
     const ok = await ui().confirmSheet({
-      title: '모든 Codex 창에 지금 계정 적용',
-      message: "Codex 창을 모두 잠깐 껐다가 Codex 를 최신으로 업데이트하고, 지금 로그인된 계정으로 같은 대화를 이어서 다시 켭니다 (공유 데몬도 다시 시작). 작업 중인 창이 있으면 끝난 뒤 자동으로 진행합니다.\n'다른 계정으로 로그인했다'는 토큰 오류가 날 때 사용하십시오.",
-      confirmLabel: '적용',
+      title: t('모든 Codex 창에 지금 계정 적용'),
+      message: t("Codex 창을 모두 잠깐 껐다가 Codex 를 최신으로 업데이트하고, 지금 로그인된 계정으로 같은 대화를 이어서 다시 켭니다 (공유 데몬도 다시 시작). 작업 중인 창이 있으면 끝난 뒤 자동으로 진행합니다.\n'다른 계정으로 로그인했다'는 토큰 오류가 날 때 사용하십시오."),
+      confirmLabel: t('적용'),
     });
     if (!ok) return;
     try {
@@ -403,44 +406,44 @@
       window.UnivDash.followCodexApply(result);
     } catch (error) { toast(error.message, 'error'); }
   }
-  // ── Claude Code 계정 여러 개: 전환 · 추가 · 지우기 ──
-  // 서버는 계정마다 로그인 토큰 복사본을 보관하고, 전환하면 ~/.claude/.credentials.json 의 로그인만 바꿔 끼운다.
-  // 실행 중인 Claude Code 는 파일이 바뀐 것을 알아채고 새 계정으로 이어진다 (토큰은 브라우저로 오지 않는다).
+  // ── Multiple Claude Code accounts: switch · add · remove ──
+  // The server keeps a copy of the login token per account and swaps only the login in ~/.claude/.credentials.json on switch.
+  // A running Claude Code notices the file change and continues with the new account (tokens never reach the browser).
   async function claudeAccounts() {
     let data;
     try { data = await api('/api/accounts/claude'); } catch (error) { toast(error.message, 'error'); return; }
     const label = (a) => [a.email, a.org && !a.org.includes(a.email || '\u0000') ? a.org : ''].filter(Boolean).join(' · ');
     ui().actionSheet({
-      title: 'Claude Code 계정',
-      subtitle: data.accounts.length ? '고르면 그 계정으로 바뀝니다. 실행 중인 Claude Code 창도 다시 켜지 않고 새 계정으로 이어집니다.' : '계정을 추가하면 여기서 바꿀 수 있습니다.',
+      title: t('Claude Code 계정'),
+      subtitle: data.accounts.length ? t('고르면 그 계정으로 바뀝니다. 실행 중인 Claude Code 창도 다시 켜지 않고 새 계정으로 이어집니다.') : t('계정을 추가하면 여기서 바꿀 수 있습니다.'),
       actions: [
         ...data.accounts.map((a) => ({
-          icon: 'fa-user', label: label(a) || '이름 없는 계정', current: a.active, sub: a.active ? '사용 중' : a.expired ? '만료' : '',
-          desc: [planName(a.plan), a.active ? '지금 로그인된 계정' : a.expired ? '로그인이 만료됐습니다 · 다시 추가하십시오' : `저장 ${relativeTime(new Date(a.saved_at * 1000).toISOString())}`].filter(Boolean).join(' · '),
+          icon: 'fa-user', label: label(a) || t('이름 없는 계정'), current: a.active, sub: a.active ? t('사용 중') : a.expired ? t('만료') : '',
+          desc: [planName(a.plan), a.active ? t('지금 로그인된 계정') : a.expired ? t('로그인이 만료됐습니다 · 다시 추가하십시오') : t('저장 {time}', { time: relativeTime(new Date(a.saved_at * 1000).toISOString()) })].filter(Boolean).join(' · '),
           onClick: () => { if (!a.active) switchClaude(a); },
           side: logoutSide('claude', 'Claude Code', a),
         })),
         ...(data.accounts.length ? ['sep'] : []),
-        { icon: 'fa-plus', label: '계정 추가', desc: '다른 Claude 계정으로 로그인 (지금 로그인은 그대로)', onClick: () => reloginClaude(true) },
+        { icon: 'fa-plus', label: t('계정 추가'), desc: t('다른 Claude 계정으로 로그인 (지금 로그인은 그대로)'), onClick: () => reloginClaude(true) },
       ],
     });
   }
   async function switchClaude(account) {
     const ok = await ui().confirmSheet({
-      title: 'Claude Code 계정 바꾸기',
-      message: `${account.email} 로 바꾸시겠습니까?\n실행 중인 Claude Code 창은 끄지 않습니다. 다음 요청부터 새 계정을 사용합니다. 지금 계정은 최신 로그인을 저장해 두므로 언제든 다시 고를 수 있습니다.`,
-      confirmLabel: '바꾸기',
+      title: t('Claude Code 계정 바꾸기'),
+      message: t('{email} 로 바꾸시겠습니까?\n실행 중인 Claude Code 창은 끄지 않습니다. 다음 요청부터 새 계정을 사용합니다. 지금 계정은 최신 로그인을 저장해 두므로 언제든 다시 고를 수 있습니다.', { email: account.email }),
+      confirmLabel: t('바꾸기'),
     });
     if (!ok) return;
     try {
       const result = await api('/api/accounts/claude/switch', { method: 'POST', body: { id: account.id } });
-      toast(result.changed ? `Claude Code 계정을 ${result.email} 로 바꿨습니다.` : '이미 그 계정입니다.', 'success');
+      toast(result.changed ? t('Claude Code 계정을 {email} 로 바꿨습니다.', { email: result.email }) : t('이미 그 계정입니다.'), 'success');
       refreshAfterLogin();
     } catch (error) { toast(error.message, 'error'); }
   }
-  // kind: 'claude' (Claude Code) · 'gemini' (Antigravity CLI — 계정 추가만 한다)
+  // kind: 'claude' (Claude Code) · 'gemini' (Antigravity CLI — only adds accounts)
   function reloginClaude(add = false, kind = 'claude') {
-    const who = kind === 'gemini' ? 'Gemini' : 'Claude';        // 계정 이름
+    const who = kind === 'gemini' ? 'Gemini' : 'Claude';        // account name
     const product = kind === 'gemini' ? 'Gemini' : 'Claude Code';
     const site = kind === 'gemini' ? 'Google' : 'Claude';
     let login = null;
@@ -450,29 +453,29 @@
     const box = () => body()?.querySelector('.cx-login');
     const endpoint = () => `/api/accounts/${kind}/login/${login.id}`;
     const stop = () => { clearInterval(timer); timer = null; finished = true; };
-    const retryButton = '<button type="button" class="btn-glow" data-claude-retry>다시 시도</button>';
+    const retryButton = `<button type="button" class="btn-glow" data-claude-retry>${t('다시 시도')}</button>`;
     const paint = () => {
       const el = box();
       if (!el || !login) return;
       if (login.state === 'done') {
         el.innerHTML = add && !login.live
-          ? `<p class="cx-done"><i class="fas fa-circle-check"></i> ${escapeHtml(login.email || who)} 계정을 저장했습니다.</p><p class="cx-note">지금 사용 중인 계정은 그대로입니다. 계정 전환에서 선택해 바꿀 수 있습니다.</p>`
-          : `<p class="cx-done"><i class="fas fa-circle-check"></i> ${escapeHtml(login.email || who)} (으)로 로그인했습니다.</p><p class="cx-note">${add ? '지금 사용 중인 계정과 같거나 로그인이 비어 있어, 이 계정이 지금 로그인으로 적용됐습니다.' : `실행 중인 ${product} 창에도 곧 적용됩니다.`}</p>`;
+          ? `<p class="cx-done"><i class="fas fa-circle-check"></i> ${t('{name} 계정을 저장했습니다.', { name: escapeHtml(login.email || who) })}</p><p class="cx-note">${t('지금 사용 중인 계정은 그대로입니다. 계정 전환에서 선택해 바꿀 수 있습니다.')}</p>`
+          : `<p class="cx-done"><i class="fas fa-circle-check"></i> ${t('{name} (으)로 로그인했습니다.', { name: escapeHtml(login.email || who) })}</p><p class="cx-note">${add ? t('지금 사용 중인 계정과 같거나 로그인이 비어 있어, 이 계정이 지금 로그인으로 적용됐습니다.') : t('실행 중인 {product} 창에도 곧 적용됩니다.', { product })}</p>`;
         return;
       }
       if (login.state === 'error' || login.state === 'cancelled') {
-        el.innerHTML = `<p class="cx-error"><i class="fas fa-triangle-exclamation"></i> ${escapeHtml(login.error || '로그인이 취소됐습니다.')}</p>${retryButton}`;
+        el.innerHTML = `<p class="cx-error"><i class="fas fa-triangle-exclamation"></i> ${escapeHtml(login.error || t('로그인이 취소됐습니다.'))}</p>${retryButton}`;
         return;
       }
       if (login.state === 'verifying') {
-        el.innerHTML = '<p class="cx-wait"><i class="fas fa-circle-notch fa-spin"></i> 로그인 확인 중…</p>';
+        el.innerHTML = `<p class="cx-wait"><i class="fas fa-circle-notch fa-spin"></i> ${t('로그인 확인 중…')}</p>`;
         return;
       }
       el.innerHTML = `<ol class="cx-steps">
-          <li><span>이 링크를 열고 ${site} 계정으로 로그인하십시오</span><a href="${escapeHtml(login.url)}" target="_blank" rel="noopener noreferrer" class="cx-link">로그인 페이지 열기 <i class="fas fa-arrow-up-right-from-square"></i></a></li>
-          <li><span>화면에 나온 코드를 복사해 붙여 넣으십시오</span>
-            <form class="cx-code-form" data-claude-code><input type="text" class="input-glass" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" placeholder="코드 붙여넣기" aria-label="로그인 코드" required><button type="submit" class="btn-glow">확인</button></form></li>
-        </ol><p class="cx-note">${add ? '추가할 계정으로 로그인하십시오. 지금 로그인은 바뀌지 않습니다. 로그인하려는 계정이 맞는지 확인하십시오.' : '로그인이 끝나기 전에는 지금 로그인이 그대로 유지됩니다. 다른 계정으로 로그인하면 Claude Code 전체가 그 계정으로 바뀝니다.'}</p>`;
+          <li><span>${t('이 링크를 열고 {site} 계정으로 로그인하십시오', { site })}</span><a href="${escapeHtml(login.url)}" target="_blank" rel="noopener noreferrer" class="cx-link">${t('로그인 페이지 열기')} <i class="fas fa-arrow-up-right-from-square"></i></a></li>
+          <li><span>${t('화면에 나온 코드를 복사해 붙여 넣으십시오')}</span>
+            <form class="cx-code-form" data-claude-code><input type="text" class="input-glass" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" placeholder="${t('코드 붙여넣기')}" aria-label="${t('로그인 코드')}" required><button type="submit" class="btn-glow">${t('확인')}</button></form></li>
+        </ol><p class="cx-note">${add ? t('추가할 계정으로 로그인하십시오. 지금 로그인은 바뀌지 않습니다. 로그인하려는 계정이 맞는지 확인하십시오.') : t('로그인이 끝나기 전에는 지금 로그인이 그대로 유지됩니다. 다른 계정으로 로그인하면 Claude Code 전체가 그 계정으로 바뀝니다.')}</p>`;
     };
     const poll = () => {
       clearInterval(timer);
@@ -482,7 +485,7 @@
           if (['done', 'error', 'cancelled'].includes(login.state)) {
             stop();
             paint();
-            if (login.state === 'done') { toast(add && !login.live ? `${login.email || who} 계정을 저장했습니다.` : `${product} 에 로그인했습니다.`, 'success'); refreshAfterLogin(); }
+            if (login.state === 'done') { toast(add && !login.live ? t('{name} 계정을 저장했습니다.', { name: login.email || who }) : t('{product} 에 로그인했습니다.', { product }), 'success'); refreshAfterLogin(); }
           } else if (login.state === 'verifying') paint();
         } catch (error) { stop(); }
       }, 1500);
@@ -491,7 +494,7 @@
       finished = false;
       login = null;
       const el = box();
-      if (el) el.innerHTML = '<p class="cx-wait"><i class="fas fa-circle-notch fa-spin"></i> 로그인 링크를 받는 중…</p>';
+      if (el) el.innerHTML = `<p class="cx-wait"><i class="fas fa-circle-notch fa-spin"></i> ${t('로그인 링크를 받는 중…')}</p>`;
       api(add ? `/api/accounts/${kind}/add` : '/api/accounts/claude/login', { method: 'POST' }).then((result) => {
         login = result;
         if (!body()) { api(endpoint(), { method: 'DELETE' }).catch(() => {}); return; }
@@ -504,8 +507,8 @@
       });
     };
     ui().infoSheet({
-      title: add ? `${product} 계정 추가` : 'Claude Code 다시 로그인',
-      subtitle: '이 기기(휴대폰 · PC)의 브라우저에서 로그인하고 코드를 붙여 넣으십시오.',
+      title: add ? t('{product} 계정 추가', { product }) : t('Claude Code 다시 로그인'),
+      subtitle: t('이 기기(휴대폰 · PC)의 브라우저에서 로그인하고 코드를 붙여 넣으십시오.'),
       bodyHtml: '<div class="cx-login"></div>',
       onClose: () => { clearInterval(timer); if (login && !finished) api(endpoint(), { method: 'DELETE' }).catch(() => {}); },
     });
@@ -518,7 +521,7 @@
       const input = form.querySelector('input');
       const button = form.querySelector('button');
       const code = input.value.trim();
-      if (!/^[A-Za-z0-9_\-.~#+/=%]{8,2048}$/.test(code)) { toast('코드 형식이 올바르지 않습니다. 복사한 코드를 그대로 붙여 넣어 주십시오.', 'error'); return; }
+      if (!/^[A-Za-z0-9_\-.~#+/=%]{8,2048}$/.test(code)) { toast(t('코드 형식이 올바르지 않습니다. 복사한 코드를 그대로 붙여 넣어 주십시오.'), 'error'); return; }
       button.disabled = true;
       try {
         login = await api(`${endpoint()}/code`, { method: 'POST', body: { code } });
@@ -530,35 +533,35 @@
     });
     start();
   }
-  // ── Gemini (Antigravity CLI) 계정 여러 개: 전환 · 추가 · 삭제 ──
-  // 서버는 계정마다 로그인 토큰 복사본을 보관하고, 전환하면 Antigravity CLI 의 토큰 파일을 바꿔 끼운다 (토큰은 브라우저로 오지 않는다).
-  // 로그아웃: 지금 로그인을 지우고, 서버에 보관한 그 계정의 로그인 정보도 함께 지운다 (Claude · Codex · Gemini 공용)
-  // 계정 줄 오른쪽의 로그아웃 버튼. 지금 로그인된 계정은 로그아웃(확인 한 번), 저장만 해 둔 계정은 저장된 로그인 정보를 바로 삭제한다.
+  // ── Multiple Gemini (Antigravity CLI) accounts: switch · add · delete ──
+  // The server keeps a copy of the login token per account and swaps the Antigravity CLI token file on switch (tokens never reach the browser).
+  // Sign out: removes the current login and also the login info the server kept for that account (shared by Claude · Codex · Gemini)
+  // Sign-out button on the right of an account row. The currently signed-in account is signed out (one confirmation); an account that is only saved has its saved login info deleted right away.
   function logoutSide(kind, product, account) {
     return {
-      icon: 'fa-right-from-bracket', label: '로그아웃',
+      icon: 'fa-right-from-bracket', label: t('로그아웃'),
       onClick: () => (account.active ? logoutAccount(kind, product, account) : forgetAccount(kind, product, account)),
     };
   }
   async function forgetAccount(kind, product, account) {
     try {
       await api(`/api/accounts/${kind}/${account.id}`, { method: 'DELETE' });
-      toast(`${account.email || '선택한 계정'} 의 저장된 ${product} 로그인 정보를 삭제했습니다.`, 'success');
+      toast(t('{account} 의 저장된 {product} 로그인 정보를 삭제했습니다.', { account: account.email || t('선택한 계정'), product }), 'success');
       refreshAfterLogin();
       load();
     } catch (error) { toast(error.message, 'error'); }
   }
   async function logoutAccount(kind, product, account) {
     const ok = await ui().confirmSheet({
-      title: `${product} 로그아웃`,
-      message: `${account.email || '지금 계정'} 에서 로그아웃하고, 이 서버에 저장된 이 계정의 로그인 정보와 백업을 삭제합니다.\n실행 중인 ${product} 창도 더 이상 이 계정을 사용할 수 없으며, 다시 사용하려면 로그인해야 합니다. 저장해 둔 다른 계정은 그대로 남습니다.`,
-      confirmLabel: '로그아웃',
+      title: t('{product} 로그아웃', { product }),
+      message: t('{account} 에서 로그아웃하고, 이 서버에 저장된 이 계정의 로그인 정보와 백업을 삭제합니다.\n실행 중인 {product} 창도 더 이상 이 계정을 사용할 수 없으며, 다시 사용하려면 로그인해야 합니다. 저장해 둔 다른 계정은 그대로 남습니다.', { account: account.email || t('지금 계정'), product }),
+      confirmLabel: t('로그아웃'),
       danger: true,
     });
     if (!ok) return;
     try {
       await api(`/api/accounts/${kind}/logout`, { method: 'POST' });
-      toast(`${product} 계정에서 로그아웃하고 저장된 정보를 삭제했습니다.`, 'success');
+      toast(t('{product} 계정에서 로그아웃하고 저장된 정보를 삭제했습니다.', { product }), 'success');
       refreshAfterLogin();
       load();
     } catch (error) { toast(error.message, 'error'); }
@@ -567,34 +570,38 @@
     let data;
     try { data = await api('/api/accounts/gemini'); } catch (error) { toast(error.message, 'error'); return; }
     ui().actionSheet({
-      title: 'Gemini 계정',
-      subtitle: data.accounts.length ? '선택하면 그 계정으로 바뀝니다. 쉬고 있는 Gemini 창은 같은 대화로 다시 켜집니다.' : '계정을 추가하면 여기에서 바꿀 수 있습니다.',
+      title: t('Gemini 계정'),
+      subtitle: data.accounts.length ? t('선택하면 그 계정으로 바뀝니다. 쉬고 있는 Gemini 창은 같은 대화로 다시 켜집니다.') : t('계정을 추가하면 여기에서 바꿀 수 있습니다.'),
       actions: [
         ...data.accounts.map((a) => ({
-          icon: a.active ? 'fa-circle-check' : 'fa-user', label: a.email || '이름 없는 계정', desc: [a.plan, a.active ? '현재 사용 중' : ''].filter(Boolean).join(' · '), current: a.active,
+          icon: a.active ? 'fa-circle-check' : 'fa-user', label: a.email || t('이름 없는 계정'), desc: [a.plan, a.active ? t('현재 사용 중') : ''].filter(Boolean).join(' · '), current: a.active,
           onClick: () => { if (!a.active) switchGemini(a); },
           side: logoutSide('gemini', 'Gemini', a),
         })),
         ...(data.accounts.length ? ['sep'] : []),
-        { icon: 'fa-plus', label: '계정 추가', desc: '다른 Google 계정으로 로그인 (지금 로그인은 그대로)', onClick: () => reloginClaude(true, 'gemini') },
+        { icon: 'fa-plus', label: t('계정 추가'), desc: t('다른 Google 계정으로 로그인 (지금 로그인은 그대로)'), onClick: () => reloginClaude(true, 'gemini') },
       ],
     });
   }
   async function switchGemini(account) {
     const ok = await ui().confirmSheet({
-      title: 'Gemini 계정 바꾸기',
-      message: `${account.email || '선택한 계정'} (으)로 바꾸시겠습니까?\n쉬고 있는 Gemini 창은 잠깐 껐다가 같은 대화로 다시 켭니다. 작업 중인 창은 그대로 두므로, 끝난 뒤 직접 다시 켜야 새 계정이 적용됩니다.`,
-      confirmLabel: '바꾸기',
+      title: t('Gemini 계정 바꾸기'),
+      message: t('{account} (으)로 바꾸시겠습니까?\n쉬고 있는 Gemini 창은 잠깐 껐다가 같은 대화로 다시 켭니다. 작업 중인 창은 그대로 두므로, 끝난 뒤 직접 다시 켜야 새 계정이 적용됩니다.', { account: account.email || t('선택한 계정') }),
+      confirmLabel: t('바꾸기'),
     });
     if (!ok) return;
     try {
       const result = await api('/api/accounts/gemini/switch', { method: 'POST', body: { id: account.id } });
       const skipped = result.windows?.skipped?.length || 0;
-      toast(result.changed ? `Gemini 계정을 ${result.email || '선택한 계정'} (으)로 바꿨습니다.${skipped ? ` 다시 켜지 못한 창이 ${skipped}개 있습니다.` : ''}` : '이미 그 계정입니다.', skipped ? 'warn' : 'success');
+      const email = result.email || t('선택한 계정');
+      const message = !result.changed ? t('이미 그 계정입니다.')
+        : skipped ? t('Gemini 계정을 {email} (으)로 바꿨습니다. 다시 켜지 못한 창이 {count}개 있습니다.', { email, count: skipped })
+        : t('Gemini 계정을 {email} (으)로 바꿨습니다.', { email });
+      toast(message, skipped ? 'warn' : 'success');
       refreshAfterLogin();
     } catch (error) { toast(error.message, 'error'); }
   }
-  // 로그인이 바뀌면 머리글 게이지와 이 페이지를 새로 읽는다
+  // When the login changes, re-read the header gauge and this page
   function refreshAfterLogin() { ui().codexAccountChanged(); }
   function addCodexAccount(relogin = null) {
     let login = null;
@@ -602,9 +609,9 @@
     let finished = false;
     const body = () => document.getElementById('sheetBody');
     ui().infoSheet({
-      title: relogin === null ? 'Codex 계정 추가' : 'Codex 다시 로그인',
-      subtitle: relogin === null ? '다른 기기(휴대폰 · PC)의 브라우저에서 로그인하면 여기에 추가됩니다.' : `이 기기(휴대폰 · PC)의 브라우저에서 ${relogin || 'ChatGPT 계정'} 으로 로그인하십시오.`,
-      bodyHtml: '<div class="cx-login"><p class="cx-wait"><i class="fas fa-circle-notch fa-spin"></i> 로그인 코드를 받는 중…</p></div>',
+      title: relogin === null ? t('Codex 계정 추가') : t('Codex 다시 로그인'),
+      subtitle: relogin === null ? t('다른 기기(휴대폰 · PC)의 브라우저에서 로그인하면 여기에 추가됩니다.') : t('이 기기(휴대폰 · PC)의 브라우저에서 {account} 으로 로그인하십시오.', { account: relogin || t('ChatGPT 계정') }),
+      bodyHtml: `<div class="cx-login"><p class="cx-wait"><i class="fas fa-circle-notch fa-spin"></i> ${t('로그인 코드를 받는 중…')}</p></div>`,
       onClose: () => { clearInterval(timer); if (login && !finished) api(`/api/accounts/codex/login/${login.id}`, { method: 'DELETE' }).catch(() => {}); },
     });
     const paint = () => {
@@ -612,23 +619,23 @@
       if (!box || !login) return;
       if (login.state === 'done') {
         const message = login.live
-          ? `<p class="cx-done"><i class="fas fa-circle-check"></i> ${escapeHtml(login.email)} 로 다시 로그인했습니다.</p><p class="cx-note">실행 중인 Codex 창은 그대로 두고 새 로그인으로 이어집니다.</p>`
-          : `<p class="cx-done"><i class="fas fa-circle-check"></i> ${escapeHtml(login.email)} 계정을 저장했습니다.</p><p class="cx-note">지금 쓰는 계정과 달라서 바꾸지 않았습니다. 계정 목록에서 골라 바꿀 수 있습니다.</p>`;
+          ? `<p class="cx-done"><i class="fas fa-circle-check"></i> ${t('{email} 로 다시 로그인했습니다.', { email: escapeHtml(login.email) })}</p><p class="cx-note">${t('실행 중인 Codex 창은 그대로 두고 새 로그인으로 이어집니다.')}</p>`
+          : `<p class="cx-done"><i class="fas fa-circle-check"></i> ${t('{name} 계정을 저장했습니다.', { name: escapeHtml(login.email) })}</p><p class="cx-note">${t('지금 쓰는 계정과 달라서 바꾸지 않았습니다. 계정 목록에서 골라 바꿀 수 있습니다.')}</p>`;
         box.innerHTML = message;
         return;
       }
       if (login.state === 'error' || login.state === 'cancelled') {
-        box.innerHTML = `<p class="cx-error"><i class="fas fa-triangle-exclamation"></i> ${escapeHtml(login.error || '로그인이 취소됐습니다.')}</p>`;
+        box.innerHTML = `<p class="cx-error"><i class="fas fa-triangle-exclamation"></i> ${escapeHtml(login.error || t('로그인이 취소됐습니다.'))}</p>`;
         return;
       }
       const minutes = Math.ceil((login.expires_in || 0) / 60);
       box.innerHTML = `<ol class="cx-steps">
-          <li><span>이 링크를 열고, ${relogin === null ? '추가할 ChatGPT 계정' : escapeHtml(relogin || 'ChatGPT 계정')}으로 로그인하십시오</span><a href="${escapeHtml(login.url)}" target="_blank" rel="noopener noreferrer" class="cx-link">${escapeHtml(login.url)} <i class="fas fa-arrow-up-right-from-square"></i></a></li>
-          <li><span>이 코드를 입력하십시오 <small>(${minutes}분 안에)</small></span><button type="button" class="cx-code" data-copy-code title="눌러서 복사">${escapeHtml(login.code)} <i class="far fa-copy"></i></button></li>
-        </ol><p class="cx-wait"><i class="fas fa-circle-notch fa-spin"></i> 로그인을 기다리는 중…</p>
-        <p class="cx-note">다른 사람이 보내 준 코드라면 입력하지 마십시오.</p>`;
+          <li><span>${relogin === null ? t('이 링크를 열고, 추가할 ChatGPT 계정으로 로그인하십시오') : t('이 링크를 열고, {account}으로 로그인하십시오', { account: escapeHtml(relogin || t('ChatGPT 계정')) })}</span><a href="${escapeHtml(login.url)}" target="_blank" rel="noopener noreferrer" class="cx-link">${escapeHtml(login.url)} <i class="fas fa-arrow-up-right-from-square"></i></a></li>
+          <li><span>${t('이 코드를 입력하십시오 <small>({minutes}분 안에)</small>', { minutes })}</span><button type="button" class="cx-code" data-copy-code title="${t('눌러서 복사')}">${escapeHtml(login.code)} <i class="far fa-copy"></i></button></li>
+        </ol><p class="cx-wait"><i class="fas fa-circle-notch fa-spin"></i> ${t('로그인을 기다리는 중…')}</p>
+        <p class="cx-note">${t('다른 사람이 보내 준 코드라면 입력하지 마십시오.')}</p>`;
       box.querySelector('[data-copy-code]').addEventListener('click', async () => {
-        try { await navigator.clipboard.writeText(login.code); toast('코드를 복사했습니다.', 'success'); } catch (e) { toast(login.code, 'info'); }
+        try { await navigator.clipboard.writeText(login.code); toast(t('코드를 복사했습니다.'), 'success'); } catch (e) { toast(login.code, 'info'); }
       });
     };
     api('/api/accounts/codex/login', { method: 'POST' }).then((result) => {
@@ -643,7 +650,7 @@
             finished = true;
             paint();
             if (login.state === 'done') {
-              toast(login.live ? `${login.email} 로 다시 로그인했습니다.` : `${login.email} 계정을 저장했습니다.`, 'success');
+              toast(login.live ? t('{email} 로 다시 로그인했습니다.', { email: login.email }) : t('{name} 계정을 저장했습니다.', { name: login.email }), 'success');
               refreshAfterLogin();
             }
           }
@@ -668,7 +675,7 @@
   });
   window.addEventListener('univdash:codex-account-changed', () => {
     state.data = null;
-    $('aiLimits').innerHTML = '<div class="text-sm text-white/50">계정별 사용량을 불러오는 중…</div>';
+    $('aiLimits').innerHTML = `<div class="text-sm text-white/50">${t('계정별 사용량을 불러오는 중…')}</div>`;
     for (const id of ['aiKpis', 'aiCompare', 'aiComposition', 'aiModels', 'aiProjects']) $(id).innerHTML = '';
     for (const chart of Object.values(state.charts)) chart.destroy();
     state.charts = {};
@@ -682,6 +689,6 @@
   let saved = 7;
   try { saved = Number(localStorage.getItem('univdash-ai-days')) || 7; } catch (e) { /* noop */ }
   setPeriod([1, 7, 30].includes(saved) ? saved : 7);
-  // 60초마다 갱신 (남은 한도 · 리셋까지 남은 시간 포함)
+  // Refresh every 60 seconds (including remaining limits and time until reset)
   setInterval(load, 60000);
 })();

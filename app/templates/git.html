@@ -3,44 +3,44 @@
 {% block content %}
         <div class="git-page flex-1 min-h-0 overflow-y-auto p-4 md:p-6 xl:p-0 xl:overflow-hidden safe-bottom">
         <div class="max-w-[1600px] mx-auto xl:max-w-none xl:h-full">
-            <!-- 넓은 화면: 여백 없이 화면 전체를 채워 앱과 붙어 있게 (확대 · 축소해도 떠 보이지 않게) -->
+            <!-- Wide screens: fill the whole screen with no margin so it sits flush with the app (does not look detached when zooming in or out) -->
             <section id="git-manager" class="glass overflow-hidden rounded-2xl shadow-xl xl:h-full xl:rounded-none xl:shadow-none xl:border-0">
                 <div class="grid grid-cols-[minmax(0,1fr)] xl:h-full xl:grid-cols-[300px_minmax(0,1fr)]">
                     <aside class="glass-soft flex flex-col border-0 border-b border-white/10 p-4 xl:min-h-0 xl:border-b-0 xl:border-r xl:rounded-none">
                         <div class="flex items-center justify-between gap-2">
                             <div class="min-w-0">
                                 <p class="text-xs font-bold uppercase tracking-[0.16em] text-white/60"><i class="fas fa-folder-tree mr-1.5 text-cyan-400"></i>Repositories</p>
-                                <p id="gitRepositoryCount" class="mt-1 text-[10px] text-white/35">검색 중...</p>
+                                <p id="gitRepositoryCount" class="mt-1 text-[10px] text-white/35">{{ t("검색 중...") }}</p>
                             </div>
                             <div class="flex items-center gap-1">
-                                <button id="gitNewFolder" type="button" class="git-icon-btn" title="새 폴더" aria-label="새 폴더"><i class="fas fa-folder-plus text-xs"></i></button>
-                                <button id="gitToggleHidden" type="button" class="git-icon-btn" title="숨긴 저장소 보기" aria-label="숨긴 저장소 보기" aria-pressed="false"><i class="fas fa-eye-slash text-xs"></i></button>
-                                <button id="gitRefreshRepositories" type="button" class="git-icon-btn" title="저장소 목록 새로고침" aria-label="저장소 목록 새로고침"><i class="fas fa-rotate text-xs"></i></button>
+                                <button id="gitNewFolder" type="button" class="git-icon-btn" title="{{ t('새 폴더') }}" aria-label="{{ t('새 폴더') }}"><i class="fas fa-folder-plus text-xs"></i></button>
+                                <button id="gitToggleHidden" type="button" class="git-icon-btn" title="{{ t('숨긴 저장소 보기') }}" aria-label="{{ t('숨긴 저장소 보기') }}" aria-pressed="false"><i class="fas fa-eye-slash text-xs"></i></button>
+                                <button id="gitRefreshRepositories" type="button" class="git-icon-btn" title="{{ t('저장소 목록 새로고침') }}" aria-label="{{ t('저장소 목록 새로고침') }}"><i class="fas fa-rotate text-xs"></i></button>
                             </div>
                         </div>
                         <label class="relative mt-4 block">
-                            <span class="sr-only">저장소 검색</span>
-                            <input id="gitRepositorySearch" type="search" placeholder="저장소 이름 · 경로 · 브랜치 검색" class="w-full glass-input rounded-xl px-3 py-2 pr-8 text-xs text-white placeholder-white/30">
+                            <span class="sr-only">{{ t("저장소 검색") }}</span>
+                            <input id="gitRepositorySearch" type="search" placeholder="{{ t('저장소 이름 · 경로 · 브랜치 검색') }}" class="w-full glass-input rounded-xl px-3 py-2 pr-8 text-xs text-white placeholder-white/30">
                             <i class="fas fa-search pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-white/30"></i>
                         </label>
-                        <div class="mt-2 flex gap-1 text-[10px] font-bold" role="group" aria-label="저장소 필터">
-                            <button type="button" data-git-filter="all" class="git-filter rounded-lg px-2 py-1 bg-white/10 text-white">전체</button>
-                            <button type="button" data-git-filter="dirty" class="git-filter rounded-lg px-2 py-1 text-white/50 hover:bg-white/5">변경 있음</button>
-                            <button type="button" data-git-filter="sync" class="git-filter rounded-lg px-2 py-1 text-white/50 hover:bg-white/5">동기화 필요</button>
-                            <button type="button" id="gitSortBtn" class="ml-auto flex items-center gap-1 rounded-lg px-2 py-1 text-white/50 hover:bg-white/5 hover:text-white" aria-label="정렬 기준"><i class="fas fa-arrow-down-wide-short"></i><span id="gitSortLabel">변경사항 우선</span></button>
+                        <div class="mt-2 flex gap-1 text-[10px] font-bold" role="group" aria-label="{{ t('저장소 필터') }}">
+                            <button type="button" data-git-filter="all" class="git-filter rounded-lg px-2 py-1 bg-white/10 text-white">{{ t("전체") }}</button>
+                            <button type="button" data-git-filter="dirty" class="git-filter rounded-lg px-2 py-1 text-white/50 hover:bg-white/5">{{ t("변경 있음") }}</button>
+                            <button type="button" data-git-filter="sync" class="git-filter rounded-lg px-2 py-1 text-white/50 hover:bg-white/5">{{ t("동기화 필요") }}</button>
+                            <button type="button" id="gitSortBtn" class="ml-auto flex items-center gap-1 rounded-lg px-2 py-1 text-white/50 hover:bg-white/5 hover:text-white" aria-label="{{ t('정렬 기준') }}"><i class="fas fa-arrow-down-wide-short"></i><span id="gitSortLabel">{{ t("변경사항 우선") }}</span></button>
                         </div>
                         <div id="gitRepositoryList" class="mt-3 flex-1 min-h-0 space-y-1 overflow-y-auto pr-1 max-h-72 xl:max-h-none">
-                            <div class="rounded-xl border border-white/10 px-3 py-4 text-center text-xs text-white/35">저장소를 찾고 있습니다.</div>
+                            <div class="rounded-xl border border-white/10 px-3 py-4 text-center text-xs text-white/35">{{ t("저장소를 찾고 있습니다.") }}</div>
                         </div>
-                        <p class="mt-3 text-[10px] leading-4 text-white/35"><i class="fas fa-circle-info mr-1"></i>끌어다 놓아 순서를 바꾸거나 폴더로 옮길 수 있습니다. <span class="font-mono">⋯</span> 메뉴에서 숨기기 · 이름 변경 · 즐겨찾기를 설정하십시오.</p>
+                        <p class="mt-3 text-[10px] leading-4 text-white/35"><i class="fas fa-circle-info mr-1"></i>{{ t('끌어다 놓아 순서를 바꾸거나 폴더로 옮길 수 있습니다. <span class="font-mono">⋯</span> 메뉴에서 숨기기 · 이름 변경 · 즐겨찾기를 설정하십시오.')|safe }}</p>
                     </aside>
 
                     <div class="min-w-0 p-4 sm:p-6 xl:min-h-0 xl:overflow-y-auto">
                         <div id="gitEmptyState" class="flex min-h-[560px] items-center justify-center text-center">
                             <div>
                                 <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl glass-strong text-xl text-cyan-400"><i class="fas fa-code-branch"></i></div>
-                                <p id="gitEmptyMessage" class="mt-4 text-sm font-bold text-white/70">저장소를 선택하십시오.</p>
-                                <p class="mt-1 text-xs text-white/35">왼쪽 목록에서 관리할 Git 저장소를 고르십시오.</p>
+                                <p id="gitEmptyMessage" class="mt-4 text-sm font-bold text-white/70">{{ t("저장소를 선택하십시오.") }}</p>
+                                <p class="mt-1 text-xs text-white/35">{{ t("왼쪽 목록에서 관리할 Git 저장소를 고르십시오.") }}</p>
                             </div>
                         </div>
 
@@ -56,7 +56,7 @@
                                     <p id="gitRepositoryRemote" class="mt-0.5 truncate font-mono text-[10px] text-white/35"></p>
                                 </div>
                                 <div class="flex flex-shrink-0 flex-wrap items-center gap-2">
-                                    <label class="mr-1 flex cursor-pointer items-center gap-2 text-[10px] font-bold text-white/50" title="Pull 할 때 merge 대신 rebase">
+                                    <label class="mr-1 flex cursor-pointer items-center gap-2 text-[10px] font-bold text-white/50" title="{{ t('Pull 할 때 merge 대신 rebase') }}">
                                         <input id="gitRebase" type="checkbox" class="h-3.5 w-3.5 rounded accent-violet-500">
                                         Pull rebase
                                     </label>
@@ -64,12 +64,12 @@
                                     <button data-git-action="pull" type="button" class="git-action rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 px-3 py-2 text-xs font-bold text-white shadow-lg shadow-violet-900/30 hover:from-violet-500 hover:to-purple-500 transition"><i class="fas fa-arrow-down mr-1"></i>Pull<span id="gitPullCount" class="ml-1"></span></button>
                                     <button data-git-action="push" type="button" class="git-action rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 px-3 py-2 text-xs font-bold text-white shadow-lg shadow-cyan-900/30 hover:from-cyan-500 hover:to-blue-500 transition"><i class="fas fa-arrow-up mr-1"></i>Push<span id="gitPushCount" class="ml-1"></span></button>
                                     <div class="relative">
-                                        <button id="gitMoreButton" type="button" class="git-action glass-soft rounded-xl px-3 py-2 text-xs font-bold text-white/70 hover:bg-white/10 transition" aria-haspopup="menu" aria-expanded="false" aria-label="추가 작업"><i class="fas fa-ellipsis"></i></button>
+                                        <button id="gitMoreButton" type="button" class="git-action glass-soft rounded-xl px-3 py-2 text-xs font-bold text-white/70 hover:bg-white/10 transition" aria-haspopup="menu" aria-expanded="false" aria-label="{{ t('추가 작업') }}"><i class="fas fa-ellipsis"></i></button>
                                         <div id="gitMoreMenu" class="git-menu hidden right-0 top-full mt-1 w-56" role="menu">
-                                            <button type="button" data-git-more="stash" role="menuitem"><i class="fas fa-box-archive"></i>변경사항 스태시</button>
-                                            <button type="button" data-git-more="undo_commit" role="menuitem"><i class="fas fa-rotate-left"></i>마지막 커밋 취소 (soft)</button>
-                                            <button type="button" data-git-more="force_push" role="menuitem"><i class="fas fa-triangle-exclamation"></i>강제 푸시 (lease)</button>
-                                            <button type="button" data-git-more="refresh" role="menuitem"><i class="fas fa-rotate"></i>상태 새로고침</button>
+                                            <button type="button" data-git-more="stash" role="menuitem"><i class="fas fa-box-archive"></i>{{ t("변경사항 스태시") }}</button>
+                                            <button type="button" data-git-more="undo_commit" role="menuitem"><i class="fas fa-rotate-left"></i>{{ t("마지막 커밋 취소 (soft)") }}</button>
+                                            <button type="button" data-git-more="force_push" role="menuitem"><i class="fas fa-triangle-exclamation"></i>{{ t("강제 푸시 (lease)") }}</button>
+                                            <button type="button" data-git-more="refresh" role="menuitem"><i class="fas fa-rotate"></i>{{ t("상태 새로고침") }}</button>
                                         </div>
                                     </div>
                                 </div>
@@ -77,19 +77,19 @@
 
                             <div id="gitOperationBanner" class="hidden mt-4 flex flex-col gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 sm:flex-row sm:items-center sm:justify-between">
                                 <p class="text-xs text-amber-300"><i class="fas fa-code-merge mr-1.5"></i><span id="gitOperationText"></span></p>
-                                <button id="gitAbortOperation" type="button" class="self-start rounded-lg border border-amber-500/30 px-3 py-1.5 text-[11px] font-bold text-amber-300 hover:bg-amber-500/10 sm:self-auto">작업 중단</button>
+                                <button id="gitAbortOperation" type="button" class="self-start rounded-lg border border-amber-500/30 px-3 py-1.5 text-[11px] font-bold text-amber-300 hover:bg-amber-500/10 sm:self-auto">{{ t("작업 중단") }}</button>
                             </div>
-                            <div id="gitUserWarning" class="hidden mt-4 rounded-xl border border-red-500/25 bg-red-500/10 p-3 text-xs text-red-300"><i class="fas fa-user-slash mr-1.5"></i>이 저장소에 커밋 작성자(<span class="font-mono">user.name</span> / <span class="font-mono">user.email</span>)가 설정되어 있지 않아 커밋이 실패할 수 있습니다.</div>
+                            <div id="gitUserWarning" class="hidden mt-4 rounded-xl border border-red-500/25 bg-red-500/10 p-3 text-xs text-red-300"><i class="fas fa-user-slash mr-1.5"></i>{{ t('이 저장소에 커밋 작성자(<span class="font-mono">user.name</span> / <span class="font-mono">user.email</span>)가 설정되어 있지 않아 커밋이 실패할 수 있습니다.')|safe }}</div>
 
                             <div class="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl glass-soft px-3 py-2.5">
-                                <label class="flex cursor-pointer items-center gap-2 text-xs font-bold text-white/70" title="fast-forward 만 합니다. 머지 커밋을 만들지 않고 로컬 변경을 건드리지 않습니다.">
+                                <label class="flex cursor-pointer items-center gap-2 text-xs font-bold text-white/70" title="{{ t('fast-forward 만 합니다. 머지 커밋을 만들지 않고 로컬 변경을 건드리지 않습니다.') }}">
                                     <input id="gitAutoPullEnabled" type="checkbox" class="h-3.5 w-3.5 rounded accent-violet-500">
-                                    <i class="fas fa-rotate text-[10px] text-violet-300"></i>자동 Pull
+                                    <i class="fas fa-rotate text-[10px] text-violet-300"></i>{{ t("자동 Pull") }}
                                 </label>
                                 <label class="flex items-center gap-1.5 text-[11px] text-white/50">
-                                    주기
+                                    {{ t("주기") }}
                                     <input id="gitAutoPullInterval" type="number" min="1" max="10080" step="1" inputmode="numeric" value="15" class="w-16 glass-input rounded-lg px-2 py-1 text-xs text-white">
-                                    분
+                                    {{ t("분") }}
                                 </label>
                                 <p id="gitAutoPullStatus" class="min-w-0 basis-full text-[11px] leading-4 text-white/40 sm:basis-0 sm:flex-1"></p>
                             </div>
@@ -101,54 +101,54 @@
                                 <article class="glass-soft rounded-xl p-4"><p class="text-[9px] font-bold uppercase tracking-wider text-white/35">Recent commit</p><p id="gitRecentCommit" class="mt-2 truncate font-mono text-xs font-bold text-white/70">—</p><p id="gitRecentCommitMeta" class="mt-1 truncate text-[10px] text-white/35">—</p></article>
                             </div>
 
-                            <div class="mt-5 flex gap-1 overflow-x-auto border-b border-white/10" role="tablist" aria-label="Git 저장소 정보">
-                                <button data-git-tab="changes" class="git-tab border-b-2 border-transparent px-4 py-3 text-xs font-bold text-white/40 whitespace-nowrap" role="tab">변경사항 <span id="gitChangesCount" class="ml-1 rounded bg-white/10 px-1.5 py-0.5 text-[9px]">0</span></button>
-                                <button data-git-tab="commits" class="git-tab border-b-2 border-transparent px-4 py-3 text-xs font-bold text-white/40 whitespace-nowrap" role="tab">커밋 로그</button>
-                                <button data-git-tab="branches" class="git-tab border-b-2 border-transparent px-4 py-3 text-xs font-bold text-white/40 whitespace-nowrap" role="tab">브랜치 · 병합</button>
-                                <button data-git-tab="stashes" class="git-tab border-b-2 border-transparent px-4 py-3 text-xs font-bold text-white/40 whitespace-nowrap" role="tab">스태시 <span id="gitStashCount" class="ml-1 rounded bg-white/10 px-1.5 py-0.5 text-[9px]">0</span></button>
-                                <button data-git-tab="console" class="git-tab border-b-2 border-transparent px-4 py-3 text-xs font-bold text-white/40 whitespace-nowrap" role="tab">콘솔 <span id="gitConsoleDot" class="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-white/20"></span></button>
+                            <div class="mt-5 flex gap-1 overflow-x-auto border-b border-white/10" role="tablist" aria-label="{{ t('Git 저장소 정보') }}">
+                                <button data-git-tab="changes" class="git-tab border-b-2 border-transparent px-4 py-3 text-xs font-bold text-white/40 whitespace-nowrap" role="tab">{{ t("변경사항") }} <span id="gitChangesCount" class="ml-1 rounded bg-white/10 px-1.5 py-0.5 text-[9px]">0</span></button>
+                                <button data-git-tab="commits" class="git-tab border-b-2 border-transparent px-4 py-3 text-xs font-bold text-white/40 whitespace-nowrap" role="tab">{{ t("커밋 로그") }}</button>
+                                <button data-git-tab="branches" class="git-tab border-b-2 border-transparent px-4 py-3 text-xs font-bold text-white/40 whitespace-nowrap" role="tab">{{ t("브랜치 · 병합") }}</button>
+                                <button data-git-tab="stashes" class="git-tab border-b-2 border-transparent px-4 py-3 text-xs font-bold text-white/40 whitespace-nowrap" role="tab">{{ t("스태시") }} <span id="gitStashCount" class="ml-1 rounded bg-white/10 px-1.5 py-0.5 text-[9px]">0</span></button>
+                                <button data-git-tab="console" class="git-tab border-b-2 border-transparent px-4 py-3 text-xs font-bold text-white/40 whitespace-nowrap" role="tab">{{ t("콘솔") }} <span id="gitConsoleDot" class="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-white/20"></span></button>
                             </div>
 
                             <div id="gitPanel-changes" class="git-panel pt-4">
                                 <div class="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
                                     <div class="min-w-0 space-y-4">
                                         <div class="glass-soft rounded-xl p-3">
-                                            <label for="gitCommitMessage" class="sr-only">커밋 메시지</label>
-                                            <textarea id="gitCommitMessage" rows="3" maxlength="10000" placeholder="커밋 메시지 (첫 줄은 요약, Ctrl+Enter 로 커밋)" class="w-full resize-y glass-input rounded-lg px-3 py-2 text-xs text-white placeholder-white/30"></textarea>
+                                            <label for="gitCommitMessage" class="sr-only">{{ t("커밋 메시지") }}</label>
+                                            <textarea id="gitCommitMessage" rows="3" maxlength="10000" placeholder="{{ t('커밋 메시지 (첫 줄은 요약, Ctrl+Enter 로 커밋)') }}" class="w-full resize-y glass-input rounded-lg px-3 py-2 text-xs text-white placeholder-white/30"></textarea>
                                             <div class="mt-1 flex items-center justify-between text-[10px] text-white/35">
-                                                <span id="gitCommitSummaryLength">요약 0/72</span>
+                                                <span id="gitCommitSummaryLength">{{ t("요약 {length}/72", length=0) }}</span>
                                                 <span id="gitCommitHint"></span>
                                             </div>
                                             <div class="mt-2 flex items-center gap-1.5">
-                                                <button id="gitAiMessage" type="button" class="git-ai-btn" title="변경 내용을 보고 AI 가 커밋 메시지를 씁니다"><i class="fas fa-wand-magic-sparkles"></i><span>AI로 작성</span></button>
-                                                <button id="gitAiSettings" type="button" class="git-ai-gear" title="AI 설정 (OpenAI 호환 API 주소 · 토큰 · 모델)" aria-label="AI 설정"><i class="fas fa-gear"></i></button>
+                                                <button id="gitAiMessage" type="button" class="git-ai-btn" title="{{ t('변경 내용을 보고 AI 가 커밋 메시지를 씁니다') }}"><i class="fas fa-wand-magic-sparkles"></i><span>{{ t("AI로 작성") }}</span></button>
+                                                <button id="gitAiSettings" type="button" class="git-ai-gear" title="{{ t('AI 설정 (OpenAI 호환 API 주소 · 토큰 · 모델)') }}" aria-label="{{ t('AI 설정') }}"><i class="fas fa-gear"></i></button>
                                             </div>
                                             <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-bold text-white/50">
-                                                <label class="flex cursor-pointer items-center gap-1.5"><input id="gitCommitAmend" type="checkbox" class="h-3.5 w-3.5 accent-violet-500">마지막 커밋 수정 (amend)</label>
-                                                <label class="flex cursor-pointer items-center gap-1.5"><input id="gitCommitStageAll" type="checkbox" checked class="h-3.5 w-3.5 accent-violet-500">모든 변경 포함</label>
+                                                <label class="flex cursor-pointer items-center gap-1.5"><input id="gitCommitAmend" type="checkbox" class="h-3.5 w-3.5 accent-violet-500">{{ t("마지막 커밋 수정 (amend)") }}</label>
+                                                <label class="flex cursor-pointer items-center gap-1.5"><input id="gitCommitStageAll" type="checkbox" checked class="h-3.5 w-3.5 accent-violet-500">{{ t("모든 변경 포함") }}</label>
                                             </div>
                                             <div class="mt-3 grid grid-cols-2 gap-2">
-                                                <button id="gitCommitButton" type="button" class="git-action btn-glow rounded-lg py-2 text-xs font-bold"><i class="fas fa-check mr-1"></i>커밋</button>
-                                                <button id="gitCommitPushButton" type="button" class="git-action glass-soft rounded-lg py-2 text-xs font-bold text-white/70 hover:bg-white/10"><i class="fas fa-cloud-arrow-up mr-1"></i>커밋 & 푸시</button>
+                                                <button id="gitCommitButton" type="button" class="git-action btn-glow rounded-lg py-2 text-xs font-bold"><i class="fas fa-check mr-1"></i>{{ t("커밋") }}</button>
+                                                <button id="gitCommitPushButton" type="button" class="git-action glass-soft rounded-lg py-2 text-xs font-bold text-white/70 hover:bg-white/10"><i class="fas fa-cloud-arrow-up mr-1"></i>{{ t("커밋 & 푸시") }}</button>
                                             </div>
-                                            <button id="gitRuffButton" type="button" class="git-action mt-2 w-full rounded-lg py-2 text-xs font-bold text-amber-200 border border-amber-400/30 bg-amber-500/10 hover:bg-amber-500/20 transition" title="저장소 최상위 폴더에서 ruff format . 실행 (커밋 전에 코드 정리)"><i class="fas fa-wand-magic-sparkles mr-1"></i>ruff format .</button>
-                                            <button id="gitAllInOneButton" type="button" class="git-action mt-2 w-full rounded-lg py-2.5 text-xs font-bold text-white bg-gradient-to-r from-violet-600 to-blue-600 hover:brightness-110 transition" title="ruff format → AI 커밋 메시지 → 커밋 → 푸시"><i class="fas fa-rocket mr-1"></i><span>ruff format · AI 커밋 · 푸시</span></button>
+                                            <button id="gitRuffButton" type="button" class="git-action mt-2 w-full rounded-lg py-2 text-xs font-bold text-amber-200 border border-amber-400/30 bg-amber-500/10 hover:bg-amber-500/20 transition" title="{{ t('저장소 최상위 폴더에서 ruff format . 실행 (커밋 전에 코드 정리)') }}"><i class="fas fa-wand-magic-sparkles mr-1"></i>ruff format .</button>
+                                            <button id="gitAllInOneButton" type="button" class="git-action mt-2 w-full rounded-lg py-2.5 text-xs font-bold text-white bg-gradient-to-r from-violet-600 to-blue-600 hover:brightness-110 transition" title="{{ t('ruff format → AI 커밋 메시지 → 커밋 → 푸시') }}"><i class="fas fa-rocket mr-1"></i><span>{{ t("ruff format · AI 커밋 · 푸시") }}</span></button>
                                             <p id="gitRuffResult" class="hidden mt-1.5 rounded-lg bg-black/25 px-2.5 py-1.5 font-mono text-[11px] text-white/70"></p>
                                         </div>
 
                                         <div>
                                             <div class="mb-1.5 flex items-center justify-between">
-                                                <p class="text-[10px] font-bold uppercase tracking-wider text-emerald-400">스테이징됨 <span id="gitStagedCount" class="text-white/40">0</span></p>
-                                                <button id="gitUnstageAll" type="button" class="git-action text-[10px] font-bold text-white/40 hover:text-white" title="모두 스테이징 취소"><i class="fas fa-minus mr-1"></i>모두 내리기</button>
+                                                <p class="text-[10px] font-bold uppercase tracking-wider text-emerald-400">{{ t("스테이징됨") }} <span id="gitStagedCount" class="text-white/40">0</span></p>
+                                                <button id="gitUnstageAll" type="button" class="git-action text-[10px] font-bold text-white/40 hover:text-white" title="{{ t('모두 스테이징 취소') }}"><i class="fas fa-minus mr-1"></i>{{ t("모두 내리기") }}</button>
                                             </div>
                                             <div id="gitStagedList" class="max-h-64 overflow-y-auto rounded-xl border border-white/10"></div>
                                         </div>
                                         <div>
                                             <div class="mb-1.5 flex items-center justify-between gap-2">
-                                                <p class="text-[10px] font-bold uppercase tracking-wider text-amber-400">변경사항 <span id="gitUnstagedCount" class="text-white/40">0</span></p>
+                                                <p class="text-[10px] font-bold uppercase tracking-wider text-amber-400">{{ t("변경사항") }} <span id="gitUnstagedCount" class="text-white/40">0</span></p>
                                                 <div class="flex items-center gap-3">
-                                                    <button id="gitDiscardAll" type="button" class="git-action text-[10px] font-bold text-white/40 hover:text-red-300" title="모든 변경 되돌리기"><i class="fas fa-rotate-left mr-1"></i>모두 되돌리기</button>
-                                                    <button id="gitStageAll" type="button" class="git-action text-[10px] font-bold text-white/40 hover:text-white" title="모두 스테이징"><i class="fas fa-plus mr-1"></i>모두 올리기</button>
+                                                    <button id="gitDiscardAll" type="button" class="git-action text-[10px] font-bold text-white/40 hover:text-red-300" title="{{ t('모든 변경 되돌리기') }}"><i class="fas fa-rotate-left mr-1"></i>{{ t("모두 되돌리기") }}</button>
+                                                    <button id="gitStageAll" type="button" class="git-action text-[10px] font-bold text-white/40 hover:text-white" title="{{ t('모두 스테이징') }}"><i class="fas fa-plus mr-1"></i>{{ t("모두 올리기") }}</button>
                                                 </div>
                                             </div>
                                             <div id="gitUnstagedList" class="max-h-80 overflow-y-auto rounded-xl border border-white/10"></div>
@@ -156,7 +156,7 @@
                                     </div>
                                     <div class="terminal flex min-h-[420px] xl:min-h-[calc(100vh-330px)] min-w-0 flex-col overflow-hidden rounded-xl border">
                                         <div class="terminal-head flex items-center justify-between gap-2 border-b px-4 py-2">
-                                            <span id="gitDiffTitle" class="truncate font-mono text-[10px]">파일을 선택하면 변경 내용이 표시됩니다.</span>
+                                            <span id="gitDiffTitle" class="truncate font-mono text-[10px]">{{ t("파일을 선택하면 변경 내용이 표시됩니다.") }}</span>
                                             <span id="gitDiffStats" class="flex-shrink-0 font-mono text-[10px]"></span>
                                         </div>
                                         <div id="gitDiffView" class="git-diff flex-1 overflow-auto p-0 font-mono text-[11px] leading-5 max-h-[640px] xl:max-h-[calc(100vh-330px)]"></div>
@@ -171,49 +171,49 @@
                             <div id="gitPanel-branches" class="git-panel hidden pt-4 space-y-5">
                                 <div class="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-2">
                                     <form id="gitCreateBranchForm" class="glass-soft rounded-xl p-4">
-                                        <p class="text-xs font-bold text-white/70"><i class="fas fa-code-branch mr-1.5 text-cyan-400"></i>새 브랜치</p>
+                                        <p class="text-xs font-bold text-white/70"><i class="fas fa-code-branch mr-1.5 text-cyan-400"></i>{{ t("새 브랜치") }}</p>
                                         <div class="mt-3 flex flex-col gap-2 sm:flex-row">
                                             <input id="gitNewBranchName" type="text" required maxlength="200" placeholder="feature/my-branch" autocomplete="off" spellcheck="false" class="min-w-0 flex-1 glass-input rounded-lg px-3 py-2 font-mono text-xs text-white placeholder-white/30">
-                                            <select id="gitNewBranchStart" class="glass-input rounded-lg px-2 py-2 text-xs text-white/80" aria-label="시작 지점"></select>
+                                            <select id="gitNewBranchStart" class="glass-input rounded-lg px-2 py-2 text-xs text-white/80" aria-label="{{ t('시작 지점') }}"></select>
                                         </div>
                                         <div class="mt-2 flex items-center justify-between">
-                                            <label class="flex cursor-pointer items-center gap-1.5 text-[10px] font-bold text-white/50"><input id="gitNewBranchSwitch" type="checkbox" checked class="h-3.5 w-3.5 accent-cyan-500">생성 후 전환</label>
-                                            <button type="submit" class="git-action rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-3 py-1.5 text-xs font-bold text-white">생성</button>
+                                            <label class="flex cursor-pointer items-center gap-1.5 text-[10px] font-bold text-white/50"><input id="gitNewBranchSwitch" type="checkbox" checked class="h-3.5 w-3.5 accent-cyan-500">{{ t("생성 후 전환") }}</label>
+                                            <button type="submit" class="git-action rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-3 py-1.5 text-xs font-bold text-white">{{ t("생성") }}</button>
                                         </div>
                                     </form>
                                     <div class="glass-soft rounded-xl p-4">
-                                        <p class="text-xs font-bold text-white/70"><i class="fas fa-code-merge mr-1.5 text-violet-300"></i>병합 방식</p>
-                                        <p class="mt-1 text-[10px] text-white/40">아래 목록의 <b>병합</b> 버튼은 선택한 브랜치를 현재 브랜치(<span id="gitMergeTarget" class="font-mono text-cyan-400">—</span>)로 병합합니다.</p>
-                                        <div class="mt-3 flex flex-wrap gap-3 text-[11px] font-bold text-white/60" role="radiogroup" aria-label="병합 방식">
-                                            <label class="flex cursor-pointer items-center gap-1.5"><input type="radio" name="gitMergeMode" value="default" checked class="accent-violet-500">기본 (fast-forward 허용)</label>
-                                            <label class="flex cursor-pointer items-center gap-1.5"><input type="radio" name="gitMergeMode" value="no_ff" class="accent-violet-500">--no-ff (병합 커밋)</label>
+                                        <p class="text-xs font-bold text-white/70"><i class="fas fa-code-merge mr-1.5 text-violet-300"></i>{{ t("병합 방식") }}</p>
+                                        <p class="mt-1 text-[10px] text-white/40">{{ t('아래 목록의 <b>병합</b> 버튼은 선택한 브랜치를 현재 브랜치(<span id="gitMergeTarget" class="font-mono text-cyan-400">—</span>)로 병합합니다.')|safe }}</p>
+                                        <div class="mt-3 flex flex-wrap gap-3 text-[11px] font-bold text-white/60" role="radiogroup" aria-label="{{ t('병합 방식') }}">
+                                            <label class="flex cursor-pointer items-center gap-1.5"><input type="radio" name="gitMergeMode" value="default" checked class="accent-violet-500">{{ t("기본 (fast-forward 허용)") }}</label>
+                                            <label class="flex cursor-pointer items-center gap-1.5"><input type="radio" name="gitMergeMode" value="no_ff" class="accent-violet-500">{{ t("--no-ff (병합 커밋)") }}</label>
                                             <label class="flex cursor-pointer items-center gap-1.5"><input type="radio" name="gitMergeMode" value="squash" class="accent-violet-500">--squash</label>
                                         </div>
                                     </div>
                                 </div>
                                 <div>
-                                    <p class="mb-2 text-[10px] font-bold uppercase tracking-wider text-white/40">로컬 브랜치</p>
+                                    <p class="mb-2 text-[10px] font-bold uppercase tracking-wider text-white/40">{{ t("로컬 브랜치") }}</p>
                                     <div id="gitBranchList" class="divide-y divide-white/5 rounded-xl border border-white/10"></div>
                                 </div>
                                 <div>
-                                    <p class="mb-2 text-[10px] font-bold uppercase tracking-wider text-white/40">원격 브랜치</p>
+                                    <p class="mb-2 text-[10px] font-bold uppercase tracking-wider text-white/40">{{ t("원격 브랜치") }}</p>
                                     <div id="gitRemoteBranchList" class="divide-y divide-white/5 rounded-xl border border-white/10"></div>
                                 </div>
                             </div>
 
                             <div id="gitPanel-stashes" class="git-panel hidden pt-4 space-y-4">
                                 <form id="gitStashForm" class="glass-soft flex flex-col gap-2 rounded-xl p-4 sm:flex-row sm:items-center">
-                                    <input id="gitStashMessage" type="text" maxlength="200" placeholder="스태시 메모 (선택)" class="min-w-0 flex-1 glass-input rounded-lg px-3 py-2 text-xs text-white placeholder-white/30">
-                                    <label class="flex cursor-pointer items-center gap-1.5 text-[10px] font-bold text-white/50"><input id="gitStashUntracked" type="checkbox" checked class="h-3.5 w-3.5 accent-violet-500">추적 안 된 파일 포함</label>
-                                    <button type="submit" class="git-action rounded-lg bg-gradient-to-r from-violet-600 to-purple-600 px-3 py-2 text-xs font-bold text-white"><i class="fas fa-box-archive mr-1"></i>스태시 저장</button>
+                                    <input id="gitStashMessage" type="text" maxlength="200" placeholder="{{ t('스태시 메모 (선택)') }}" class="min-w-0 flex-1 glass-input rounded-lg px-3 py-2 text-xs text-white placeholder-white/30">
+                                    <label class="flex cursor-pointer items-center gap-1.5 text-[10px] font-bold text-white/50"><input id="gitStashUntracked" type="checkbox" checked class="h-3.5 w-3.5 accent-violet-500">{{ t("추적 안 된 파일 포함") }}</label>
+                                    <button type="submit" class="git-action rounded-lg bg-gradient-to-r from-violet-600 to-purple-600 px-3 py-2 text-xs font-bold text-white"><i class="fas fa-box-archive mr-1"></i>{{ t("스태시 저장") }}</button>
                                 </form>
                                 <div id="gitStashList" class="divide-y divide-white/5 rounded-xl border border-white/10"></div>
                             </div>
 
                             <div id="gitPanel-console" class="git-panel hidden pt-4">
                                 <div class="terminal overflow-hidden rounded-xl border">
-                                    <div class="terminal-head flex items-center justify-between border-b px-4 py-2"><span class="font-mono text-[10px]">GIT COMMAND OUTPUT</span><button id="gitClearConsole" type="button" class="terminal-muted text-[10px] font-bold hover:opacity-70">비우기</button></div>
-                                    <pre id="gitConsole" class="min-h-64 max-h-[520px] overflow-auto whitespace-pre-wrap break-all p-4 font-mono text-[11px] leading-5">Git 작업 결과가 여기에 표시됩니다.</pre>
+                                    <div class="terminal-head flex items-center justify-between border-b px-4 py-2"><span class="font-mono text-[10px]">GIT COMMAND OUTPUT</span><button id="gitClearConsole" type="button" class="terminal-muted text-[10px] font-bold hover:opacity-70">{{ t("비우기") }}</button></div>
+                                    <pre id="gitConsole" class="min-h-64 max-h-[520px] overflow-auto whitespace-pre-wrap break-all p-4 font-mono text-[11px] leading-5">{{ t("Git 작업 결과가 여기에 표시됩니다.") }}</pre>
                                 </div>
                             </div>
                         </div>
@@ -227,15 +227,15 @@
                 <div class="glass-strong w-full max-w-5xl h-[85vh] rounded-2xl flex flex-col overflow-hidden shadow-2xl scale-up-animation" role="dialog" aria-modal="true" aria-labelledby="gitCommitModalTitle">
                     <div class="p-4 border-b border-white/10 flex justify-between items-start gap-3">
                         <div class="min-w-0">
-                            <h3 id="gitCommitModalTitle" class="font-bold text-white text-sm">커밋</h3>
+                            <h3 id="gitCommitModalTitle" class="font-bold text-white text-sm">{{ t("커밋") }}</h3>
                             <p id="gitCommitModalMeta" class="mt-1 text-[10px] text-white/40"></p>
                         </div>
-                        <button id="gitCommitModalClose" type="button" class="text-white/40 hover:text-white transition p-1" aria-label="닫기"><i class="fas fa-times text-lg"></i></button>
+                        <button id="gitCommitModalClose" type="button" class="text-white/40 hover:text-white transition p-1" aria-label="{{ t('닫기') }}"><i class="fas fa-times text-lg"></i></button>
                     </div>
                     <div class="grid min-h-0 flex-1 lg:grid-cols-[280px_minmax(0,1fr)]">
                         <div class="min-h-0 overflow-y-auto border-b border-white/10 p-4 lg:border-b-0 lg:border-r">
                             <pre id="gitCommitModalMessage" class="whitespace-pre-wrap break-words text-xs text-white/80"></pre>
-                            <p class="mt-4 mb-2 text-[10px] font-bold uppercase tracking-wider text-white/40">변경된 파일</p>
+                            <p class="mt-4 mb-2 text-[10px] font-bold uppercase tracking-wider text-white/40">{{ t("변경된 파일") }}</p>
                             <div id="gitCommitModalFiles" class="space-y-1"></div>
                         </div>
                         <div id="gitCommitModalDiff" class="terminal git-diff min-h-0 overflow-auto font-mono text-[11px] leading-5"></div>
