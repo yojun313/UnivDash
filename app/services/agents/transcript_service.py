@@ -616,6 +616,12 @@ _NOTIFY_TAG = re.compile(
 # Codex: subagent → parent message (agent_message). Intermediate messages are encrypted; only the final report is plain text.
 _AGENT_MSG = re.compile(r"Message Type:\s*(\w+).*?Payload:\n?(.*)", re.DOTALL)
 SUBAGENT_TOOLS = {"Agent", "Task", "spawn_agent"}
+# Tools that stop a background task (Claude: task_id · Codex: target)
+STOP_TOOLS = {"TaskStop", "KillShell", "close_agent"}
+# A background subagent whose own log has not been written for this long is taken as gone (its end was never
+# logged: the agent process was killed, the machine restarted …). A subagent writes a line for every message
+# and tool result, so the longest quiet stretch is one long tool call.
+BACKGROUND_STALE = 20 * 60
 
 # ── Usage (skills · plugins · MCP servers · subagents · built-in tools) ──
 _CODEX_SKILL_FILE = re.compile(
@@ -930,6 +936,16 @@ def _encrypted(value: Any) -> bool:
     return isinstance(value, str) and value.startswith("gAAAAA") and " " not in value
 
 
+def _json_args(data: Any) -> Any:
+    """Tool arguments as an object (Codex logs them as a JSON string)."""
+    if isinstance(data, str):
+        try:
+            return json.loads(data)
+        except ValueError:
+            return None
+    return data
+
+
 def _parse_notification(text: str) -> dict:
     return {key: value.strip() for key, value in _NOTIFY_TAG.findall(text)}
 
@@ -957,6 +973,10 @@ class _Log:
         self.turn_ended_at: float | None = None
         # Claude subagent ID → description (name)
         self.agent_names: dict[str, str] = {}
+        # Claude subagent ID → its tool item (a notification may carry only the task ID, no tool-use ID)
+        self.agent_tools: dict[str, dict] = {}
+        # Notifications already handled: one is logged when it is queued and again when it is delivered
+        self.notified: set[tuple[str, str, int]] = set()
         # Codex subagent path (/root/ground) → spawn_agent tool item
         self.subagents: dict[str, dict] = {}
         # Codex: a turn started by the user whose prompt is not logged yet (if the conversation is compacted
@@ -1012,6 +1032,10 @@ class _Log:
             summary = _clip(
                 f"{self.agent_names.get(to) or to} · {note}".strip(" ·"), MAX_SUMMARY
             )
+            resumed = self.agent_tools.get(to)
+            if resumed is not None:
+                # A message to a finished background subagent starts it again; it reports once more later
+                resumed["running"] = True
         item = self._add(
             "tool",
             ts=ts,
@@ -1030,6 +1054,9 @@ class _Log:
             item["diffs"] = diffs
         if call_id:
             self.by_call[call_id] = item
+        if name in STOP_TOOLS:
+            data = _json_args(data)
+            self._stopped(data)
 
     def _result(
         self, call_id: str, output: Any, error: bool = False, launched: Any = None
@@ -1044,6 +1071,7 @@ class _Log:
             if item.get("name") in SUBAGENT_TOOLS:
                 # Expanding it shows this subagent's conversation
                 item["agent"] = launched["agentId"]
+                self.agent_tools[launched["agentId"]] = item
         if item is not None and item.get("name") in SUBAGENT_TOOLS:
             # A subagent started in the background: for now it is only 'started' — kept in progress until it
             # ends (notification · final report)
@@ -1096,10 +1124,30 @@ class _Log:
             ref=tool["id"] if tool is not None else None,
         )
 
+    def _stopped(self, data: Any) -> None:
+        """A stop tool was used on a background subagent: it is no longer running (no report follows)."""
+        if not isinstance(data, dict):
+            return
+        target = str(data.get("task_id") or data.get("shell_id") or "")
+        tool = self.agent_tools.get(target)
+        if tool is None:
+            name = str(data.get("target") or data.get("agent") or "")
+            tool = self.subagents.get(name) or self.subagents.get(f"/root/{name}")
+        if tool is not None and tool.get("running"):
+            tool["running"] = False
+            tool["output"] = "stopped"
+
     def _notification(self, text: str, ts: str) -> None:
         info = _parse_notification(text)
-        tool = self.by_call.get(info.get("tool-use-id", ""))
-        name = self.agent_names.get(info.get("task-id", "")) or (
+        task = info.get("task-id", "")
+        mark = (task, info.get("status", ""), len(info.get("result", "")))
+        if task and mark in self.notified:
+            return  # the same notification, logged a second time
+        self.notified.add(mark)
+        tool = self.by_call.get(info.get("tool-use-id", "")) or self.agent_tools.get(
+            task
+        )
+        name = self.agent_names.get(task) or (
             tool.get("summary") if tool and tool.get("name") in SUBAGENT_TOOLS else ""
         )
         if not name:
@@ -1125,6 +1173,10 @@ class _Log:
             if operation == "enqueue" and isinstance(text, str):
                 # Subagent notifications arrive here too — they are left out when shown (read)
                 self.queue.append(text)
+                if text.lstrip().startswith(_NOTIFY):
+                    # A notification that arrives mid-work may never be logged as a message of its own, so
+                    # the subagent is marked finished as soon as it is queued
+                    self._notification(text, ts)
             elif operation in {"remove", "dequeue", "popAll", "clear"}:
                 if operation in {"popAll", "clear"}:
                     self.queue.clear()
@@ -1533,6 +1585,120 @@ def _cached_log(path: Path, agent: str) -> _Log:
         _cache.popitem(last=False)
     log.refresh()
     return log
+
+
+def process_started(pane_pid: int, agent: str) -> float | None:
+    """When the agent process of this pane started (epoch seconds)."""
+    proc = _agent_process(pane_pid, agent)
+    try:
+        return proc.create_time() if proc else None
+    except psutil.Error:
+        return None
+
+
+def background_running(path: Path, agent: str, pane_pid: int = 0) -> int:
+    """Number of background subagents of this conversation that are still at work.
+
+    The main agent can end its turn while subagents it started in the background carry on; it is woken up
+    again when they report. Until then the window is not really finished.
+
+    A subagent counts only while there is evidence it is alive, so a missed end can never hold a window
+    'working' for good: it was started by the agent process that is running now (Claude subagents live inside
+    that process and die with it), and its own log was written recently.
+    """
+    if agent not in {"claude", "codex"}:
+        return 0
+    with _lock:
+        log = _cached_log(path, agent)
+        running = [
+            (str(item.get("agent") or ""), item.get("ts") or "")
+            for item in log.items
+            if item.get("kind") == "tool" and item.get("running")
+        ]
+    if not running:
+        return 0
+    started = process_started(pane_pid, agent) if agent == "claude" else None
+    if agent == "claude" and started is None:
+        return 0
+    now = time.time()
+    count = 0
+    for key, ts in running:
+        launched = _epoch(ts)
+        if started is not None and (launched is None or launched < started - 5):
+            continue
+        miss = (str(path), key)
+        if now - _sub_missing.get(miss, 0) < SUB_MISSING_RETRY:
+            sub = None
+        else:
+            sub = find_subagent_log(path, agent, key)
+            if sub is None:
+                # right after the launch the subagent's log may not exist yet (looking for a Codex one
+                # walks the session folder, so a miss is not repeated on every poll)
+                if len(_sub_missing) > 500:
+                    _sub_missing.clear()
+                _sub_missing[miss] = now
+        try:
+            written = sub.stat().st_mtime if sub else (launched or 0)
+        except OSError:
+            written = launched or 0
+        if now - written >= BACKGROUND_STALE:
+            continue
+        if sub is not None and _subagent_ended(sub, agent):
+            continue
+        count += 1
+    return count
+
+
+SUB_MISSING_RETRY = 15.0
+_sub_missing: dict[tuple[str, str], float] = {}
+SUB_TAIL = 64 * 1024
+# subagent log → ((size, mtime), whether its last turn has ended)
+_sub_ended: dict[str, tuple[tuple[int, float], bool]] = {}
+
+
+def _subagent_ended(sub: Path, agent: str) -> bool:
+    """Whether the subagent's own log shows its turn has ended (so a missed report cannot keep it 'running').
+
+    Claude: the last line is an assistant message that ends the turn. Codex: the last turn event is a
+    completion or an abort.
+    """
+    try:
+        stat = sub.stat()
+        stamp = (stat.st_size, stat.st_mtime)
+        cached = _sub_ended.get(str(sub))
+        if cached and cached[0] == stamp:
+            return cached[1]
+        with sub.open("rb") as handle:
+            handle.seek(max(0, stat.st_size - SUB_TAIL))
+            lines = handle.read().splitlines()
+    except OSError:
+        return False
+    ended = False
+    for raw in reversed(lines):
+        try:
+            record = json.loads(raw)
+        except ValueError:
+            continue
+        if not isinstance(record, dict):
+            continue
+        if agent == "claude":
+            if record.get("type") not in {"user", "assistant"}:
+                continue
+            message = record.get("message") or {}
+            ended = (
+                record.get("type") == "assistant"
+                and message.get("stop_reason") == "end_turn"
+            )
+            break
+        if record.get("type") == "event_msg":
+            event = (record.get("payload") or {}).get("type")
+            if event in {"task_started", "task_complete", "turn_aborted"}:
+                ended = event != "task_started"
+                break
+    if len(_sub_ended) > 500:
+        _sub_ended.clear()
+    _sub_ended[str(sub)] = (stamp, ended)
+    return ended
 
 
 def all_items(path: Path, agent: str) -> list[dict]:

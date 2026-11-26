@@ -2,5 +2,13 @@
  "대화가 길어 압축(compact)됐습니다": "The conversation was compacted",
  "사용자가 중단함": "Interrupted by the user",
  "서브에이전트": "Sub-agent",
- "[이미지]": "[image]"
+ "[이미지]": "[image]",
+ "백그라운드 에이전트 {count}개 실행 중": "{count} background agent(s) running",
+ "백그라운드 에이전트 {count}개 실행 중…": "{count} background agent(s) running…",
+ "업로드 중 {done}/{total} · {pct}%": "Uploading {done}/{total} · {pct}%",
+ "업로드 {done}개 완료 · {failed}개 실패": "{done} uploaded · {failed} failed",
+ "업로드 {done}개 완료": "{done} uploaded",
+ "취소됨": "Cancelled",
+ "업로드 취소": "Cancel upload",
+ "업로드 대기 중": "Waiting"
 }

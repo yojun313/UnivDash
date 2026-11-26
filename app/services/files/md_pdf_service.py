@@ -323,6 +323,10 @@ def _page_html(content: str, md_path: Path, zoom: float, theme: str = "light") -
         "explorer.js",
     ]
     links = "\n".join(f'<link rel="stylesheet" href="{_static(c)}">' for c in css)
+    # The viewer scripts call t() (translations); without it they stop and the page falls back to plain text
+    from app import i18n
+
+    i18n_js = i18n.script(i18n.current()).replace("</", "<\\/")
     tags = "\n".join(f'<script src="{_static(s)}"></script>' for s in scripts)
     return f"""<!doctype html>
 <html lang="ko" data-ui-theme-mode="{theme}"><head><meta charset="utf-8"><title>{md_path.stem}</title>
@@ -345,6 +349,7 @@ def _page_html(content: str, md_path: Path, zoom: float, theme: str = "light") -
 </head><body data-page="md-pdf">
 <script type="application/json" id="md-src">{source}</script>
 <div id="doc"></div>
+<script>{i18n_js}</script>
 {tags}
 <script>
   (function () {{

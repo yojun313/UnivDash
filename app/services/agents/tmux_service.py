@@ -162,6 +162,9 @@ class Window:
     reply_activity: int = 0
     # The last thing done was only a conversation compaction (a finished compaction raises no 'work done' notification)
     compacted: bool = False
+    # Background subagents of this conversation that are still at work. While there are any the window stays
+    # 'busy' even when the main agent has ended its turn: it is woken again when they report.
+    background: int = 0
     agent: str | None = None
     title: str = ""
     path: str = ""
@@ -430,6 +433,12 @@ def list_windows(with_status: bool = True) -> list[Window]:
                         pane.pid, window.agent, os.path.expanduser(pane.path)
                     )
                     if log:
+                        if window.status == "idle":
+                            window.background = transcript_service.background_running(
+                                log, window.agent, pane.pid
+                            )
+                            if window.background:
+                                window.status = "busy"
                         items = transcript_service.read(log, window.agent, None, 300)[
                             "items"
                         ]

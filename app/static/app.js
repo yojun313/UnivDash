@@ -1470,9 +1470,14 @@
     }
   }
 
+  // The main agent ended its turn but subagents it started in the background are still at work: the window
+  // stays 'working' (the server keeps it busy) and says why.
+  const statusLabel = (w) => (w.status === 'busy' && w.background
+    ? t('백그라운드 에이전트 {count}개 실행 중', { count: w.background })
+    : (STATUS[w.status] || STATUS.idle).label);
   function statusIcon(w, extra = '') {
     const status = STATUS[w.status] || STATUS.idle;
-    return `<span class="status-icon st-${w.status} ${extra}" title="${status.label}"><i class="fas ${status.icon}"></i></span>`;
+    return `<span class="status-icon st-${w.status} ${extra}" title="${statusLabel(w)}"><i class="fas ${status.icon}"></i></span>`;
   }
   function agentPill(w) {
     return w.agent ? `<span class="agent-pill agent-${w.agent}">${escapeHtml(w.agent)}</span>` : '';
@@ -1755,8 +1760,7 @@
       // Workspace goes by the tab being viewed (while a file tab is shown, no window is marked selected)
       const selected = state.listCurrent === undefined ? w.key === state.selectedKey : w.key === state.listCurrent;
       const unread = !isWindowVisible(w.key) && unreadActivity(w) > (state.seen[w.key] || 0);
-      const status = STATUS[w.status] || STATUS.idle;
-      const meta = [status.label, w.path, timeAgo(w.activity)].filter(Boolean).join(' · ');
+      const meta = [statusLabel(w), w.path, timeAgo(w.activity)].filter(Boolean).join(' · ');
       return `<div class="win-item ${selected ? 'selected' : ''} ${isHidden(w.key) ? 'is-hidden' : ''}" role="button" tabindex="0" ${coarsePointer ? '' : 'draggable="true"'} data-key="${escapeHtml(w.key)}" aria-current="${selected}">
           ${unread ? `<span class="unread-dot" title="${t('새 출력')}"></span>` : ''}
           ${statusIcon(w)}
@@ -2434,7 +2438,7 @@
       if (lastScreen && lastScreen.pane === state.paneId) updateChatStatus(lastScreen);
       $('#termTitle').textContent = displayName(w);
       $('#promptInput').placeholder = promptPlaceholder(w);
-      $('#termSubtitle').textContent = [STATUS[w.status]?.label, windowNote(w), w.path].filter(Boolean).join(' · ');
+      $('#termSubtitle').textContent = [statusLabel(w), windowNote(w), w.path].filter(Boolean).join(' · ');
       $('#termStatusDot').className = `status-dot flex-shrink-0 ${w.status}`;
       const pill = $('#termAgent');
       pill.className = w.agent ? `agent-pill agent-${w.agent}` : 'agent-pill agent-shell';
@@ -4177,6 +4181,8 @@
           const m = all[i].match(STATUS_LINE);
           if (m && (/…|\.\.\./.test(m[1]) || /interrupt/i.test(m[1])) && !/^⏵/.test(all[i].trim())) return { kind: 'busy', text: m[1].trim(), live: liveOutput(all, i) };
         }
+        // No working line on screen: the main agent is waiting for its background subagents
+        if (w.background) return { kind: 'busy', text: t('백그라운드 에이전트 {count}개 실행 중…', { count: w.background }), live: '' };
         return { kind: 'busy', text: t('작업 중…'), live: liveOutput(all, all.length) };
       }
       return null;
@@ -5975,7 +5981,7 @@
         const pill = $$in('.tp-agent');
         pill.className = `tp-agent ${w.agent ? `agent-pill agent-${w.agent}` : 'agent-pill agent-shell'}`;   // same colours as the main header
         pill.textContent = w.agent || 'shell';
-        const statusLabel = STATUS[w.status]?.label || '';
+        const statusLabel = w.status === 'busy' && w.background ? t('백그라운드 에이전트 {count}개 실행 중', { count: w.background }) : (STATUS[w.status]?.label || '');
         $$in('.tp-sub').textContent = [statusLabel, windowNote(w), w.path].filter(Boolean).join(' · ');
         const usage = $$in('.tp-usage');
         const html = R.usageMarkup(w.agent);

@@ -105,7 +105,7 @@ On a desktop it runs in any modern browser. On iPhone or iPad, open the site in 
 | | |
 |---|---|
 | **Three agents, one list** | Claude Code, Codex and Gemini (Antigravity CLI) are recognised by the process running in each tmux window. Anything else is a plain terminal you can still read and type into. |
-| **State per window** | *Working*, *needs your answer* (permission and choice prompts) or *idle*, with an unread mark when a reply arrived that you have not seen. Sort by state, activity, name or your own order; group windows into colored folders. |
+| **State per window** | *Working*, *needs your answer* (permission and choice prompts) or *idle*, with an unread mark when a reply arrived that you have not seen. A window whose agent ended its turn but still has background subagents running (Claude Code, Codex) stays *working* and shows how many; the *finished* notification comes only when they have all reported back. Sort by state, activity, name or your own order; group windows into colored folders. |
 | **The whole conversation** | The chat view reads the agent's own session log, so it goes back to the first prompt even though the terminal has no scrollback. Tool calls fold away, edits are shown as diffs, sub-agents open inline, and search covers every prompt and answer. |
 | **One-tap answers** | When an agent asks, the question and its choices appear under the chat as buttons. |
 | **Prompting from any device** | Multi-line prompts sent as one paste, per-window drafts, quick phrases and history, a key bar (`Esc`, `⇧Tab`, arrows, `^C`…), photos / files / pasted screenshots attached the way the agent expects them. |
@@ -139,7 +139,7 @@ On a desktop it runs in any modern browser. On iPhone or iPad, open the site in 
 | **Git** | Repositories discovered under your folders. Diffs, staging, commit / amend, push, pull (rebase), branches, merges, stashes, revert, scheduled fast-forward pulls, commit messages drafted by a model you configure, and one-click `ruff format` with the ruff bundled in UnivDash (the repository needs nothing installed; its own ruff settings still apply). |
 | **Server** | CPU per core, GPU, memory, disk and network; PM2 processes with logs, restart and `ecosystem.config.js` editing. |
 | **Domains** | nginx reverse-proxy domains and certbot certificates through one small root helper with a single sudo rule. |
-| **Explorer** | A file tree over your server with upload, download, rename, move and trash. Viewer and editor tabs for code, Markdown, images, video, PDF, Office and HWP documents, and Jupyter notebooks; Markdown exports to PDF. |
+| **Explorer** | A file tree over your server with upload, download, rename, move and trash. Uploads show a progress panel on every page and keep going when you move to another page. Viewer and editor tabs for code, Markdown, images, video, PDF, Office and HWP documents, and Jupyter notebooks; Markdown exports to PDF. |
 | **Desktop workspace** | Tabs for windows and files side by side, split views, tabs popped out into their own browser window, a plain shell tab next to your agents, and remappable keyboard shortcuts for nearly everything. |
 | **Sharing** | Read-only links for a file, a folder, a live terminal or a whole agent conversation, protected by an access code, with secrets masked. |
 

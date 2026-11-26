@@ -741,37 +741,28 @@
       if (!items.length && !emptyDirs.length) return;
       const total = items.length;
       if (total > 300 && !confirm(t('파일 {total}개를 업로드하시겠습니까?', { total }))) return;
-      const progress = (n) => toast(t('{n}/{total}개 업로드 중… ({path})', { n, total, path: shortHome(refreshDir) }), 'info');
-      if (total) progress(0);
       let done = 0;
       let failed = 0;
-      const finish = async () => {
-        for (const { dir, rel } of emptyDirs) {
-          try { await api('/api/fs/upload-folder', { method: 'POST', body: { dir, rel, unique: false } }); } catch (e) { /* empty folders are skipped on failure */ }
-        }
+      let left = total;
+      const finish = () => {
         toast(failed ? t('{done}개 업로드 완료 · {failed}개 실패', { done, failed }) : t('{done}개 업로드 완료', { done }), failed ? 'warn' : 'success');
         expanded.add(refreshDir); saveExpanded();
         refresh(refreshDir);
       };
-      const next = (index) => {
-        if (index >= total) { finish(); return; }
-        const { file, dir, rel } = items[index];
-        // Big files are uploaded in chunks and show progress
-        const big = file.size > 64 * 1024 * 1024;
-        let shown = -1;
-        const onProgress = big ? (ratio) => {
-          const pct = Math.floor(ratio * 100);
-          if (pct >= shown + 10) { shown = pct; toast(t('{name} 업로드 중… {pct}%', { name: file.name, pct }), 'info', 2500); }
-        } : null;
-        window.UnivDash.uploadFile(file, { kind: 'fs', dir, rel, onProgress }).promise
-          .then(() => { done += 1; })
-          .catch((error) => { failed += 1; toast(`${rel ? `${rel}/` : ''}${file.name}: ${error.message}`, 'error'); })
-          .finally(() => {
-            if (total > 20 && (index + 1) % 20 === 0) progress(index + 1);
-            next(index + 1);
-          });
-      };
-      next(0);
+      // Empty folders first, then every file is handed to the site-wide upload list at once (it uploads a few at a
+      // time, shows the progress panel and keeps going when this page is left).
+      (async () => {
+        for (const { dir, rel } of emptyDirs) {
+          try { await api('/api/fs/upload-folder', { method: 'POST', body: { dir, rel, unique: false } }); } catch (e) { /* empty folders are skipped on failure */ }
+        }
+        if (!total) { finish(); return; }
+        for (const { file, dir, rel } of items) {
+          window.UnivDash.uploads.add(file, { dir, rel }).promise
+            .then(() => { done += 1; })
+            .catch((error) => { failed += 1; if (!error.aborted) toast(`${rel ? `${rel}/` : ''}${file.name}: ${error.message}`, 'error'); })
+            .finally(() => { left -= 1; if (!left) finish(); });
+        }
+      })();
     }
     function upload(files, dir) { uploadItems(files.map((file) => ({ file, dir, rel: '' })), dir); }
     body.addEventListener('paste', (event) => {

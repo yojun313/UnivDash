@@ -147,6 +147,151 @@
     return { promise, abort() { aborted = true; current?.abort(); } };
   }
 
+  // ── File explorer uploads: one list for the whole site, with a progress panel on every page ──
+  // The service worker does the uploading, so an upload carries on when this page goes to another page (the next
+  // page shows the same panel). Without a service worker (plain http, very first visit) the page uploads itself;
+  // the panel is the same, and leaving the page asks first because the upload would stop.
+  // add(file, { dir, rel, name }) → { promise, abort } — like uploadFile.
+  const uploads = (() => {
+    const local = new Map();    // uploaded by this page
+    let remote = [];            // uploaded by the service worker (latest list it sent)
+    const lost = new Map();     // worker uploads that vanished (the worker was stopped)
+    const waiting = new Map();  // id → { resolve, reject } of uploads this page started
+    const known = new Set();    // ids the worker has reported at least once
+    let collapsed = false;
+    let hideTimer = null;
+    let seq = 0;
+    const sw = () => (window.isSecureContext && navigator.serviceWorker?.controller) || null;
+    const active = (u) => u.status === 'queued' || u.status === 'uploading';
+    const all = () => [...remote, ...lost.values(), ...local.values()];
+    const size = (n) => (n >= 1073741824 ? `${(n / 1073741824).toFixed(2)} GB` : n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`);
+    const failure = (u) => Object.assign(new Error(u.error || (u.status === 'aborted' ? t('업로드를 취소했습니다.') : u.status_code ? t('업로드 실패 ({status})', { status: u.status_code }) : t('네트워크 오류'))), { status: u.status_code || 0, aborted: u.status === 'aborted' });
+
+    function settle(u) {
+      const wait = waiting.get(u.id);
+      if (!wait || active(u)) return;
+      waiting.delete(u.id);
+      if (u.status === 'done') wait.resolve(u.result || {}); else wait.reject(failure(u));
+    }
+    function panel() {
+      let el = document.getElementById('uploadPanel');
+      if (el) return el;
+      el = document.createElement('section');
+      el.id = 'uploadPanel';
+      el.className = 'upload-panel';
+      el.setAttribute('aria-live', 'polite');
+      el.addEventListener('click', (event) => {
+        const cancel = event.target.closest('[data-up-cancel]');
+        if (cancel) { abort(cancel.dataset.upCancel); return; }
+        if (event.target.closest('[data-up-close]')) { clear(); return; }
+        if (event.target.closest('[data-up-toggle]')) { collapsed = !collapsed; render(); }
+      });
+      document.body.appendChild(el);
+      return el;
+    }
+    function render() {
+      const list = all();
+      const el = list.length ? panel() : document.getElementById('uploadPanel');
+      if (!el) return;
+      if (!list.length) { el.remove(); return; }
+      const running = list.filter(active);
+      const failed = list.filter((u) => u.status === 'error').length;
+      const done = list.filter((u) => u.status === 'done').length;
+      const total = list.reduce((sum, u) => sum + (u.size || 0), 0);
+      const sent = list.reduce((sum, u) => sum + (u.status === 'done' ? u.size || 0 : u.sent || 0), 0);
+      const pct = total ? Math.floor((sent / total) * 100) : 100;
+      const title = running.length
+        ? t('업로드 중 {done}/{total} · {pct}%', { done, total: list.length, pct })
+        : failed ? t('업로드 {done}개 완료 · {failed}개 실패', { done, failed }) : t('업로드 {done}개 완료', { done });
+      const row = (u) => {
+        const ratio = u.status === 'done' ? 100 : u.size ? Math.floor(((u.sent || 0) / u.size) * 100) : 0;
+        const state = u.status === 'uploading' ? `${ratio}% · ${size(u.size || 0)}`
+          : u.status === 'queued' ? t('업로드 대기 중')
+            : u.status === 'done' ? size(u.size || 0)
+              : u.status === 'aborted' ? t('취소됨') : (failure(u).message);
+        const icon = u.status === 'done' ? '<i class="fas fa-circle-check up-ok"></i>'
+          : u.status === 'error' ? '<i class="fas fa-circle-exclamation up-err"></i>'
+            : u.status === 'aborted' ? '<i class="fas fa-ban up-off"></i>'
+              : `<button type="button" data-up-cancel="${escapeHtml(u.id)}" title="${t('업로드 취소')}" aria-label="${t('업로드 취소')}"><i class="fas fa-xmark"></i></button>`;
+        return `<li class="up-row ${u.status}" title="${escapeHtml(`${u.dir || ''}${u.rel ? `/${u.rel}` : ''}/${u.name}`)}">
+            <span class="up-name">${escapeHtml(u.name)}</span><span class="up-state">${escapeHtml(state)}</span>${icon}
+            <span class="up-bar"><span style="width:${active(u) ? ratio : 0}%"></span></span></li>`;
+      };
+      // running ones first, then the most recent
+      const ordered = [...list].sort((a, b) => Number(active(b)) - Number(active(a)));
+      el.classList.toggle('collapsed', collapsed);
+      el.innerHTML = `<header><button type="button" data-up-toggle class="up-title"><i class="fas ${running.length ? 'fa-arrow-up-from-bracket' : failed ? 'fa-circle-exclamation up-err' : 'fa-circle-check up-ok'}"></i><span>${escapeHtml(title)}</span><i class="fas fa-chevron-${collapsed ? 'up' : 'down'} up-chev"></i></button>
+          ${running.length ? '' : `<button type="button" data-up-close title="${t('닫기')}" aria-label="${t('닫기')}"><i class="fas fa-xmark"></i></button>`}</header>
+        <span class="up-bar up-total"><span style="width:${running.length ? pct : 0}%"></span></span>
+        <ul>${ordered.slice(0, 60).map(row).join('')}</ul>`;
+      clearTimeout(hideTimer);
+      // everything went through: the panel goes away by itself (failures stay until closed)
+      if (!running.length && !failed) hideTimer = setTimeout(clear, 6000);
+    }
+    function clear() {
+      for (const [id, u] of local) if (!active(u)) local.delete(id);
+      lost.clear();
+      sw()?.postMessage({ type: 'univdash-upload-clear' });
+      remote = remote.filter(active);
+      render();
+    }
+    function abort(id) {
+      const mine = local.get(id);
+      if (mine) mine.job?.abort(); else sw()?.postMessage({ type: 'univdash-upload-cancel', id });
+    }
+    function add(file, { dir = '', rel = '', name = file.name } = {}) {
+      const id = `${Date.now().toString(36)}-${(seq += 1)}-${Math.random().toString(36).slice(2, 8)}`;
+      const worker = sw();
+      if (worker) {
+        const promise = new Promise((resolve, reject) => waiting.set(id, { resolve, reject }));
+        remote.push({ id, name, size: file.size, sent: 0, status: 'queued', error: '', dir, rel });
+        worker.postMessage({ type: 'univdash-upload-add', items: [{ id, file, name, dir, rel }] });
+        render();
+        return { promise, abort: () => abort(id) };
+      }
+      const entry = { id, name, size: file.size, sent: 0, status: 'uploading', error: '', dir, rel };
+      local.set(id, entry);
+      let last = 0;
+      entry.job = uploadFile(file, { kind: 'fs', dir, rel, name, onProgress: (ratio) => {
+        entry.sent = Math.round(ratio * file.size);
+        if (Date.now() - last > 200) { last = Date.now(); render(); }
+      } });
+      const promise = entry.job.promise.then((data) => { Object.assign(entry, { status: 'done', sent: file.size }); render(); return data; }, (error) => {
+        Object.assign(entry, { status: error.aborted ? 'aborted' : 'error', error: error.aborted ? '' : error.message, status_code: error.status });
+        render();
+        throw error;
+      });
+      render();
+      return { promise, abort: () => abort(id) };
+    }
+
+    if (window.isSecureContext && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data?.type !== 'univdash-uploads' || !Array.isArray(event.data.list)) return;
+        const now = new Map(event.data.list.map((u) => [u.id, u]));
+        // an upload the worker no longer knows while it was still running: the worker was stopped
+        for (const u of remote) if (active(u) && known.has(u.id) && !now.has(u.id) && !lost.has(u.id)) lost.set(u.id, { ...u, status: 'error', error: t('업로드가 중단되었습니다.') });
+        // uploads this page has just handed over and the worker has not listed yet stay as they are
+        const fresh = remote.filter((u) => !known.has(u.id) && !now.has(u.id));
+        event.data.list.forEach((u) => known.add(u.id));
+        remote = [...event.data.list, ...fresh];
+        remote.forEach(settle);
+        lost.forEach(settle);
+        render();
+      });
+      const ping = () => sw()?.postMessage({ type: 'univdash-upload-ping' });
+      navigator.serviceWorker.ready.then(ping).catch(() => {});
+      navigator.serviceWorker.addEventListener('controllerchange', ping);
+      // keeps the worker running while it uploads, and notices if it stopped
+      setInterval(() => { if (remote.some(active)) ping(); }, 15000);
+    }
+    window.addEventListener('beforeunload', (event) => {
+      if ([...local.values()].some(active)) { event.preventDefault(); event.returnValue = ''; }
+    });
+    return { add, active: () => all().some(active) };
+  })();
+
   // Shown in the layout's #toastHost with the .toast look from app.css (same look as Workspace notifications).
   function toast(message, type = 'info', timeout = 0) {
     const host = document.getElementById('toastHost');
@@ -493,5 +638,5 @@
     step(first);
   }
 
-  window.UnivDash = { deviceId, followCodexApply, escapeHtml, api, toast, gitWorkflows, settings, uploadFile, formatNumber, relativeTime, duration, formatDate, chartColors, typingOrBusy, plainKey, haptic, busy, math: { extract: extractMath, render: renderMath } };
+  window.UnivDash = { deviceId, followCodexApply, escapeHtml, api, toast, gitWorkflows, settings, uploadFile, uploads, formatNumber, relativeTime, duration, formatDate, chartColors, typingOrBusy, plainKey, haptic, busy, math: { extract: extractMath, render: renderMath } };
 })();
